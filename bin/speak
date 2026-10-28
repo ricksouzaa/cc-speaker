@@ -1,0 +1,809 @@
+#!/usr/bin/env python3
+"""speak: speaks aloud each Claude Code reply, with Kokoro running locally (no network, no cost).
+
+  speak on | off [all]     turn the voice on or off for this Claude Code session (the nearest ancestor process
+                           named `claude`); `all` (or outside a session) acts on every session and the general switch
+  speak status             show the state: effective here, general, this session, mode, engine, voice
+  speak mode full|summary [all]  for this session (with `all`, or outside a session: the general mode and every
+                           session); full (default): the whole reply without code, paths, links and file names;
+                           summary: only its last line starting with 🔊 (rules/speak.md)
+  speak test [text]        speak a test sentence, in the foreground (errors show)
+  speak install            install the engine: Python 3.12 via uv, kokoro-onnx, model files (~350 MB); no sudo
+  speak say [text | -]     speak in the background and return at once; `-` reads the reply from stdin and applies
+                           the mode (used by hooks/speak-stop.py)
+  speak stop               cut the speech playing now, whoever's it is, and drop every speech waiting its turn; the
+                           voice stays on
+  speak silent             exit 0 when this session will not speak (voice off here, or no engine), else 1; prints
+                           nothing; used by hooks/speak-cut.sh to tell Claude to leave out the 🔊 line
+
+The speech starts after its first short piece is ready and goes on while the rest is synthesized. A new speech, from
+any session, never cuts the one playing: it waits its turn in a queue (arrival order, one at a time, and only while no
+program is recording from the microphone). Only a recording that starts meanwhile cuts the speech playing (holding
+the space bar to dictate in Claude Code does), seen through pw-dump; the speeches waiting are kept and go on when the
+microphone is free. `speak off` in a session also drops that session's speeches (playing or waiting).
+Env: CLAUDE_SPEAK=0 silences one session (a first choice that a later `speak on` beats);
+CLAUDE_SPEAK_SESSION forces the session key ('-' means none; for tests and to force a key);
+CLAUDE_SPEAK_MODE overrides the mode; CLAUDE_SPEAK_VOICE (default pf_dora); CLAUDE_SPEAK_SPEED (default 1.1).
+Errors of a background speech go to ~/.local/state/claude-speak/error.log.
+"""
+import json
+import os
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import urllib.request
+
+HOME = os.path.expanduser('~')
+DATA = os.path.join(os.environ.get('XDG_DATA_HOME') or os.path.join(HOME, '.local', 'share'), 'claude-speak')
+CONF = os.path.join(os.environ.get('XDG_CONFIG_HOME') or os.path.join(HOME, '.config'), 'claude-speak')
+STATE = os.path.join(os.environ.get('XDG_STATE_HOME') or os.path.join(HOME, '.local', 'state'), 'claude-speak')
+OFF_FLAG = os.path.join(CONF, 'off')
+ALL_MARK = os.path.join(STATE, 'all')  # its modification time: when the last request for every session was made
+SESSIONS = os.path.join(STATE, 'sessions')  # one file per session: name = key, content = JSON
+MODE_FILE = os.path.join(CONF, 'mode')
+MODES = ('full', 'summary')
+VENV_PY = os.path.join(DATA, '.venv', 'bin', 'python')
+MODEL = os.path.join(DATA, 'kokoro-v1.0.onnx')
+VOICES = os.path.join(DATA, 'voices-v1.0.bin')
+MODEL_URL = 'https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/'
+PID = os.path.join(STATE, 'speech.pid')
+OWNER = os.path.join(STATE, 'speech.owner')  # key of the session that owns the speech playing ('' = none)
+LOCK = os.path.join(STATE, 'queue.lock')  # flock'ed while a speech joins the queue or takes its turn
+QUEUE = os.path.join(STATE, 'queue')  # one ticket per speech waiting: name '<time_ns>-<pid>', content = session key
+LOG = os.path.join(STATE, 'error.log')
+RATE = 24000  # Kokoro's output, mono float32
+PLAYERS = (['pw-play', '--raw', '--format', 'f32', '--rate', str(RATE), '--channels', '1', '-'],
+           ['paplay', '--raw', '--format=float32le', '--rate=%d' % RATE, '--channels=1'],
+           ['aplay', '-q', '-f', 'FLOAT_LE', '-r', str(RATE), '-c', '1'])
+MARK = '🔊'
+LIMIT = {'summary': 400, 'full': 6000}  # characters; a longer reply is cut at a sentence end
+PIECES = (120, 160, 220, 300, 400)  # characters per piece: short first, then growing, so each is ready while the last plays
+MIC_POLL = 0.15  # seconds between looks at the microphone while speaking
+QUEUE_POLL = 0.15  # seconds between looks at the queue while waiting a turn
+
+
+def voice():
+    return os.environ.get('CLAUDE_SPEAK_VOICE') or 'pf_dora'
+
+
+def speed():
+    try:
+        return float(os.environ.get('CLAUDE_SPEAK_SPEED') or 1.1)
+    except ValueError:
+        return 1.1
+
+
+def mode(session=None):
+    """CLAUDE_SPEAK_MODE, then the session's own mode, then the general file, then 'full'."""
+    wanted = os.environ.get('CLAUDE_SPEAK_MODE') or session_mode(session)
+    if not wanted:
+        try:
+            with open(MODE_FILE) as fh:
+                wanted = fh.read().strip()
+        except OSError:
+            pass
+    return wanted if wanted in MODES else 'full'
+
+
+def _stat_fields(pid):
+    """Fields of /proc/<pid>/stat after the process name (which may hold spaces and parentheses): field 3 on."""
+    try:
+        with open('/proc/%d/stat' % pid) as fh:
+            return fh.read().rpartition(')')[2].split()
+    except (OSError, ValueError):
+        return None
+
+
+def session_key(pid):
+    """'<pid>-<start time>' of a process, which tells it from a later process that reuses the number; None if unreadable."""
+    fields = _stat_fields(pid)
+    return '%d-%s' % (pid, fields[19]) if fields and len(fields) > 19 else None
+
+
+def current_session():
+    """Key of the Claude Code session this process runs in: its nearest ancestor named `claude`; None if none."""
+    forced = os.environ.get('CLAUDE_SPEAK_SESSION')
+    if forced:
+        return forced if forced != '-' and re.fullmatch(r'[A-Za-z0-9_-]+', forced) else None
+    pid = os.getppid()
+    while pid > 1:
+        try:
+            with open('/proc/%d/comm' % pid) as fh:
+                if fh.read().strip() == 'claude':
+                    return session_key(pid)
+        except OSError:
+            return None
+        fields = _stat_fields(pid)
+        if not fields:
+            return None
+        pid = int(fields[1])
+    return None
+
+
+def session_started(key):
+    """Start time (seconds since the epoch) of the process of a '<pid>-<start>' key; None if it cannot be read."""
+    try:
+        pid, start = key.split('-')
+        with open('/proc/stat') as fh:
+            btime = next(int(line.split()[1]) for line in fh if line.startswith('btime '))
+        return btime + int(start) / os.sysconf('SC_CLK_TCK') if int(pid) > 0 else None
+    except (OSError, ValueError, StopIteration):
+        return None
+
+
+def mark_all():
+    write_atomic(ALL_MARK, '')
+
+
+def prune_tmp():
+    """Removes `.tmp-<pid>-*` leftovers in the state folder whose pid no longer exists (a killed writer)."""
+    try:
+        names = os.listdir(STATE)
+    except OSError:
+        return
+    for name in names:
+        match = re.fullmatch(r'\.tmp-(\d+)-.*', name)
+        if match and not os.path.exists('/proc/%s' % match.group(1)):
+            try:
+                os.remove(os.path.join(STATE, name))
+            except OSError:
+                pass
+
+
+def write_atomic(path, text):
+    """Writes through a temporary file in the state folder (same filesystem), then swaps it in."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    os.makedirs(STATE, exist_ok=True)
+    prune_tmp()
+    tmp = os.path.join(STATE, '.tmp-%d-%s' % (os.getpid(), os.urandom(4).hex()))
+    try:
+        with open(tmp, 'w') as fh:
+            fh.write(text)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
+def session_alive(key):
+    try:
+        return session_key(int(key.split('-')[0])) == key
+    except ValueError:
+        return False
+
+
+def read_session(key):
+    """The fields of a session file: {'voice': 'muted'|'speaking', 'mode': 'full'|'summary'}, each optional.
+    A bare `muted` or `speaking` (a file of the first format) counts as the voice."""
+    if not key:
+        return {}
+    try:
+        with open(os.path.join(SESSIONS, key)) as fh:
+            raw = fh.read().strip()
+    except (OSError, ValueError):
+        return {}
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        data = {'voice': raw}
+    if not isinstance(data, dict):
+        return {}
+    return {k: v for k, v in data.items() if (k == 'voice' and v in ('muted', 'speaking'))
+            or (k == 'mode' and v in MODES)}
+
+
+def session_mode(key):
+    """'full', 'summary' or None (follows the general mode)."""
+    return read_session(key).get('mode')
+
+
+def session_choice(key):
+    """'muted', 'speaking' or None (follows the general switch).
+    CLAUDE_SPEAK=0 seeds a session once, when it has no file."""
+    if not key:
+        return None
+    choice = read_session(key).get('voice')
+    if choice:
+        return choice
+    if os.environ.get('CLAUDE_SPEAK') == '0' and not asked_after_start(key):
+        try:
+            set_session(key, voice='muted')
+        except OSError:
+            pass
+        return 'muted'
+    return None
+
+
+def asked_after_start(key):
+    """True when a request for every session came after this session opened (it beats the CLAUDE_SPEAK=0 seed)."""
+    started = session_started(key)
+    try:
+        return started is not None and os.stat(ALL_MARK).st_mtime >= started
+    except OSError:
+        return False
+
+
+def set_session(key, **fields):
+    """Updates only the given fields (voice=, mode=) of a session file, keeping the others."""
+    os.makedirs(SESSIONS, exist_ok=True)
+    prune_sessions()
+    write_atomic(os.path.join(SESSIONS, key), json.dumps({**read_session(key), **fields}))
+
+
+def set_all_sessions(**fields):
+    prune_sessions()
+    for key in os.listdir(SESSIONS) if os.path.isdir(SESSIONS) else ():
+        write_atomic(os.path.join(SESSIONS, key), json.dumps({**read_session(key), **fields}))
+
+
+def prune_sessions():
+    for key in os.listdir(SESSIONS) if os.path.isdir(SESSIONS) else ():
+        if not session_alive(key):
+            try:
+                os.remove(os.path.join(SESSIONS, key))
+            except OSError:
+                pass
+
+
+def is_on(session=None):
+    choice = session_choice(session)
+    if choice:
+        return choice == 'speaking'
+    if not session and os.environ.get('CLAUDE_SPEAK', '1') == '0':
+        return False
+    return not os.path.exists(OFF_FLAG)
+
+
+def engine_ready():
+    return all(os.path.exists(p) for p in (VENV_PY, MODEL, VOICES))
+
+
+# --- what is spoken -----------------------------------------------------------------------------------------------
+
+def _inline_code(match):
+    """Keeps `speak off` (words); drops `~/.claude/x`, `CLAUDE_SPEAK=0` and the like (symbols)."""
+    inner = match.group(1).strip()
+    return inner.replace('_', ' ') if re.fullmatch(r"[^\W\d][\w' -]{0,39}", inner) else ''
+
+
+def clean(text):
+    """One line of markdown made fit to be heard."""
+    text = re.sub(r'^\s*(?:>\s*)*(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+)?', '', text)
+    text = re.sub(r'!?\[([^\]]*)\]\([^)]*\)', r'\1', text)  # [label](url) -> label
+    text = re.sub(r'`([^`]*)`', _inline_code, text)
+    text = re.sub(r'https?://\S+', '', text)
+    text = re.sub(r'(?<![\w/])[~.]{0,2}/[^\s,;)]+', '', text)  # /abs, ~/x, ./x, ../x
+    text = re.sub(r'\b[\w.-]+/[\w./-]+', '', text)  # dir/file
+    text = re.sub(r'\b[\w-]+\.(?:py|sh|json|jsonl|md|js|ts|tsx|txt|log|wav|onnx|bin|yml|yaml|toml|html|css)\b', '', text)
+    text = text.replace('→', ', ').replace('->', ', ')
+    text = re.sub(r'[*_`#|~<>]', '', text)
+    text = re.sub(r'\(\s*[,;:]?\s*\)', '', text)
+    text = re.sub(r'\s+([,;:.!?])', r'\1', text)
+    text = re.sub(r'([,;:])(?:\s*[,;:])+', r'\1', text)
+    return re.sub(r'\s+', ' ', text).strip(' ,;:-—')
+
+
+def spoken_line(message):
+    """summary: the text after the last 🔊 line; '' when there is none."""
+    for line in reversed((message or '').splitlines()):
+        line = line.strip().lstrip('>*_ ').strip()
+        if line.startswith(MARK):
+            return clean(line[len(MARK):])
+    return ''
+
+
+def full_text(message):
+    """full: every line of prose and tables; code blocks, table rulers and the 🔊 line go."""
+    out, fence = [], None
+    for line in (message or '').splitlines():
+        bare = line.strip()
+        opening = re.match(r'(`{3,}|~{3,})', bare)
+        if fence:
+            if opening and bare.startswith(fence):
+                fence = None
+            continue
+        if opening:
+            fence = opening.group(1)
+            continue
+        if bare.lstrip('>*_ ').startswith(MARK) or re.fullmatch(r'\|?[\s:|-]*-[\s:|-]*\|?', bare):
+            continue
+        if bare.startswith('|'):
+            said = ', '.join(c for c in (clean(cell) for cell in bare.strip('|').split('|')) if c)
+        else:
+            said = clean(bare)
+        if re.search(r'\w', said):
+            out.append(said if said[-1] in '.!?:;,' else said + '.')
+    return ' '.join(out)
+
+
+def to_speak(message, how=None):
+    how = how or mode()
+    text = spoken_line(message) if how == 'summary' else full_text(message)
+    limit = LIMIT[how]
+    if len(text) > limit:
+        cut = max(text.rfind(p, 0, limit) for p in '.!?')
+        text = text[:cut + 1 if cut > 0 else limit]
+    return text
+
+
+def pieces(text):
+    """Sentences grouped into pieces whose size grows along PIECES (the last size repeats)."""
+    out, cur = [], ''
+    for sentence in re.split(r'(?<=[.!?;:])\s+', text):
+        cap = PIECES[min(len(out), len(PIECES) - 1)]
+        if cur and len(cur) + len(sentence) + 1 > cap:
+            out.append(cur)
+            cur = sentence
+        else:
+            cur = (cur + ' ' + sentence).strip()
+    if cur:
+        out.append(cur)
+    return out
+
+
+def synthesize_ahead(texts, synth, ahead=2):
+    """Yields synth(text) for each text, in order, synthesizing up to `ahead` pieces in a background thread while
+    the caller plays the current one (synthesis runs 1.4 to 1.9 times faster than speech, barely so on the first
+    piece, so the pieces grow gradually and each is ready when the one before ends). An error of synth is raised
+    to the caller; closing the generator stops the thread."""
+    import queue
+    import threading
+    done, stop = object(), threading.Event()
+    box = queue.Queue(maxsize=ahead)
+
+    def put(item):
+        while not stop.is_set():
+            try:
+                box.put(item, timeout=0.1)
+                return True
+            except queue.Full:
+                continue
+        return False
+
+    def work():
+        try:
+            for text in texts:
+                if stop.is_set() or not put(('ok', synth(text))):
+                    return
+        except Exception as exc:  # handed to the caller, which raises it
+            put(('error', exc))
+            return
+        put(('ok', done))
+
+    threading.Thread(target=work, daemon=True).start()
+    try:
+        while True:
+            kind, value = box.get()
+            if kind == 'error':
+                raise value
+            if value is done:
+                return
+            yield value
+    finally:
+        stop.set()
+
+
+# --- speaking -----------------------------------------------------------------------------------------------------
+
+def is_speech(pid):
+    """True if `pid` is a speech process of ours: its command line is `<python> -I <...>/speak _play ...`."""
+    try:
+        with open('/proc/%d/cmdline' % pid, 'rb') as fh:
+            argv = fh.read().split(b'\0')
+        return len(argv) > 3 and argv[1] == b'-I' and os.path.basename(argv[2]) == b'speak' and argv[3] == b'_play'
+    except (OSError, ValueError):
+        return False
+
+
+def clear_speech(pid):
+    """Removes the speech files, only if PID still holds `pid` (a newer speech keeps its own)."""
+    try:
+        with open(PID) as fh:
+            if int(fh.read().strip()) != pid:
+                return
+    except (OSError, ValueError):
+        return
+    for path in (PID, OWNER):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def terminate(pid):
+    """SIGTERM to the process group of `pid` (a speech leads its own, with its player); to the process alone if not."""
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+    except OSError:
+        pass
+
+
+def drop(path):
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+def tickets():
+    """The queue as [(path, pid, key)], in arrival order. The ticket of a process that died or is no longer a speech
+    is dropped on the way (this process counts as alive)."""
+    try:
+        names = os.listdir(QUEUE)
+    except OSError:
+        return []
+    found = []
+    for name in names:
+        match = re.fullmatch(r'(\d+)-(\d+)', name)
+        if not match:
+            continue
+        path = os.path.join(QUEUE, name)
+        pid = int(match.group(2))
+        # The own process is exempt: a single-process test registers and waits in the same process, which
+        # is_speech() would not recognise as a speech.
+        if pid != os.getpid() and not is_speech(pid):
+            drop(path)
+            continue
+        try:
+            with open(path) as fh:
+                key = fh.read().strip()
+        except OSError:
+            continue
+        found.append((int(match.group(1)), path, pid, key))
+    return [(path, pid, key) for _, path, pid, key in sorted(found)]
+
+
+def playing():
+    """Pid of the speech playing now (other than this process); None if none."""
+    try:
+        with open(PID) as fh:
+            pid = int(fh.read().strip())
+    except (OSError, ValueError):
+        return None
+    return pid if pid > 1 and pid != os.getpid() and is_speech(pid) else None
+
+
+def stop_waiting(session=None):
+    """Ends the speeches waiting their turn and drops their tickets: all of them, or only those of `session`."""
+    for path, pid, key in tickets():
+        if session is None or key == session:
+            if pid != os.getpid():
+                terminate(pid)
+            drop(path)
+
+
+def stop_playing():
+    """Ends the speech playing (its whole process group, player included), if the pid is still a speech."""
+    try:
+        with open(PID) as fh:
+            pid = int(fh.read().strip())
+        if pid > 1 and is_speech(pid):
+            terminate(pid)
+            clear_speech(pid)
+    except (OSError, ValueError):
+        pass
+
+
+def stop_current():
+    """Ends every speech: the waiting ones first (so none takes the turn), then the one playing."""
+    stop_waiting()
+    stop_playing()
+
+
+def stop_if_mine(session):
+    """Ends the speeches of this session: the waiting ones, and the one playing if it owns it. A session of None
+    owns nothing."""
+    if not session:
+        return
+    stop_waiting(session)
+    try:
+        with open(OWNER) as fh:
+            owner = fh.read().strip()
+    except OSError:
+        return
+    if owner == session:
+        stop_playing()
+
+
+def speak_background(text, session):
+    """Speaks `text` for `session`, in order of arrival: the speech process joins the queue and waits its turn
+    (it never cuts the speech playing). A muted session does not speak."""
+    if not text.strip() or not is_on(session) or not engine_ready():
+        return 0
+    os.makedirs(STATE, exist_ok=True)
+    with open(LOG, 'a') as log:
+        subprocess.Popen([VENV_PY, '-I', os.path.realpath(__file__), '_play', text],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=log,
+                         start_new_session=True, env={**os.environ, 'CLAUDE_SPEAK_SESSION': session or '-'})
+    return 0
+
+
+def queue_lock():
+    """Context manager: an exclusive lock on LOCK, so that joining the queue and taking the turn are never interleaved
+    between speech processes (the kernel frees it if the holder dies)."""
+    import contextlib
+    import fcntl
+
+    @contextlib.contextmanager
+    def locked():
+        os.makedirs(STATE, exist_ok=True)
+        with open(LOCK, 'a') as fh:
+            fcntl.flock(fh, fcntl.LOCK_EX)
+            yield
+    return locked()
+
+
+def wait_turn(session, watch):
+    """Joins the queue and waits to be first, with no speech playing and the microphone free; then takes the turn
+    (writes speech.pid and speech.owner, drops the ticket). False if the ticket was dropped meanwhile (stopped).
+    The ticket's name is taken and written, and the turn checked and taken, each under the queue lock."""
+    import time
+    with queue_lock():
+        ticket = os.path.join(QUEUE, '%d-%d' % (time.time_ns(), os.getpid()))
+        write_atomic(ticket, session or '-')
+    while True:
+        if not (watch and mic_busy(current_recordings())):
+            with queue_lock():
+                line = tickets()
+                if not any(path == ticket for path, _, _ in line):
+                    return False
+                if line[0][0] == ticket and playing() is None:
+                    write_atomic(PID, str(os.getpid()))
+                    write_atomic(OWNER, session or '')
+                    drop(ticket)
+                    return True
+        elif not any(path == ticket for path, _, _ in tickets()):
+            return False
+        time.sleep(QUEUE_POLL)
+
+
+def drop_own_tickets():
+    try:
+        names = os.listdir(QUEUE)
+    except OSError:
+        return
+    for name in names:
+        if re.fullmatch(r'\d+-%d' % os.getpid(), name):
+            drop(os.path.join(QUEUE, name))
+
+
+def recordings(dump):
+    """Ids of the audio streams recording from a microphone, in pw-dump's JSON; None when it cannot be read."""
+    import json
+    try:
+        nodes = json.loads(dump)
+    except ValueError:
+        return None
+    return {n.get('id') for n in nodes if isinstance(n, dict)
+            and ((n.get('info') or {}).get('props') or {}).get('media.class') == 'Stream/Input/Audio'}
+
+
+def current_recordings():
+    try:
+        return recordings(subprocess.run(['pw-dump'], capture_output=True, timeout=2).stdout)
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def cut_by_microphone(player):
+    """Ends the player and this speech process, leaving no speech files behind."""
+    player.kill()
+    clear_speech(os.getpid())
+    os._exit(0)
+
+
+def mic_busy(recs):
+    """True only when there is at least one recording going on (`recs` is None when it could not be read)."""
+    return bool(recs)
+
+
+def watch_microphone(player):
+    """Ends this speech (the player, then this process) as soon as any recording is going on."""
+    import threading
+    import time
+
+    def loop():
+        while True:
+            time.sleep(MIC_POLL)
+            if mic_busy(current_recordings()):
+                cut_by_microphone(player)
+
+    threading.Thread(target=loop, daemon=True).start()
+
+
+def play(text):
+    """Runs inside the engine's Python: waits its turn in the queue, then synthesizes piece by piece into the
+    player's stdin. The turn comes only while the microphone is free (no dictation in progress)."""
+    session = current_session()
+    try:
+        watch = bool(shutil.which('pw-dump'))
+        # `speak test` (CLAUDE_SPEAK_TEST) is a diagnostic the human asked for: it speaks even with the voice off
+        if not wait_turn(session, watch) or not (is_on(session) or os.environ.get('CLAUDE_SPEAK_TEST')):
+            return 0
+        from kokoro_onnx import Kokoro
+        player = next((p for p in PLAYERS if shutil.which(p[0])), None)
+        if player is None:
+            print('voz: nenhum tocador de áudio (pw-play, paplay ou aplay)', file=sys.stderr)
+            return 1
+        kokoro = Kokoro(MODEL, VOICES)
+        proc = subprocess.Popen(player, stdin=subprocess.PIPE)
+        if watch:
+            watch_microphone(proc)
+        try:
+            def synth(piece):
+                return kokoro.create(piece, voice=voice(), speed=speed(), lang='pt-br')[0]
+
+            for samples in synthesize_ahead(pieces(text), synth):
+                proc.stdin.write(samples.astype('float32').tobytes())
+                proc.stdin.flush()
+        finally:
+            proc.stdin.close()
+        return proc.wait()
+    finally:
+        drop_own_tickets()
+        clear_speech(os.getpid())
+
+
+def install():
+    uv = shutil.which('uv') or os.path.join(HOME, '.local', 'bin', 'uv')
+    if not os.path.exists(uv):
+        print('voz: o uv não foi encontrado; instale-o (https://docs.astral.sh/uv/) e rode de novo', file=sys.stderr)
+        return 1
+    os.makedirs(DATA, exist_ok=True)
+    if not os.path.exists(VENV_PY):
+        subprocess.check_call([uv, 'venv', '--python', '3.12', '-q', os.path.join(DATA, '.venv')])
+    subprocess.check_call([uv, 'pip', 'install', '-q', '--python', VENV_PY, 'kokoro-onnx'])
+    for path in (MODEL, VOICES):
+        if not os.path.exists(path):
+            print('voz: baixando %s' % os.path.basename(path))
+            urllib.request.urlretrieve(MODEL_URL + os.path.basename(path), path + '.part')
+            os.replace(path + '.part', path)
+    print('voz: motor instalado em %s' % DATA)
+    return 0
+
+
+def status():
+    session = current_session()
+    print('voz: %s' % ('ligada' if is_on(session) else 'desligada'))
+    print('  geral: %s' % ('desligada' if os.path.exists(OFF_FLAG) else 'ligada'))
+    choice = session_choice(session)
+    if session:
+        print('  esta sessão: %s, modo %s' % ({'muted': 'muda', 'speaking': 'falando'}.get(choice, 'segue a geral'),
+                                              session_mode(session) or 'segue o geral'))
+    else:
+        print('  fora de uma sessão do Claude Code')
+    if os.environ.get('CLAUDE_SPEAK') == '0' and (not session or choice == 'muted'):
+        print('  desligada só nesta sessão (CLAUDE_SPEAK=0)')
+    print('  modo: %s' % mode())  # the general one (or CLAUDE_SPEAK_MODE)
+    print('  motor: %s' % ('instalado em %s' % DATA if engine_ready() else 'não instalado (rode: speak install)'))
+    print('  voz: %s, velocidade %s' % (voice(), speed()))
+    return 0
+
+
+def migrate():
+    """Moves the folders of the former name (`claude-voz`) to `claude-speak`, once, when only the old one exists.
+    Config: `desligado` becomes `off`, old `fala-*.wav` files are removed,
+    `modo` becomes `mode` (completo -> full, resumo -> summary). The old session
+    files (`sessoes`) are dropped. A new folder that already exists wins and the old one is left alone."""
+    for new in (DATA, CONF, STATE):
+        old = os.path.join(os.path.dirname(new), 'claude-voz')
+        if os.path.isdir(old) and not os.path.exists(new):
+            try:
+                os.rename(old, new)
+            except OSError:
+                continue
+            if new == CONF:
+                _translate_config()
+            elif new == STATE:
+                shutil.rmtree(os.path.join(STATE, 'sessoes'), ignore_errors=True)
+                try:
+                    os.rename(os.path.join(STATE, 'tudo'), ALL_MARK)
+                except OSError:
+                    pass
+                leftovers = ['fala.pid', 'fala.dono', 'erro.log']
+                try:
+                    leftovers += [n for n in os.listdir(STATE) if n.startswith('fala-') and n.endswith('.wav')]
+                except OSError:
+                    pass
+                for name in leftovers:
+                    try:
+                        os.remove(os.path.join(STATE, name))
+                    except OSError:
+                        pass
+
+
+def _translate_config():
+    try:
+        os.rename(os.path.join(CONF, 'desligado'), OFF_FLAG)
+    except OSError:
+        pass
+    old = os.path.join(CONF, 'modo')
+    try:
+        with open(old) as fh:
+            value = {'completo': 'full', 'resumo': 'summary'}.get(fh.read().strip())
+        os.remove(old)
+        if value:
+            with open(MODE_FILE, 'w') as fh:
+                fh.write(value + '\n')
+    except OSError:
+        pass
+
+
+def main(argv):
+    migrate()
+    cmd, rest = (argv[0], argv[1:]) if argv else ('status', [])
+    text = ' '.join(rest)
+    if cmd in ('on', 'off'):
+        if text not in ('', 'all'):
+            print('voz: use "speak off", "speak on", "speak off all" ou "speak on all"', file=sys.stderr)
+            return 2
+        session = current_session()
+        if cmd == 'off' and (text or not session):
+            os.makedirs(CONF, exist_ok=True)
+            open(OFF_FLAG, 'w').close()
+            mark_all()
+            set_all_sessions(voice='muted')
+            stop_current()
+        elif cmd == 'off':
+            set_session(session, voice='muted')
+            stop_if_mine(session)
+        elif text or not session:
+            if os.path.exists(OFF_FLAG):
+                os.remove(OFF_FLAG)
+            mark_all()
+            set_all_sessions(voice='speaking')
+        else:
+            set_session(session, voice='speaking')
+        return status()
+    if cmd == 'status':
+        return status()
+    if cmd == 'stop':
+        if text:
+            print('voz: use "speak stop"', file=sys.stderr)
+            return 2
+        stop_current()
+        return 0
+    if cmd == 'mode':
+        wanted, _, scope = text.partition(' ')
+        if wanted not in MODES or scope not in ('', 'all'):
+            print('voz: use "speak mode full" ou "speak mode summary" (com "all" no fim, vale para todas as sessões)',
+                  file=sys.stderr)
+            return 2
+        session = current_session()
+        if session and not scope:
+            set_session(session, mode=wanted)
+        else:
+            os.makedirs(CONF, exist_ok=True)
+            with open(MODE_FILE, 'w') as fh:
+                fh.write(wanted + '\n')
+            set_all_sessions(mode=wanted)
+        return status()
+    if cmd == 'silent':
+        return 1 if is_on(current_session()) and engine_ready() else 0
+    if cmd == 'install':
+        return install()
+    if cmd == 'say':
+        session = current_session()
+        return speak_background(to_speak(sys.stdin.read(), mode(session)) if text == '-' else text, session)
+    if cmd == 'test':
+        if not engine_ready():
+            print('voz: motor não instalado (rode: speak install)', file=sys.stderr)
+            return 1
+        return subprocess.call([VENV_PY, '-I', os.path.realpath(__file__), '_play',
+                                text or 'Olá! A voz do Claude Code está funcionando.'],
+                               env={**os.environ, 'CLAUDE_SPEAK_TEST': '1'})
+    if cmd == '_play':
+        return play(text)
+    print(__doc__.strip(), file=sys.stderr if cmd not in ('-h', '--help') else sys.stdout)
+    return 0 if cmd in ('-h', '--help') else 2
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))
