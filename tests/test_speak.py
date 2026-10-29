@@ -352,10 +352,30 @@ class MicChoice(unittest.TestCase):
         with open(os.path.join(fake, 'pw-dump'), 'w') as fh:
             fh.write('#!/bin/sh\necho "[]"\n')
         os.chmod(os.path.join(fake, 'pw-dump'), 0o755)
-        self.env = {'HOME': self.tmp.name, 'PATH': fake + ':/usr/bin:/bin'}
+        self.env = {'HOME': self.tmp.name, 'PATH': fake + ':/usr/bin:/bin', 'REAL_SPEAK': SPEAK,
+                    'BUSY_FILE': os.path.join(self.tmp.name, 'busy')}
+        self.mac_driver = os.path.join(self.tmp.name, 'mac_driver.py')  # the Mac asks CoreAudio, not pw-dump
+        with open(self.mac_driver, 'w') as fh:
+            fh.write(self.MAC_DRIVER)
+
+    MAC_DRIVER = (
+        'import importlib.machinery, importlib.util, os, sys\n'
+        'loader = importlib.machinery.SourceFileLoader("speak", os.environ["REAL_SPEAK"])\n'
+        'm = importlib.util.module_from_spec(importlib.util.spec_from_loader("speak", loader)); loader.exec_module(m)\n'
+        'm.current_recordings = lambda: {9} if os.path.exists(os.environ["BUSY_FILE"]) else set()\n'
+        'sys.exit(m.main(sys.argv[1:]))\n')
+
+    def make_busy(self):
+        """A microphone in use, as the system sees it: a pw-dump with a recording stream, or (Mac) a busy file."""
+        if sys.platform == 'darwin':
+            open(self.env['BUSY_FILE'], 'w').close()
+            return
+        with open(os.path.join(self.tmp.name, 'fakebin', 'pw-dump'), 'w') as fh:
+            fh.write('#!/bin/sh\necho \'[{"id":9,"info":{"props":{"media.class":"Stream/Input/Audio"}}}]\'\n')
 
     def run_speak(self, *args, session=None, **env):
-        return subprocess.run([sys.executable, '-I', SPEAK, *args], capture_output=True, text=True,
+        script = self.mac_driver if sys.platform == 'darwin' else SPEAK
+        return subprocess.run([sys.executable, '-I', script, *args], capture_output=True, text=True,
                               stdin=subprocess.DEVNULL, env={**self.env, 'CLAUDE_SPEAK_SESSION': session or '-', **env})
 
     def general(self):
@@ -480,7 +500,7 @@ class MicChoice(unittest.TestCase):
         self.assertEqual(self.session_file(self.other), {'mic': 'play'})
 
     def test_auto_chosen_with_the_microphone_free_waits_for_the_next_meeting(self):
-        r = self.run_speak('mic', 'auto', 'all')  # the fake pw-dump says free
+        r = self.run_speak('mic', 'auto', 'all')  # the microphone is free (fake pw-dump; on the Mac, no busy file)
         self.assertEqual(r.returncode, 0)
         self.assertFalse(os.path.exists(speak.MIC_SEEN))
         speak.track_mic(None, set())
@@ -490,8 +510,7 @@ class MicChoice(unittest.TestCase):
         self.assertEqual(self.general(), 'wait')
 
     def test_auto_chosen_in_the_middle_of_the_meeting_counts_as_seen(self):
-        with open(os.path.join(self.tmp.name, 'fakebin', 'pw-dump'), 'w') as fh:
-            fh.write('#!/bin/sh\necho \'[{"id":9,"info":{"props":{"media.class":"Stream/Input/Audio"}}}]\'\n')
+        self.make_busy()
         self.run_speak('mic', 'auto', 'all')
         self.assertTrue(os.path.exists(speak.MIC_SEEN))
         self.run_speak('mic', 'play', 'all')  # a new choice forgets what was seen
@@ -499,7 +518,7 @@ class MicChoice(unittest.TestCase):
 
     def test_the_message_hook_tick_ends_the_meeting(self):
         speak.set_session(self.me, mic='auto', micseen=True)
-        r = self.run_speak('_mictick', session=self.me)  # the fake pw-dump says free
+        r = self.run_speak('_mictick', session=self.me)  # the microphone is free (fake pw-dump; on the Mac, no busy file)
         self.assertEqual(r.returncode, 0)
         self.assertEqual(self.session_file(self.me), {'mic': 'wait'})
 
