@@ -5,21 +5,20 @@ import type { EngineInterface, Register } from 'claude-code'
 
 type Engine = EngineInterface
 type Reply = { text?: string }
-type State = { on: boolean; mode: string; size: string; output: string; voice: string; engine: boolean }
-type View = 'all' | 'power' | 'mode' | 'size' | 'voice' | 'mobile'
+type State = { on: boolean; mode: string; size: string; voice: string; engine: boolean }
+type View = 'all' | 'power' | 'mode' | 'size' | 'voice'
 
 const PANE = 'speak'
 const MODES: Record<string, string> = { full: 'Resposta inteira', summary: 'Só o resumo' }
 const SIZES: Record<string, string> = { small: 'Pequeno', medium: 'Médio', large: 'Grande' }
 const VOICES: Record<string, string> = { dora: 'Dora (feminina)', alex: 'Alex (masculina)', santa: 'Santa (masculina)' }
-const OUTPUTS: Record<string, string> = { speaker: 'Computador', phone: 'Celular (mp3 pelo controle remoto)' }
 const POWER: Record<string, string> = { on: 'Ligada', off: 'Desligada' }
 const SCOPES: Record<string, string> = { session: 'Só esta sessão', all: 'Todas as sessões' }
 const USAGE =
   'Escreva a ação: /speak on, /speak off, /speak mode full|summary, /speak size small|medium|large, ' +
-  '/speak mobile on|off, /speak voice dora|alex|santa, /speak status, /speak stop, /speak install ' +
+  '/speak voice dora|alex|santa, /speak status, /speak stop, /speak install ' +
   '(com "all" no fim, vale para todas as sessões).'
-const VIEWS: Record<string, View> = { on: 'power', off: 'power', mode: 'mode', size: 'size', mobile: 'mobile', phone: 'mobile', voice: 'voice' }
+const VIEWS: Record<string, View> = { on: 'power', off: 'power', mode: 'mode', size: 'size', voice: 'voice' }
 
 const options = (table: Record<string, string>) => Object.keys(table).map(value => ({ value, label: table[value]! }))
 const where = (all: boolean) => (all ? 'em todas as sessões' : 'nesta sessão')
@@ -53,16 +52,12 @@ function said(args: string[], after: State | undefined): string {
         ? `A voz passa a ler a resposta inteira ${where(all)}.`
         : `A voz passa a ler só o resumo ${where(all)}.`
     case 'size': return `O resumo falado passa a ser ${(SIZES[value ?? ''] ?? '').toLowerCase()}, ${where(all)}.`
-    case 'mobile':
-      return value === 'on'
-        ? `As respostas passam a chegar no celular como áudio mp3, ${where(all)}.`
-        : `O áudio volta para o alto-falante do computador, ${where(all)}.`
     case 'voice': return `A voz agora é a ${cap(after?.voice ?? value ?? '')}, em todas as sessões.`
     default: return 'Pronto.'
   }
 }
 
-// Roda uma mudança (on, off, mode, size, mobile, voice) e devolve a frase, ou a mensagem de erro do speak.
+// Roda uma mudança (on, off, mode, size, voice) e devolve a frase, ou a mensagem de erro do speak.
 async function change($: Engine, args: string[]): Promise<{ ok: boolean; text: string }> {
   const r = await run($, args)
   if (!r.ok) return { ok: false, text: r.out || 'O speak falhou.' }
@@ -82,9 +77,6 @@ async function direct($: Engine, body: string[], all: boolean): Promise<Reply | 
       return value ? runChoice($, 'mode', value, MODES, tail) : undefined
     case 'size':
       return value ? runChoice($, 'size', value, SIZES, tail) : undefined
-    case 'mobile':
-    case 'phone':
-      return value ? runChoice($, 'mobile', value, { on: '', off: '' }, tail) : undefined
     case 'voice':
       if (all) return { text: USAGE }
       return value ? runChoice($, 'voice', value, VOICES, []) : undefined
@@ -121,8 +113,8 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'speak',
-      description: 'Ajusta a voz que lê as respostas: ligar, modo, tamanho, voz, saída',
-      argumentHint: '[on|off|mode|size|voice|mobile|status|stop|install] [all]',
+      description: 'Ajusta a voz que lê as respostas: ligar, modo, tamanho, voz',
+      argumentHint: '[on|off|mode|size|voice|status|stop|install] [all]',
       immediate: true,
     })
     return next(e)
@@ -152,7 +144,7 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const elements = $.ui.resolve(e)
     const { Box, Text } = elements
-    // Onde não há Select (celular), o painel só aponta a forma escrita.
+    // Onde não há Select (telas sem lista), o painel só aponta a forma escrita.
     if (!('Select' in elements)) return <Text>{USAGE}</Text>
     const { Select } = elements
     const tail = () => (all ? ['all'] : [])
@@ -171,8 +163,6 @@ export const register: Register = on => {
       { key: 'mode', label: 'Leitura', table: MODES, value: now?.mode, pick: v => apply(['mode', v, ...tail()]), view: 'mode' },
       { key: 'size', label: 'Tamanho do resumo', table: SIZES, value: now?.size, pick: v => apply(['size', v, ...tail()]), view: 'size' },
       { key: 'voice', label: 'Voz de leitura', table: VOICES, value: now?.voice, pick: v => apply(['voice', v]), view: 'voice' },
-      { key: 'mobile', label: 'Saída', table: OUTPUTS, value: now?.output,
-        pick: v => apply(['mobile', v === 'phone' ? 'on' : 'off', ...tail()]), view: 'mobile' },
     ]
     const shown = rows.filter(r => view === 'all' || r.view === view)
     const needsScope = shown.some(r => r.key !== 'voice')

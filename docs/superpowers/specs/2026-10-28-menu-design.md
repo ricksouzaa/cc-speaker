@@ -1,3 +1,5 @@
+> Retirado em 28/10/2026: o modo celular e as seções dele neste desenho foram retirados (o botão de ler em voz alta do próprio app cobre o caso).
+
 # Comando /speak com menus nativos: desenho
 
 Data: 28/10/2026. Pedido do Ricardo: ao digitar o comando, escolher as opções com as setas, como no `/model`, para toda escolha (modo, tamanho, voz, saída...). Os comandos de barra feitos como habilidades não fazem isso: o menu vinha do modelo, depois de rodar um comando, numa resposta inteira. Decisões minhas, para a revisão dele.

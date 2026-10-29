@@ -11,14 +11,16 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 
 ## Feito
 
-- Plugin `speak` no catálogo `cc-speaker`, com comandos de barra por ação e menus de setas (voz, modo, tamanho, saída).
+- Plugin `speak` no catálogo `cc-speaker`, com comandos de barra por ação e menus de setas (voz, modo, tamanho).
 - Tamanho do resumo (pequeno, médio, grande) e escolha da voz (dora, alex, santa).
-- Modo celular (0.2.0): mp3 enviado ao celular pelo controle remoto, sem som no computador. Falta o teste de ponta a ponta com o Ricardo no controle remoto.
 
 ## Pedidos para depois
 
 - **Mac**, pela peça trocável por sistema descrita acima.
 - **Filtrar melhor o que se narra.** Exemplo real: na linha de sincronização do pickup a voz leu "HEAD 93a66bd" e o ramo "fix/fila-da-voz". Não narrar códigos de commit (sequências hexadecimais de 7 a 40 caracteres com dígitos), a palavra HEAD, nomes de ramo com barra e separadores como o ponto médio; revisar as outras regras de limpeza com exemplos de respostas reais.
 - **Outros narradores** pesquisados em 28/10/2026, para escolher o que trazer: uma voz por sessão (do kokoro-tts do voiys); avisos falados durante o trabalho (do claude-voice do adjit).
-- **Modo celular sem o modelo**: hoje só o modelo envia arquivo (os ganchos não), o que custa uma volta curta por resposta e não toca sozinho. Estudar alternativas.
 - **Voz no estilo do Jarvis**, ideia do Ricardo. Combinado: um estilo inspirado (voz masculina grave e calma, tratamento formal, talvez um leve efeito metálico no áudio), não uma cópia da voz do ator nem o nome como marca.
+
+## Retirado
+
+- Modo celular (mp3 enviado pelo controle remoto): retirado em 28/10/2026, porque o botão de ler em voz alta do próprio app (celular e web, no controle remoto) cobre o caso.

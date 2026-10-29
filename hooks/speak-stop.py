@@ -4,13 +4,6 @@ speaks it in the background. Waits (at most 4 s) for `speak say -` to return, wh
 itself runs detached inside it: `speak` must still find this hook alive to locate its session (the nearest `claude`
 ancestor). Fail-open: exits 0 in every case. Always hands the reply over (also with CLAUDE_SPEAK=0): `speak` decides,
 per session, whether to speak. Silent when `speak` (../bin/speak, never the PATH) is missing.
-
-Phone output (`speak output` says `phone`): `speak say -` plays nothing and synthesizes an mp3 in the foreground, which
-takes minutes (the wait is then 300 s) and prints its path. The hook then asks Claude to continue, with
-{"decision": "block", "reason": ...}, so that Claude sends the file to the human (only the model has that tool). With the
-phone in summary mode (`speak mobile-summary`) the hook does not read a 🔊 line: it blocks once asking Claude to run
-`speak mobile say "<summary>"` and send the mp3. On the
-turn that follows (stop_hook_active) `speak say -` does nothing, so there is no loop.
 """
 import json
 import os
@@ -18,40 +11,6 @@ import subprocess
 import sys
 
 SPEAK = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'bin', 'speak')
-
-
-REQUEST = ('speak: o áudio desta resposta está em %s. Envie esse arquivo ao humano com a ferramenta SendUserFile '
-           '(carregue-a pelo ToolSearch se precisar), sem legenda longa, e termine sem escrever mais nada. Se essa '
-           'ferramenta não existir nesta sessão, diga em uma frase que o modo celular só funciona no controle remoto '
-           'e sugira `speak mobile off`.')
-
-
-SUMMARY_REQUEST = ('speak: modo celular com resumo. Faça um resumo da resposta que você acabou de dar, em português do '
-                   'Brasil claro, no tamanho em vigor (%s), sem código, nomes de arquivo, caminhos, comandos, links nem '
-                   'siglas. Rode pelo Bash `speak mobile say "<resumo>"` (o resumo entre aspas, sem aspas dentro), envie '
-                   'o arquivo mp3 cujo caminho o comando imprimir com a ferramenta SendUserFile (carregue-a pelo '
-                   'ToolSearch se precisar) e termine sem escrever mais nada. Se o comando não imprimir caminho, ou a '
-                   'ferramenta não existir nesta sessão, termine sem escrever mais nada.')
-
-
-def mobile_summary(speak):
-    """The size description when this session speaks to the phone in summary mode; None otherwise or on any doubt."""
-    try:
-        done = subprocess.run([sys.executable, '-I', speak, 'mobile-summary'], stdin=subprocess.DEVNULL,
-                              capture_output=True, timeout=4)
-        return done.stdout.decode('utf-8', 'replace').strip() if done.returncode == 0 else None
-    except (OSError, subprocess.SubprocessError):
-        return None
-
-
-def phone_output(speak):
-    """True when this session's replies go to the phone; False on any doubt."""
-    try:
-        done = subprocess.run([sys.executable, '-I', speak, 'output'], stdin=subprocess.DEVNULL,
-                              capture_output=True, timeout=4)
-        return done.stdout.decode('utf-8', 'replace').strip() == 'phone'
-    except (OSError, subprocess.SubprocessError):
-        return False
 
 
 def last_message(data):
@@ -86,18 +45,8 @@ def main():
     message = last_message(data)
     if not message.strip():
         return
-    size = mobile_summary(speak)
-    if size:  # phone + summary: no 🔊 line in the chat; Claude summarizes and sends the mp3 itself
-        if not data.get('stop_hook_active'):
-            print(json.dumps({'decision': 'block', 'reason': SUMMARY_REQUEST % size}, ensure_ascii=False))
-        return
-    phone = phone_output(speak)
-    env = {**os.environ, 'CLAUDE_SPEAK_STOP_ACTIVE': '1' if data.get('stop_hook_active') else '0'}
-    done = subprocess.run([sys.executable, '-I', speak, 'say', '-'], input=message.encode('utf-8'), env=env,
-                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=300 if phone else 4)
-    path = done.stdout.decode('utf-8', 'replace').strip()
-    if phone and not data.get('stop_hook_active') and path and os.path.isfile(path):
-        print(json.dumps({'decision': 'block', 'reason': REQUEST % path}, ensure_ascii=False))
+    subprocess.run([sys.executable, '-I', speak, 'say', '-'], input=message.encode('utf-8'),
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=4)
 
 
 if __name__ == '__main__':

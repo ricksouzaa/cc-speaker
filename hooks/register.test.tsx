@@ -11,7 +11,7 @@ const PANE = {
 async function setup($: any, on: any, opts: { fail?: boolean; placed?: boolean } = {}) {
   const ran: string[][] = []
   const opened: any[] = []
-  const st = { on: true, mode: 'full', size: 'medium', output: 'speaker', engine: true, voice: 'dora' }
+  const st = { on: true, mode: 'full', size: 'medium', engine: true, voice: 'dora' }
   on('command.register', () => ({ value: { command: 'speak' } }))
   on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
   on('ui.open', (_: unknown, e: any) => {
@@ -28,7 +28,6 @@ async function setup($: any, on: any, opts: { fail?: boolean; placed?: boolean }
     if (args[0] === 'mode') st.mode = args[1]!
     if (args[0] === 'size') st.size = args[1]!
     if (args[0] === 'voice') st.voice = args[1]!
-    if (args[0] === 'mobile') st.output = args[1] === 'on' ? 'phone' : 'speaker'
     if (args[0] === 'on' || args[0] === 'off') st.on = args[0] === 'on'
     return done(0, 'ok\n')
   })
@@ -51,14 +50,14 @@ test('o comando /speak é registrado, imediato', async ($, on) => {
 test('escolha completa roda o speak certo, sem painel', async ($, on) => {
   const { ran, opened } = await setup($, on)
   const args = ['on', 'off all', 'mode summary', 'mode full all', 'size large', 'size small all',
-    'mobile on', 'mobile off all', 'phone on', 'voice alex', 'stop']
+    'voice alex', 'stop']
   for (const a of args) await $.command.run({ command: 'speak', args: a })
   expect(changes(ran)).toEqual(['on', 'off all', 'mode summary', 'mode full all', 'size large', 'size small all',
-    'mobile on', 'mobile off all', 'mobile on', 'voice alex', 'stop'])
+    'voice alex', 'stop'])
   expect(opened).toEqual([])
 })
 
-test('status mostra a saída do speak e install roda direto', async ($, on) => {
+test('status mostra o estado do speak e install roda direto', async ($, on) => {
   const { ran } = await setup($, on)
   expect((await $.command.run({ command: 'speak', args: 'status' })).text).toBe('ok')
   await $.command.run({ command: 'speak', args: 'install' })
@@ -70,7 +69,7 @@ test('/speak sozinho abre o painel com uma lista por ajuste, cada uma com o valo
   await $.command.run({ command: 'speak', args: '' })
   expect(opened[0]).toMatchObject({ id: 'speak', focus: true, closeOnEscape: true })
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  for (const key of ['power', 'mode', 'size', 'voice', 'mobile', 'scope']) {
+  for (const key of ['power', 'mode', 'size', 'voice', 'scope']) {
     expect(await ui.find({ key })).toBeDefined()
   }
   await ui.unmount()
@@ -83,10 +82,9 @@ test('escolher no painel roda o speak e redesenha; o alcance vira all', async ($
   await ui.select({ key: 'mode', value: 'summary' })
   await ui.select({ key: 'scope', value: 'all' })
   await ui.select({ key: 'size', value: 'large' })
-  await ui.select({ key: 'mobile', value: 'phone' })
   await ui.select({ key: 'voice', value: 'santa' })
   await ui.select({ key: 'power', value: 'off' })
-  expect(changes(ran)).toEqual(['mode summary', 'size large all', 'mobile on all', 'voice santa', 'off all'])
+  expect(changes(ran)).toEqual(['mode summary', 'size large all', 'voice santa', 'off all'])
   expect((await ui.find({ type: 'Text', text: /desligada/ }))).toBeDefined()
   await ui.unmount()
 })

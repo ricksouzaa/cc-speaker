@@ -28,16 +28,15 @@ O Claude Code não tem passo de instalação para plugins. Por isso, ao abrir um
 
 ## O comando /speak
 
-Um comando só, para você digitar. Sem nada depois, abre um painel com uma lista para cada ajuste, no estilo do `/model` (setas movem, Enter escolhe, Esc fecha): voz ligada ou desligada, leitura, tamanho do resumo, voz de leitura, saída (computador ou celular) e para quais sessões vale. Cada escolha vale na hora e a lista mostra o valor novo. Ele responde na hora, sem gastar uma resposta do Claude, e funciona mesmo durante uma resposta (assim `/speak stop` corta a fala já).
+Um comando só, para você digitar. Sem nada depois, abre um painel com uma lista para cada ajuste, no estilo do `/model` (setas movem, Enter escolhe, Esc fecha): voz ligada ou desligada, leitura, tamanho do resumo, voz de leitura e para quais sessões vale. Cada escolha vale na hora e a lista mostra o valor novo. Ele responde na hora, sem gastar uma resposta do Claude, e funciona mesmo durante uma resposta (assim `/speak stop` corta a fala já).
 
 Também dá para escrever a ação inteira e pular o painel. Com `all` no fim, vale para todas as sessões; sem ele, só para a sessão atual:
 
 - `/speak on` e `/speak off`: ligam e desligam a voz.
 - `/speak mode [full|summary]`: lê a resposta inteira (sem código, caminhos e links) ou só o resumo da linha 🔊. Sem a escolha, abre o painel só com essa lista.
 - `/speak size [small|medium|large]`: tamanho do resumo falado: uma frase curta, duas a três frases (padrão) ou um parágrafo.
-- `/speak mobile [on|off]` (também aceita `phone`, o nome antigo): com o celular ligado, o computador não toca nada: cada resposta vira um arquivo mp3 (respeita o modo e o tamanho do resumo) que o Claude envia ao seu celular pelo controle remoto, para você dar o play. Custa uma volta curta extra do Claude por resposta, e a resposta inteira pode levar alguns minutos para virar áudio. Com o celular ligado e o modo "só o resumo", a linha 🔊 não aparece no chat: ao fim da resposta o Claude faz o resumo, gera o áudio com `speak mobile say` e o envia. Só funciona num controle remoto que aceite envio de arquivo; os mp3 ficam em `~/.local/state/claude-speak/phone` e somem depois de um dia.
 - `/speak voice [dora|alex|santa]`: sem nome, abre a lista com as vozes em português; com nome, escolhe (dora é feminina; alex e santa são masculinas). Vale para todas as sessões.
-- `/speak status`: mostra o estado atual (voz, modo, tamanho, saída, motor).
+- `/speak status`: mostra o estado atual (voz, modo, tamanho, motor).
 - `/speak stop`: corta a fala que está tocando e esvazia a fila.
 - `/speak install`: instala o motor (ou tenta de novo), em primeiro plano; pode levar minutos.
 
@@ -46,7 +45,7 @@ Se o painel não puder abrir (por exemplo, numa execução sem tela), o comando 
 ## Variáveis de ambiente
 
 - `CLAUDE_SPEAK=0`: começa a sessão muda.
-- `CLAUDE_SPEAK_MODE`, `CLAUDE_SPEAK_SIZE`, `CLAUDE_SPEAK_VOICE`, `CLAUDE_SPEAK_OUTPUT` (`phone` ou `speaker`): mandam mais que as escolhas gravadas.
+- `CLAUDE_SPEAK_MODE`, `CLAUDE_SPEAK_SIZE`, `CLAUDE_SPEAK_VOICE`: mandam mais que as escolhas gravadas.
 - `CLAUDE_SPEAK_SPEED`: velocidade da fala (padrão 1.1).
 
 ## Pastas

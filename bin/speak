@@ -9,8 +9,6 @@
                            summary: only its last line starting with 🔊 (rules/speak.md)
   speak size small|medium|large [all]  how long the spoken summary is (one short sentence; two or three sentences;
                            a paragraph); same scopes as `mode`; default medium
-  speak mobile on|off [all]  send each reply as an mp3 file to the phone (Remote Control) instead of speaking it on
-                           the computer; same scopes as `mode`; default off (the computer's speaker)
   speak status --json      the same state as one JSON line (used by the /speak pane)
   speak voice [name]       without a name: list the Portuguese voices (dora, alex, santa) and mark the current one;
                            with a name (short or full, e.g. dora or pf_dora): choose it for every session
@@ -20,13 +18,7 @@
   speak test [text]        speak a test sentence, in the foreground (errors show)
   speak install            install the engine: Python 3.12 via uv, kokoro-onnx, model files (~350 MB); no sudo
   speak say [text | -]     speak in the background and return at once; `-` reads the reply from stdin and applies
-                           the mode (used by hooks/speak-stop.py). With the phone output, `-` plays nothing: it
-                           synthesizes an mp3 in the foreground and prints its path (nothing when there is none)
-  speak mobile say <text>  synthesize <text> into an mp3 for the phone and print its path (exit 2 without text); the
-                           Stop hook asks Claude to run it with the summary when the phone is on in summary mode
-  speak mobile-summary     exit 0 (printing the size description) when this session speaks to the phone in summary
-                           mode, else 1; used by the hooks
-  speak output             print `phone` or `speaker`: where this session's replies go (used by hooks/speak-stop.py)
+                           the mode (used by hooks/speak-stop.py)
   speak stop               cut the speech playing now, whoever's it is, and drop every speech waiting its turn; the
                            voice stays on
   speak silent             exit 0 when this session will not speak (voice off here, or no engine), else 1; prints
@@ -40,9 +32,7 @@ microphone is free. `speak off` in a session also drops that session's speeches 
 Env: CLAUDE_SPEAK=0 silences one session (a first choice that a later `speak on` beats);
 CLAUDE_SPEAK_SESSION forces the session key ('-' means none; for tests and to force a key);
 CLAUDE_SPEAK_MODE overrides the mode; CLAUDE_SPEAK_SIZE the size; CLAUDE_SPEAK_VOICE the voice (default pf_dora);
-CLAUDE_SPEAK_SPEED (default 1.1); CLAUDE_SPEAK_OUTPUT (phone or speaker) overrides the output;
-CLAUDE_SPEAK_STOP_ACTIVE=1 (set by the Stop hook on the turn that follows its own request) makes `say -` do nothing
-with the phone output.
+CLAUDE_SPEAK_SPEED (default 1.1).
 Errors of a background speech go to ~/.local/state/claude-speak/error.log.
 """
 import json
@@ -70,11 +60,6 @@ SIZE_TEXT = {'small': 'one short sentence',
              'medium': 'two or three sentences: what was done, the result and what the human must decide',
              'large': 'a spoken paragraph of four to six sentences: what was done, what was found, the result and '
                       'what the human must decide'}
-OUTPUT_FILE = os.path.join(CONF, 'output')
-OUTPUTS = ('speaker', 'phone')
-OUTPUT_NAME = {'speaker': 'alto-falante', 'phone': 'celular'}
-PHONE = os.path.join(STATE, 'phone')  # the mp3 files of the phone output, one per reply
-PHONE_KEEP = 24 * 3600  # seconds an mp3 is kept
 VOICE_FILE = os.path.join(CONF, 'voice')
 PT_VOICES = {'dora': ('pf_dora', 'feminina'), 'alex': ('pm_alex', 'masculina'), 'santa': ('pm_santa', 'masculina')}
 RULE = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'rules', 'speak.md')
@@ -118,18 +103,6 @@ def voice_name(wanted):
         if wanted in (short, full):
             return full
     return None
-
-
-def output(session=None):
-    """CLAUDE_SPEAK_OUTPUT, then the session's own output, then the general file, then 'speaker'."""
-    wanted = os.environ.get('CLAUDE_SPEAK_OUTPUT') or read_session(session).get('output')
-    if not wanted:
-        try:
-            with open(OUTPUT_FILE) as fh:
-                wanted = fh.read().strip()
-        except OSError:
-            pass
-    return wanted if wanted in OUTPUTS else 'speaker'
 
 
 def speed():
@@ -251,7 +224,7 @@ def session_alive(key):
 
 
 def read_session(key):
-    """The fields of a session file: {'voice': 'muted'|'speaking', 'mode': 'full'|'summary', 'size': 'small'|'medium'|'large', 'output': 'speaker'|'phone'}, each optional.
+    """The fields of a session file: {'voice': 'muted'|'speaking', 'mode': 'full'|'summary', 'size': 'small'|'medium'|'large'}, each optional.
     A bare `muted` or `speaking` (a file of the first format) counts as the voice."""
     if not key:
         return {}
@@ -267,8 +240,7 @@ def read_session(key):
     if not isinstance(data, dict):
         return {}
     return {k: v for k, v in data.items() if (k == 'voice' and v in ('muted', 'speaking'))
-            or (k == 'mode' and v in MODES) or (k == 'size' and v in SIZES)
-            or (k == 'output' and v in OUTPUTS)}
+            or (k == 'mode' and v in MODES) or (k == 'size' and v in SIZES)}
 
 
 def session_mode(key):
@@ -303,7 +275,7 @@ def asked_after_start(key):
 
 
 def set_session(key, **fields):
-    """Updates only the given fields (voice=, mode=, size=, output=) of a session file, keeping the others."""
+    """Updates only the given fields (voice=, mode=, size=) of a session file, keeping the others."""
     os.makedirs(SESSIONS, exist_ok=True)
     prune_sessions()
     write_atomic(os.path.join(SESSIONS, key), json.dumps({**read_session(key), **fields}))
@@ -728,58 +700,6 @@ def play(text):
         clear_speech(os.getpid())
 
 
-def phone_cleanup():
-    """Removes the mp3 files of the phone folder that are older than a day."""
-    try:
-        names = os.listdir(PHONE)
-    except OSError:
-        return
-    for name in names:
-        path = os.path.join(PHONE, name)
-        try:
-            if name.endswith('.mp3') and time.time() - os.stat(path).st_mtime > PHONE_KEEP:
-                os.remove(path)
-        except OSError:
-            pass
-
-
-def write_mp3(path, text):
-    """Runs inside the engine's Python: synthesizes `text` (current voice and speed) into an mp3 at `path`."""
-    import numpy
-    import soundfile
-    from kokoro_onnx import Kokoro
-    kokoro = Kokoro(MODEL, VOICES)
-    parts = [kokoro.create(piece, voice=voice(), speed=speed(), lang='pt-br')[0] for piece in pieces(text)]
-    if not parts:
-        return 1
-    tmp = path + '.part'
-    try:
-        soundfile.write(tmp, numpy.concatenate(parts).astype('float32'), RATE, format='MP3')
-        os.replace(tmp, path)
-    finally:
-        drop(tmp)
-    return 0
-
-
-def phone_say(text, session):
-    """The phone output: plays nothing; synthesizes `text` into an mp3, in the foreground (inside the engine's
-    Python), and prints its path. Prints nothing without text, engine or voice, or when the synthesis fails."""
-    if os.environ.get('CLAUDE_SPEAK_STOP_ACTIVE') == '1' or not text.strip() or not is_on(session) \
-            or not engine_ready():
-        return 0
-    os.makedirs(PHONE, exist_ok=True)
-    phone_cleanup()
-    path = os.path.join(PHONE, '%s-%d.mp3' % (session or 'x', time.time() * 1000))
-    os.makedirs(STATE, exist_ok=True)
-    with open(LOG, 'a') as log:
-        done = subprocess.run([VENV_PY, '-I', os.path.realpath(__file__), '_mp3', path, text],
-                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=log,
-                              env={**os.environ, 'CLAUDE_SPEAK_SESSION': session or '-'})
-    if done.returncode == 0 and os.path.exists(path):
-        print(path)
-    return 0
-
-
 def install():
     uv = shutil.which('uv') or os.path.join(HOME, '.local', 'bin', 'uv')
     if not os.path.exists(uv):
@@ -850,7 +770,6 @@ def status():
         print('  desligada só nesta sessão (CLAUDE_SPEAK=0)')
     print('  modo: %s' % mode())  # the general one (or CLAUDE_SPEAK_MODE)
     print('  tamanho do resumo: %s' % summary_size())
-    print('  saída: %s' % OUTPUT_NAME[output(session)])
     print('  motor: %s' % ('instalado em %s' % DATA if engine_ready() else 'não instalado (rode: speak install)'))
     print('  voz: %s, velocidade %s' % (voice(), speed()))
     return 0
@@ -910,7 +829,7 @@ def status_json():
     session = current_session()
     now = voice()
     print(json.dumps({'on': is_on(session), 'mode': mode(session), 'size': summary_size(session),
-                      'output': output(session), 'engine': engine_ready(),
+                      'engine': engine_ready(),
                       'voice': next((short for short, (full, _) in PT_VOICES.items() if full == now), now)}))
     return 0
 
@@ -981,30 +900,6 @@ def main(argv):
                 fh.write(wanted + '\n')
             set_all_sessions(size=wanted)
         return status()
-    if cmd in ('mobile', 'phone') and rest[:1] == ['say']:
-        if not ' '.join(rest[1:]).strip():
-            print('voz: use "speak mobile say <resumo>"', file=sys.stderr)
-            return 2
-        return phone_say(' '.join(rest[1:]), current_session())
-    if cmd in ('mobile', 'phone'):  # 'phone' is the former name, kept silently
-        wanted, _, scope = text.partition(' ')
-        if wanted not in ('on', 'off') or scope not in ('', 'all'):
-            print('voz: use "speak mobile on" ou "speak mobile off" (com "all" no fim, vale para todas as sessões)',
-                  file=sys.stderr)
-            return 2
-        where = 'phone' if wanted == 'on' else 'speaker'
-        session = current_session()
-        if session and not scope:
-            set_session(session, output=where)
-        else:
-            os.makedirs(CONF, exist_ok=True)
-            with open(OUTPUT_FILE, 'w') as fh:
-                fh.write(where + '\n')
-            set_all_sessions(output=where)
-        return status()
-    if cmd == 'output':
-        print(output(current_session()))
-        return 0
     if cmd == 'voice':
         if not text:
             for short, (full, kind) in PT_VOICES.items():
@@ -1029,12 +924,6 @@ def main(argv):
         if gone:
             print(' '.join(gone))
         return 1 if gone else 0
-    if cmd == 'mobile-summary':
-        session = current_session()
-        if is_on(session) and engine_ready() and output(session) == 'phone' and mode(session) == 'summary':
-            print(SIZE_TEXT[summary_size(session)])
-            return 0
-        return 1
     if cmd == 'silent':
         return 1 if is_on(current_session()) and engine_ready() else 0
     if cmd == 'install':
@@ -1043,7 +932,7 @@ def main(argv):
         session = current_session()
         if text == '-':
             said = to_speak(sys.stdin.read(), mode(session), summary_size(session))
-            return phone_say(said, session) if output(session) == 'phone' else speak_background(said, session)
+            return speak_background(said, session)
         return speak_background(text, session)
     if cmd == 'test':
         if not engine_ready():
@@ -1052,8 +941,6 @@ def main(argv):
         return subprocess.call([VENV_PY, '-I', os.path.realpath(__file__), '_play',
                                 text or 'Olá! A voz do Claude Code está funcionando.'],
                                env={**os.environ, 'CLAUDE_SPEAK_TEST': '1'})
-    if cmd == '_mp3':
-        return write_mp3(rest[0], ' '.join(rest[1:])) if len(rest) > 1 else 2
     if cmd == '_play':
         return play(text)
     print(__doc__.strip(), file=sys.stderr if cmd not in ('-h', '--help') else sys.stdout)
