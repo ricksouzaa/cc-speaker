@@ -1,81 +1,128 @@
 # cc-speaker
 
-Respostas do Claude Code lidas em voz alta, em português do Brasil, com um motor de voz que roda na sua máquina (Kokoro), sem rede e sem custo. É um plugin do Claude Code chamado `speak`; este repositório é também o catálogo de onde ele se instala. Funciona no Linux e no macOS (Windows fica de fora por enquanto).
+Um plugin do Claude Code, chamado `speak`, que lê as respostas em voz alta em português do Brasil. A voz é gerada na sua máquina pelo Kokoro: sem rede, sem conta e sem custo. Este repositório é também o catálogo de onde o plugin se instala.
+
+- **Lê só o resumo, ou a resposta inteira.** Por padrão, o Claude termina cada resposta com uma linha 🔊, um resumo feito para ser ouvido, e só ela é lida. No modo da resposta inteira, a voz lê o texto e pula código, caminhos e links.
+- **Uma fala de cada vez.** Com várias sessões abertas, as falas entram numa fila e uma mensagem nova não corta a que está tocando.
+- **Respeita o microfone.** Enquanto você dita ou está numa reunião, a voz espera; se começar uma gravação no meio da fala, ela para. Dá para mudar isso quando você quer que a reunião ouça.
+- **Se ajusta sem gastar resposta.** O comando `/speak` abre um painel com as opções, ou você pede em palavras ("fala só o resumo", "troca para a voz do Alex").
+
+Funciona no Linux e no macOS. O Windows fica de fora por enquanto.
 
 ## Requisitos
 
-- Linux ou macOS, com `python3`.
-- `uv` (https://docs.astral.sh/uv/), que instala o motor.
-- Linux: um tocador de áudio, `pw-play` (PipeWire 1.1 ou mais novo, que tem `--raw`), `paplay` ou `aplay`. Com um `pw-play` mais velho (Ubuntu 24.04), o speak usa o `paplay` ou o `aplay`.
-- Mac: o `afplay`, que já vem no sistema (o speak toca pelo `sounddevice` e cai para o `afplay` se algo falhar). O código do Mac está pronto, mas ainda falta o teste num Mac de verdade.
-- Cerca de 350 MB livres para o motor e o modelo de voz.
+| | Linux | macOS |
+|---|---|---|
+| Python | `python3` | `python3` (o do sistema serve) |
+| Instalador do motor | [`uv`](https://docs.astral.sh/uv/) | [`uv`](https://docs.astral.sh/uv/) |
+| Tocador de áudio | `pw-play` (PipeWire 1.1 ou mais novo), `paplay` ou `aplay` | já vem no sistema |
+| Espaço | cerca de 350 MB | cerca de 350 MB |
+
+No Ubuntu 24.04 o `pw-play` é mais velho, e o speak usa o `paplay` ou o `aplay` no lugar. O código do Mac está pronto e passa nos testes automáticos, mas ainda falta o teste num Mac de verdade.
 
 ## Instalação
 
-1. No Claude Code: `/plugin marketplace add ricksouzaa/cc-speaker`
-2. Depois: `/plugin install speak@cc-speaker`
-3. Abra uma sessão nova.
-4. Se o motor de voz ainda não estiver instalado, a primeira sessão o instala sozinha, em segundo plano (veja abaixo). Não precisa de sudo.
+No Claude Code:
 
-## O motor, instalado sozinho
+```
+/plugin marketplace add ricksouzaa/cc-speaker
+/plugin install speak@cc-speaker
+```
 
-O Claude Code não tem passo de instalação para plugins. Por isso a voz se instala sozinha na primeira sessão depois de instalar o plugin (ou depois de `/reload-plugins`): ao abrir a sessão sem o motor, o plugin dispara a instalação em segundo plano, sem perguntar. São cerca de 350 MB (o modelo de voz e as bibliotecas), sem sudo. Você é avisado na própria tela, sem depender do Claude. Para acompanhar:
+Pronto. A voz se instala sozinha, em segundo plano e sem sudo: ali mesmo, logo depois do `/plugin install`, ou na próxima sessão que você abrir. São cerca de 350 MB, entre o modelo de voz e as bibliotecas, e leva alguns minutos. Enquanto isso:
 
-- uma linha embaixo do campo de texto (`🔊 Instalando a voz: 78% (253 de 326 MB)`), que some quando termina, com o aviso "Voz pronta" (ou o de falha);
-- `/speak status`, que mostra a etapa e a porcentagem na linha do motor;
-- o rodapé do menu do `/speak`.
+- aparece uma linha na conversa dizendo que a voz está sendo instalada;
+- embaixo do campo de texto, o progresso: `🔊 Instalando a voz: 78% (253 de 326 MB)`;
+- no fim, o aviso "Voz pronta", e a voz começa a falar.
 
-A voz começa sozinha quando termina. Se algo der errado, `/speak install` é o plano B: instala (ou tenta de novo) em primeiro plano. Enquanto o motor falta, o Claude não escreve a linha 🔊 e a nota de cada mensagem diz isso (instalando, com a porcentagem, ou não instalado), nunca "voz desligada". Detalhes:
+O `/speak status` e o rodapé do menu também mostram o andamento. Só uma instalação roda por vez, mesmo com várias sessões abertas.
 
-- Só uma instalação roda por vez: outra sessão que abra nesse meio tempo não começa outra.
-- Ao ativar o plugin com a sessão já aberta (`/plugin install`), a instalação começa ali mesmo, com uma linha na conversa e o progresso embaixo do campo de texto; sem o uv, ou depois de uma falha, fica um aviso fixo ("Voz não instalada: rode /speak install") até o motor ficar pronto. Nessa sessão as regras de voz só chegam ao Claude na próxima sessão.
-- O registro fica em `state/install.log` (cada etapa aparece na hora em que começa), dentro da pasta de dados do plugin (veja "Pastas").
-- Se faltar o `uv`, nada é instalado; o Claude diz como instalá-lo (https://docs.astral.sh/uv/).
-- Se a instalação falhar, ela não tenta de novo sozinha: o Claude aponta o registro e você roda `/speak install` para tentar outra vez, em primeiro plano.
-- `CLAUDE_SPEAK_AUTOINSTALL=0` desliga a instalação automática.
+## Uso
 
-## O comando /speak
+### O painel
 
-Um comando só, para você digitar. Sem nada depois, abre um painel de voz já com o foco (funciona no terminal e no VS Code): uma lista por linha, e cada escolha vale na hora. Tab troca de linha, Enter escolhe o valor; Esc ou o botão Fechar fecham o painel. As linhas: **Mudar em** (todas as sessões ou só esta; só diz onde as próximas trocas são gravadas, abre sempre em "Todas as sessões" e não roda nada), **Voz** (ligada ou desligada), **Leitura** (resposta inteira ou só o resumo), **Tamanho do resumo**, **Voz de leitura** (vale sempre para todas as sessões) e **Com o microfone em uso** (Espera, Toca ou Toca nesta reunião; quando toca, o rodapé avisa que o microfone pode captar a voz). Uma linha que é exceção só desta sessão leva a marca "· só nesta sessão". Pendência conhecida: as sessões que ficaram com o campo `voice` copiado continuam marcadas "· só nesta sessão" até o próximo `speak on all` ou `speak off all`. O rodapé mostra o que passou a valer, ou o erro. Ele responde na hora, sem gastar uma resposta do Claude, e funciona mesmo durante uma resposta (assim `/speak stop` corta a fala já).
+Digite `/speak` sozinho. Abre um painel com uma lista por linha, já com o teclado nele, no terminal e no VS Code. Tab muda de linha, Enter escolhe o valor, e Esc ou o botão Fechar fecham. Cada escolha vale na hora.
 
-Também dá para escrever a ação inteira e pular o menu. Com `all` no fim, vale para todas as sessões; sem ele, só para a sessão atual:
+| Linha | O que escolhe |
+|---|---|
+| Mudar em | onde as próximas trocas valem: todas as sessões (padrão ao abrir) ou só nesta |
+| Voz | ligada (padrão) ou desligada |
+| Leitura | só o resumo (padrão) ou a resposta inteira |
+| Tamanho do resumo | pequeno (uma frase), médio (padrão, duas ou três frases) ou grande (um parágrafo) |
+| Voz de leitura | Dora (padrão, feminina), Alex ou Santa (masculinas); vale sempre para todas as sessões |
+| Com o microfone em uso | Espera (padrão), Toca ou Toca nesta reunião (veja [Microfone](#microfone)) |
 
-- `/speak on` e `/speak off`: ligam e desligam a voz.
-- `/speak mode [full|summary]`: lê a resposta inteira (sem código, caminhos e links) ou só o resumo da linha 🔊 (padrão: o resumo; na resposta inteira o Claude não escreve a linha; quem nunca tinha escolhido o modo passa ao resumo ao atualizar). Sem a escolha, abre o menu com o foco nessa linha.
-- `/speak size [small|medium|large]`: tamanho do resumo falado: uma frase curta, duas a três frases (padrão) ou um parágrafo.
-- `/speak mic [wait|play|auto]`: o que a voz faz enquanto o microfone está gravando (ditado, reunião). `wait` (padrão): a fala espera o microfone ficar livre e uma gravação que começa corta a fala. `play`: a fala toca mesmo com o microfone em uso e nada a corta, até você mudar. `auto`: como `play`, e quando o microfone passa de ocupado para livre (a reunião acabou) a escolha volta sozinha a `wait`, no mesmo alcance em que foi gravada. Sem a escolha, abre o menu nessa linha. Veja "Microfone" abaixo.
-- `/speak voice [dora|alex|santa]`: sem nome, abre o menu na linha da voz; com nome, escolhe (dora é feminina; alex e santa são masculinas). Vale para todas as sessões.
-- `/speak status`: mostra o estado atual (voz, modo, tamanho, microfone, motor).
-- `/speak stop`: corta a fala que está tocando e esvazia a fila.
-- Sair da sessão corta a fala dela (a que toca e as que esperam); as falas de outras sessões continuam.
-- `/speak install`: instala o motor (ou tenta de novo), em primeiro plano; pode levar minutos.
+Uma linha que só vale nesta sessão leva a marca "· só nesta sessão". O painel responde sem gastar uma resposta do Claude e funciona até no meio de uma resposta.
 
-Se o menu não puder abrir (por exemplo, numa execução sem tela), o comando responde com a forma escrita. Também dá para pedir em palavras ("fala só o resumo", "resumo maior", "troca para a voz do Alex"); o Claude roda o comando por você.
+### Comandos escritos
+
+Para pular o painel, escreva a ação. Com `all` no fim, vale para todas as sessões; sem ele, só para esta.
+
+| Comando | O que faz |
+|---|---|
+| `/speak on` · `/speak off` | liga ou desliga a voz (padrão: `on`) |
+| `/speak mode summary` · `full` | lê só o resumo ou a resposta inteira (padrão: `summary`) |
+| `/speak size small` · `medium` · `large` | tamanho do resumo (padrão: `medium`) |
+| `/speak voice dora` · `alex` · `santa` | troca a voz, sempre em todas as sessões (padrão: `dora`) |
+| `/speak mic wait` · `play` · `auto` | o que fazer com o microfone em uso (padrão: `wait`) |
+| `/speak status` | mostra como está tudo: voz, leitura, tamanho, microfone e motor |
+| `/speak stop` | corta a fala que está tocando e esvazia a fila |
+| `/speak install` | instala o motor de novo, em primeiro plano |
+
+Sem o valor (`/speak mode`, `/speak voice`…), o painel abre já na linha certa. Sair de uma sessão corta as falas dela, e as de outras sessões continuam.
+
+### Em palavras
+
+Também dá para pedir ao Claude, escrevendo ou ditando: "fala só o resumo", "resumo maior", "troca para a voz do Alex", "para de falar", "silêncio em todas as sessões". Ele roda o comando e confirma o que passou a valer.
 
 ## Microfone
 
-Por padrão (`speak mic wait`) a voz respeita o microfone: enquanto um programa grava (ditar segurando a barra de espaço no Claude Code, uma reunião do Google Meet), as falas esperam na fila e, se uma gravação começa durante a fala, ela é cortada. A detecção usa o `pw-dump` no Linux e o CoreAudio no Mac.
+O microfone é detectado pelo `pw-dump` no Linux e pelo CoreAudio no Mac. Há três jeitos de lidar com ele:
 
-Para tocar de propósito durante a reunião, de modo que as pessoas ouçam, use `speak mic play` (vale até mudar) ou `speak mic auto` (vale só nesta reunião: quando o microfone ficar livre, volta sozinho a `wait`). O `auto` anota que viu o microfone ocupado e volta a `wait` na primeira vez que o vê livre depois disso, olhando a cada fala e a cada mensagem nova; escolhido com o microfone livre, espera a próxima reunião. Atenção: com a voz tocando, o microfone pode captar a voz e quem está na reunião ouve. Como os outros ajustes, vale só para a sessão, ou para todas com `all` no fim. Também dá para pedir em palavras ("toca durante a reunião", "pode falar na reunião").
+| Escolha | O que acontece com o microfone gravando |
+|---|---|
+| `wait`, Espera (padrão) | a fala espera na fila até o microfone ficar livre; se uma gravação começa durante a fala, ela é cortada |
+| `play`, Toca | a fala toca mesmo assim e nada a corta, até você mudar |
+| `auto`, Toca nesta reunião | como `play`, e quando a reunião acaba (o microfone fica livre) volta sozinho para `wait` |
 
-## Variáveis de ambiente
+O `play` e o `auto` servem para quando você quer que as pessoas da reunião ouçam: sem fone de ouvido, o microfone capta a voz. O `auto` percebe o fim da reunião na próxima fala ou na próxima mensagem; se for escolhido com o microfone livre, vale para a próxima reunião.
 
-- `CLAUDE_SPEAK=0`: começa a sessão muda.
-- `CLAUDE_SPEAK_MODE`, `CLAUDE_SPEAK_SIZE`, `CLAUDE_SPEAK_MIC`, `CLAUDE_SPEAK_VOICE`: mandam mais que as escolhas gravadas.
-- `CLAUDE_SPEAK_SPEED`: velocidade da fala (padrão 1.1).
+## Quando a voz não instala
 
-## Pastas
+- **Falta o `uv`:** nada é instalado, e o Claude diz como instalá-lo. Embaixo do campo fica o aviso "Voz não instalada". Depois de instalar o `uv`, rode `/speak install`.
+- **A instalação falhou:** ela não tenta de novo sozinha, para não baixar tudo em toda sessão. O aviso fica embaixo do campo; rode `/speak install` para tentar de novo, vendo cada etapa.
+- **O registro** de cada instalação fica em `state/install.log`, na [pasta de dados](#pastas). Cada etapa aparece ali na hora em que começa.
 
-Tudo fica na pasta de dados do plugin, em `~/.claude/plugins/data/speak-cc-speaker` (ou onde `CLAUDE_PLUGIN_DATA` mandar): o motor em `engine/`, as escolhas em `config/` e o estado em `state/`. Desinstalar o plugin apaga o motor, as escolhas e o estado (a menos que use `--keep-data`). Quem já tinha as pastas antigas (`~/.local/share/claude-speak`, `~/.config/claude-speak`, `~/.local/state/claude-speak`) as vê movidas para lá na primeira vez, sem baixar o motor de novo.
+Enquanto o motor falta, o Claude não escreve a linha 🔊. A instalação automática se desliga com `CLAUDE_SPEAK_AUTOINSTALL=0`.
 
-## Testes
+Quando o plugin é ativado com uma sessão já aberta, a instalação começa ali mesmo, mas as regras da voz só chegam ao Claude na próxima sessão.
 
-`python3 -m unittest discover -s tests` (motor e script) e `claude plugin test .` (o comando `/speak`).
+## Ajustes avançados
 
-Instalação numa máquina nova, num contêiner Ubuntu: `bash tests/docker/instalacao-limpa.sh auto` (ou `visual`, para ver a tela). Veja `tests/docker/README.md`.
+### Variáveis de ambiente
 
-Decisões e próximos passos: `docs/proximos-passos.md`.
+| Variável | Efeito |
+|---|---|
+| `CLAUDE_SPEAK=0` | a sessão começa muda |
+| `CLAUDE_SPEAK_MODE`, `CLAUDE_SPEAK_SIZE`, `CLAUDE_SPEAK_MIC`, `CLAUDE_SPEAK_VOICE` | valem mais que as escolhas gravadas |
+| `CLAUDE_SPEAK_SPEED` | velocidade da fala (padrão: 1.1) |
+| `CLAUDE_SPEAK_AUTOINSTALL=0` | desliga a instalação automática do motor |
+
+### Pastas
+
+Tudo fica na pasta de dados do plugin, `~/.claude/plugins/data/speak-cc-speaker` (ou onde `CLAUDE_PLUGIN_DATA` mandar): o motor em `engine/`, as escolhas em `config/` e o estado em `state/`.
+
+Desinstalar o plugin apaga essa pasta inteira, a menos que você use `--keep-data`. Quem usava uma versão antiga, com as pastas `~/.local/share/claude-speak`, `~/.config/claude-speak` e `~/.local/state/claude-speak`, as vê movidas para lá na primeira vez, sem baixar o motor de novo.
+
+## Desenvolvimento
+
+- Testes do motor e do script: `python3 -m unittest discover -s tests`
+- Testes do comando `/speak`: `claude plugin test .`
+- Instalação numa máquina nova, num contêiner Ubuntu: `bash tests/docker/instalacao-limpa.sh auto`, ou `visual` para ver a tela (veja [`tests/docker/README.md`](tests/docker/README.md))
+- Os testes rodam no GitHub no Ubuntu e no macOS a cada envio.
+
+Decisões e próximos passos: [`docs/proximos-passos.md`](docs/proximos-passos.md).
 
 ## Licença
 
-MIT (veja `LICENSE`). O motor de voz não vem neste repositório: o modelo Kokoro (Apache 2.0) e as bibliotecas são baixados na sua máquina por `speak install`, cada um com a sua licença.
+MIT (veja [`LICENSE`](LICENSE)). O motor de voz não vem neste repositório: o modelo Kokoro (Apache 2.0) e as bibliotecas são baixados na sua máquina pelo `speak install`, cada um com a sua licença.
