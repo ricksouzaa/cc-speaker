@@ -1485,20 +1485,20 @@ class StartHook(unittest.TestCase):
 
     def test_without_engine_it_asks_claude_to_offer_the_install(self):
         out = self.run_hook()
-        self.assertIn('speak install', out)
+        self.assertIn('motor de voz não está instalado', out)
         self.assertIn('350 MB', out)
 
     def test_with_engine_and_player_there_is_no_notice(self):
         self.engine()
         out = self.run_hook(**self.player())
-        self.assertNotIn('speak install', out)
+        self.assertNotIn('motor de voz não está instalado', out)
         self.assertNotIn('tocador', out)
 
     def test_without_player_it_says_so(self):
         self.engine()
         out = self.run_hook(PATH='/nonexistent')
         self.assertIn('tocador', out)
-        self.assertNotIn('speak install', out)
+        self.assertNotIn('motor de voz não está instalado', out)
 
 
 class Plugin(unittest.TestCase):
