@@ -1889,6 +1889,20 @@ class InstallProgress(unittest.TestCase):
         self.assertIsNone(speak.install_progress())
         self.assertFalse(os.path.exists(speak.INSTALL_PROGRESS))
 
+    def test_leftover_temporaries_go_with_the_leftover_file(self):
+        self.put(fase='dependências')
+        tmps = [speak.INSTALL_PROGRESS + '.tmp-123', speak.INSTALL_PROGRESS + '.tmp-9']
+        other = os.path.join(speak.STATE, 'queue.lock.tmp-1')
+        for path in tmps + [other]:
+            open(path, 'w').close()
+        self.assertIsNone(speak.install_progress())
+        self.assertEqual([os.path.exists(p) for p in tmps + [other]], [False, False, True])
+        # with the lock held (an install running) its temporary is left alone
+        self.hold()
+        open(tmps[0], 'w').close()
+        speak.install_progress()
+        self.assertTrue(os.path.exists(tmps[0]))
+
     def test_with_the_lock_held_the_progress_is_read(self):
         self.hold()
         self.assertIsNone(speak.install_progress())  # no file yet

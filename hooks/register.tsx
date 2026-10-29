@@ -54,14 +54,18 @@ const installLine = (s: State | undefined) => `🔊 Instalando a voz${progress(s
 // A linha de status sob o campo de texto enquanto o motor se instala. O relógio só roda enquanto houver instalação
 // (ou nos primeiros segundos da sessão, à espera do gancho que a inicia) e é cancelado ao fim.
 const WATCH_MS = 2000
+const WATCH_FAILS = 5 // leituras falhas seguidas antes de desistir
 const WATCH_GRACE = 5 // consultas sem instalação à vista antes de desistir, se nunca se viu uma
 let watch: Timer | undefined
 let watching = false
+let live: State | undefined // a última leitura do relógio, só para o progresso do rodapé
+let footLine = '' // a linha de progresso já desenhada no rodapé
 
 function stopWatch($: Engine) {
   watch?.cancel()
   watch = undefined
   watching = false
+  live = undefined
   $.ui.status(undefined)
 }
 
@@ -70,6 +74,7 @@ function startWatch($: Engine) {
   watching = true
   let seen = false
   let idle = 0
+  let fails = 0
   let busy = false
   const tick = async () => {
     if (busy || !watching) return
@@ -77,20 +82,28 @@ function startWatch($: Engine) {
     try {
       const now = await state($)
       if (!watching) return
-      if (isInstalling(now)) {
-        seen = true
-        $.ui.status(installLine(now))
-        if (view) {
-          view = { now }
-          $.ui.invalidate('ui.render')
-        }
+      if (!now) { // leitura falha: tenta de novo; depois de várias seguidas desiste em silêncio
+        if (++fails >= WATCH_FAILS) stopWatch($)
         return
       }
-      if (!seen && now && !now.engine && ++idle <= WATCH_GRACE) return
+      fails = 0
+      if (isInstalling(now)) {
+        seen = true
+        const line = installLine(now)
+        $.ui.status(line)
+        // O menu aberto só troca o progresso do rodapé, e só quando o texto muda; as linhas não são tocadas.
+        if (view && line !== footLine) {
+          footLine = line
+          $.ui.invalidate('ui.render')
+        }
+        live = now
+        return
+      }
+      if (!seen && !now.engine && ++idle <= WATCH_GRACE) return
       stopWatch($)
       if (seen) {
         $.ui.toast(
-          now?.engine ? 'Voz pronta' : 'A instalação da voz não terminou; rode /speak install',
+          now.engine ? 'Voz pronta' : 'A instalação da voz não terminou; rode /speak install',
           { timeoutMs: 8000 },
         )
       }
@@ -188,6 +201,7 @@ const ROWS: { key: Key; label: string; table: Record<string, string>; current: (
 // O estado da voz lido para o desenho: vazio ao abrir (o desenho lê), e trocado a cada mudança pela leitura que a
 // própria mudança já fez, para não ler duas vezes. `now` indefinido é "não deu para ler".
 let view: { now: State | undefined } | undefined
+let firstDraw = false
 
 // As trocas rodam em fila: duas escolhas seguidas rodam o speak uma depois da outra, nunca juntas.
 let queue: Promise<unknown> = Promise.resolve()
@@ -214,7 +228,7 @@ async function menuChange($: Engine, key: Key, value: string): Promise<void> {
 
 // Tudo o que o desenho precisa, já lido: quem desenha não fala com o speak nem com o estado.
 type Menu = {
-  now: State | undefined; where: string; note: string; first: Key
+  now: State | undefined; install: State | undefined; where: string; note: string; first: Key | undefined
   choose: (key: Key, value: string) => unknown; close: () => unknown
 }
 
@@ -233,13 +247,13 @@ function drawMenu(el: any, m: Menu) {
             label={r.label.padEnd(width) + (own ? OWN + ' ' : '')}
             options={Object.keys(r.table).map(v => ({ value: v, label: r.table[v]! }))}
             value={value || undefined}
-            autoFocus={r.key === m.first ? true : undefined}
+            autoFocus={m.first && r.key === m.first ? true : undefined}
             onSelect={(v: string) => m.choose(r.key, v)}
           />
         )
       })}
       <Button key="fechar" label="Fechar" onPress={m.close} />
-      <Text dimColor>{m.note || (isInstalling(m.now) ? installLine(m.now) : m.now ? HELP : UNREAD)}</Text>
+      <Text dimColor>{m.note || (isInstalling(m.install) ? installLine(m.install) : m.now ? HELP : UNREAD)}</Text>
     </Box>
   )
 }
@@ -247,11 +261,16 @@ function drawMenu(el: any, m: Menu) {
 async function menuTree($: Engine, e: any): Promise<unknown> {
   if (!view) view = { now: await state($) }
   const focus = (await $.state.get(FOCUS)).value ?? 'where'
+  const first = firstDraw // o foco pedido vale só no primeiro desenho depois de abrir
+  firstDraw = false
+  const progressNow = live ?? view.now
+  footLine = installLine(progressNow)
   return drawMenu($.ui.resolve(e), {
     now: view.now,
+    install: progressNow,
     where: (await $.state.get(STATE)).value ?? 'all',
     note: (await $.state.get(NOTE)).value ?? '',
-    first: (ROWS.some(r => r.key === focus) ? focus : 'where') as Key,
+    first: first ? ((ROWS.some(r => r.key === focus) ? focus : 'where') as Key) : undefined,
     choose: (key, value) => enqueue(() => menuChange($, key, value)),
     close: () => $.ui.close({ id: PANE }),
   })
@@ -260,6 +279,8 @@ async function menuTree($: Engine, e: any): Promise<unknown> {
 // Abre o menu com o foco na linha pedida; devolve falso quando ele não abre (então a resposta é em texto).
 async function openMenu($: Engine, focus: Key): Promise<boolean> {
   view = undefined
+  live = undefined
+  firstDraw = true
   await $.state.set(STATE, 'all')
   await $.state.set(NOTE, '')
   await $.state.set(FOCUS, focus)

@@ -1031,6 +1031,13 @@ def install_progress():
                 return None
             return data if isinstance(data, dict) else None
         remove_quietly(INSTALL_PROGRESS)
+        base = os.path.basename(INSTALL_PROGRESS) + '.tmp-'  # temporaries a dead install left beside it
+        try:
+            for name in os.listdir(STATE):
+                if name.startswith(base):
+                    remove_quietly(os.path.join(STATE, name))
+        except OSError:
+            pass
         return None
     finally:
         probe.close()

@@ -30,7 +30,7 @@ async function setup($: any, on: any, opts: Opts = {}) {
     ran.push(args)
     const done = (exitCode: number, stdout: string, stderr = '') =>
       ({ value: { exitCode, stdout, stderr, isStdoutTruncated: false, isStderrTruncated: false } })
-    if (args[0] === 'status' && args[1] === '--json') return opts.statusFails ? done(1, '', 'sem estado') : done(0, JSON.stringify(st))
+    if (args[0] === 'status' && args[1] === '--json') return opts.statusFails || st.__fail ? done(1, '', 'sem estado') : done(0, JSON.stringify(st))
     if (opts.fail) return done(1, '', 'voz: deu errado\n')
     if (args[0] === 'mode') st.mode = args[1]!
     if (args[0] === 'size') st.size = args[1]!
@@ -309,5 +309,48 @@ test('o rodapé do menu mostra o progresso enquanto instala', async ($, on) => {
   st.install = { fase: 'baixando', arquivo: 'kokoro-v1.0.onnx', feito: 1000000, total: 4000000 }
   const { ui } = await openMenu($)
   expect(await footer(ui)).toBe('🔊 Instalando a voz: 25% (1 de 4 MB)')
+  await ui.unmount()
+})
+
+test('leitura falha no meio da instalação tenta de novo, sem aviso de falha', async ($, on) => {
+  const { lines, toasts, clock, st } = await setup($, on, { init: { engine: false, installing: true } })
+  await clock.advance(2000)
+  st.__fail = true
+  await clock.advance(4000) // três leituras falhas seguidas
+  expect(lines.at(-1)).toBe('🔊 Instalando a voz...')
+  expect(toasts).toEqual([])
+  st.__fail = false
+  st.engine = true
+  st.installing = false
+  await clock.advance(2000)
+  expect(toasts).toEqual(['Voz pronta'])
+})
+
+test('leituras falhas seguidas: desiste em silêncio e limpa a linha', async ($, on) => {
+  const { lines, toasts, clock, st } = await setup($, on, { init: { engine: false, installing: true } })
+  await clock.advance(2000)
+  st.__fail = true
+  await clock.advance(30000)
+  expect(lines.at(-1)).toBeUndefined()
+  expect(toasts).toEqual([])
+})
+
+test('com o menu aberto o relógio só mexe no rodapé, e só quando o progresso muda; o foco não volta', async ($, on) => {
+  const { ran, clock, st } = await setup($, on, {
+    init: { engine: false, installing: true, install: { fase: 'baixando', arquivo: 'kokoro-v1.0.onnx', feito: 1000000, total: 4000000 } },
+  })
+  const { ui } = await openMenu($, 'mode')
+  expect((await selects(ui)).mode.autoFocus).toBe(true)
+  const reads = () => ran.filter(a => a[0] === 'status').length
+  await clock.advance(2000)
+  expect(await footer(ui)).toBe('🔊 Instalando a voz: 25% (1 de 4 MB)')
+  st.install = { fase: 'baixando', arquivo: 'kokoro-v1.0.onnx', feito: 2000000, total: 4000000 }
+  st.mode = 'summary' // um valor que o relógio não deve trazer para as linhas
+  await clock.advance(2000)
+  expect(await footer(ui)).toBe('🔊 Instalando a voz: 50% (2 de 4 MB)')
+  const s = await selects(ui)
+  expect(s.mode.value).toBe('full')
+  for (const k of Object.keys(s)) expect(s[k].autoFocus).toBeUndefined()
+  expect(reads()).toBeGreaterThan(1)
   await ui.unmount()
 })
