@@ -1326,21 +1326,25 @@ class Phone(unittest.TestCase):
             fh.write('#!/bin/sh\necho "$@" > "%s"\necho mp3 > "$4"\n' % os.path.join(self.home, 'called'))
         os.chmod(py, 0o755)
 
+    def test_phone_is_a_silent_alias_of_mobile(self):
+        self.assertIn('saída: celular', self.speak('phone', 'on').stdout)
+        self.assertIn('saída: alto-falante', self.speak('phone', 'off').stdout)
+
     def test_default_is_speaker_and_general_choice_is_kept(self):
         self.assertIn('saída: alto-falante', self.speak('status').stdout)
-        self.assertIn('saída: celular', self.speak('phone', 'on').stdout)
+        self.assertIn('saída: celular', self.speak('mobile', 'on').stdout)
         self.assertEqual(open(os.path.join(self.conf, 'output')).read().strip(), 'phone')
         self.assertEqual(self.speak('output').stdout, 'phone\n')
-        self.assertIn('saída: alto-falante', self.speak('phone', 'off').stdout)
+        self.assertIn('saída: alto-falante', self.speak('mobile', 'off').stdout)
         self.assertEqual(self.speak('output').stdout, 'speaker\n')
 
     def test_variable_beats_everything(self):
-        self.speak('phone', 'on')
+        self.speak('mobile', 'on')
         self.assertEqual(self.speak('output', CLAUDE_SPEAK_OUTPUT='speaker').stdout, 'speaker\n')
         self.assertIn('saída: celular', self.speak('status', CLAUDE_SPEAK_OUTPUT='phone').stdout)
 
     def test_bad_arguments_are_refused(self):
-        for args in (('phone',), ('phone', 'maybe'), ('phone', 'on', 'tudo')):
+        for args in (('mobile',), ('mobile', 'maybe'), ('mobile', 'on', 'tudo')):
             r = self.speak(*args)
             self.assertEqual(r.returncode, 2, args)
             self.assertIn('voz:', r.stderr)
@@ -1348,18 +1352,18 @@ class Phone(unittest.TestCase):
     def test_session_choice_stays_in_the_session_and_all_sets_every_one(self):
         key = '%d-%s' % (os.getpid(), speak_stat_start())
         folder = os.path.join(self.state, 'sessions')
-        self.speak('phone', 'on', key=key)
+        self.speak('mobile', 'on', key=key)
         self.assertEqual(speak_read(folder, key)['output'], 'phone')
         self.assertFalse(os.path.exists(os.path.join(self.conf, 'output')))
         self.assertEqual(self.speak('output', key=key).stdout, 'phone\n')
         self.assertEqual(self.speak('output', key='99999999-1').stdout, 'speaker\n')
-        self.speak('phone', 'off', 'all', key=key)
+        self.speak('mobile', 'off', 'all', key=key)
         self.assertEqual(speak_read(folder, key)['output'], 'speaker')
         self.assertEqual(open(os.path.join(self.conf, 'output')).read().strip(), 'speaker')
 
     def test_say_makes_an_mp3_and_prints_its_path(self):
         self.fake_engine()
-        self.speak('phone', 'on')
+        self.speak('mobile', 'on')
         r = self.speak('say', '-', input='Uma resposta.')
         path = r.stdout.strip()
         self.assertEqual((r.returncode, r.stderr), (0, ''))
@@ -1372,14 +1376,14 @@ class Phone(unittest.TestCase):
 
     def test_say_respects_mode_and_size(self):
         self.fake_engine()
-        self.speak('phone', 'on')
+        self.speak('mobile', 'on')
         r = self.speak('say', '-', input=REPLY, CLAUDE_SPEAK_MODE='summary')
         called = open(os.path.join(self.home, 'called')).read().split()
         self.assertEqual(' '.join(called[4:]), 'Terminei a voz; falta você testar.')
         self.assertTrue(r.stdout.strip())
 
     def test_nothing_printed_without_text_engine_or_voice(self):
-        self.speak('phone', 'on')
+        self.speak('mobile', 'on')
         self.assertEqual(self.speak('say', '-', input='Oi.').stdout, '')  # no engine
         self.fake_engine()
         self.assertEqual(self.speak('say', '-', input='').stdout, '')
@@ -1390,7 +1394,7 @@ class Phone(unittest.TestCase):
 
     def test_nothing_on_the_turn_after_the_request(self):
         self.fake_engine()
-        self.speak('phone', 'on')
+        self.speak('mobile', 'on')
         r = self.speak('say', '-', input='Enviei o arquivo.', CLAUDE_SPEAK_STOP_ACTIVE='1')
         self.assertEqual((r.returncode, r.stdout), (0, ''))
         self.assertFalse(os.path.exists(os.path.join(self.home, 'called')))
@@ -1406,12 +1410,12 @@ class Phone(unittest.TestCase):
         py = os.path.join(self.home, '.local', 'share', 'claude-speak', '.venv', 'bin', 'python')
         with open(py, 'w') as fh:
             fh.write('#!/bin/sh\nexit 1\n')
-        self.speak('phone', 'on')
+        self.speak('mobile', 'on')
         self.assertEqual(self.speak('say', '-', input='Oi.').stdout, '')
 
     def test_old_mp3_files_are_removed_and_recent_ones_kept(self):
         self.fake_engine()
-        self.speak('phone', 'on')
+        self.speak('mobile', 'on')
         folder = os.path.join(self.state, 'phone')
         os.makedirs(folder)
         old, new = os.path.join(folder, 'velho.mp3'), os.path.join(folder, 'novo.mp3')
@@ -1444,13 +1448,13 @@ class Rule(unittest.TestCase):
 
     def test_rule_names_the_commands(self):
         text = self.rule()
-        for name in ('on', 'off', 'mode', 'size', 'phone', 'voice', 'status', 'stop', 'install'):
+        for name in ('on', 'off', 'mode', 'size', 'mobile', 'voice', 'status', 'stop', 'install'):
             self.assertIn('`speak %s' % name, text)
         self.assertIn('`/speak`', text)
         self.assertNotIn('/speak:', text)
         self.assertIn('speak size', text)
         self.assertIn('speak voice', text)
-        self.assertIn('speak phone on', text)
+        self.assertIn('speak mobile on', text)
         self.assertIn('SendUserFile', text)
 
 
@@ -1655,9 +1659,9 @@ class Plugin(unittest.TestCase):
 
     def test_the_slash_command_is_a_hooks_module(self):
         hooks = self.load('hooks', 'hooks.json')
-        self.assertEqual(hooks['modules'], ['./register.ts'])
-        self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.ts')))
-        self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.ts')))
+        self.assertEqual(hooks['modules'], ['./register.tsx'])
+        self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
+        self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
         self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.3.0')
 
     def test_removed_pieces_are_gone(self):

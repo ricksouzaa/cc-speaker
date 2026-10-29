@@ -21,7 +21,7 @@ SPEAK = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))
 REQUEST = ('speak: o áudio desta resposta está em %s. Envie esse arquivo ao humano com a ferramenta SendUserFile '
            '(carregue-a pelo ToolSearch se precisar), sem legenda longa, e termine sem escrever mais nada. Se essa '
            'ferramenta não existir nesta sessão, diga em uma frase que o modo celular só funciona no controle remoto '
-           'e sugira `speak phone off`.')
+           'e sugira `speak mobile off`.')
 
 
 def phone_output(speak):

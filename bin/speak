@@ -9,9 +9,9 @@
                            summary: only its last line starting with 🔊 (rules/speak.md)
   speak size small|medium|large [all]  how long the spoken summary is (one short sentence; two or three sentences;
                            a paragraph); same scopes as `mode`; default medium
-  speak phone on|off [all]  send each reply as an mp3 file to the phone (Remote Control) instead of speaking it on
+  speak mobile on|off [all]  send each reply as an mp3 file to the phone (Remote Control) instead of speaking it on
                            the computer; same scopes as `mode`; default off (the computer's speaker)
-  speak status --json      the same state as one JSON line (used by the /speak menus)
+  speak status --json      the same state as one JSON line (used by the /speak pane)
   speak voice [name]       without a name: list the Portuguese voices (dora, alex, santa) and mark the current one;
                            with a name (short or full, e.g. dora or pf_dora): choose it for every session
   speak rule               print rules/speak.md with {size} replaced by the size in force (the SessionStart hook
@@ -902,7 +902,7 @@ def _translate_config():
 
 
 def status_json():
-    """The state in force here as one JSON line, for the /speak menus (hooks/register.ts) to mark what is current."""
+    """The state in force here as one JSON line, for the /speak pane (hooks/register.tsx) to mark what is current."""
     session = current_session()
     now = voice()
     print(json.dumps({'on': is_on(session), 'mode': mode(session), 'size': summary_size(session),
@@ -977,10 +977,10 @@ def main(argv):
                 fh.write(wanted + '\n')
             set_all_sessions(size=wanted)
         return status()
-    if cmd == 'phone':
+    if cmd in ('mobile', 'phone'):  # 'phone' is the former name, kept silently
         wanted, _, scope = text.partition(' ')
         if wanted not in ('on', 'off') or scope not in ('', 'all'):
-            print('voz: use "speak phone on" ou "speak phone off" (com "all" no fim, vale para todas as sessões)',
+            print('voz: use "speak mobile on" ou "speak mobile off" (com "all" no fim, vale para todas as sessões)',
                   file=sys.stderr)
             return 2
         where = 'phone' if wanted == 'on' else 'speaker'
