@@ -367,9 +367,76 @@ class MacTest(unittest.TestCase):
         self.assertEqual(sd.stream.written, ['um'])  # the first piece went out through the stream
         self.assertEqual(len(launched), 2)  # the second (played again) and the third through afplay
         self.assertEqual(len(wavs), 2)
-        self.assertIn('close', sd.stream.events)
+        self.wait_closed(sd)
         self.assertEqual(sd.stream.events.count('close'), 1)
         self.assertEqual([n for n in os.listdir(state) if n.endswith('.wav')], [])
+
+    def wait_closed(self, sd):
+        """The stream is closed in a daemon thread after a failure: waits (up to 2 s) for that."""
+        import time
+        end = time.time() + 2
+        while 'close' not in sd.stream.events and time.time() < end:
+            time.sleep(0.01)
+
+    def fast_deadline(self):
+        for patch in (mock.patch.object(speak, 'STREAM_SLACK', 0.1),):
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def test_play_mac_sounddevice_escrita_que_nao_volta_cai_para_afplay(self):
+        import time
+        self.fast_deadline()
+        sd = FakeSoundDevice(hang_write_at=2)
+        start = time.time()
+        code, launched, wavs, state = self.mac_play(sd, pieces=('um', 'dois', 'tres'))
+        self.assertLess(time.time() - start, 3)
+        self.assertEqual(code, 0)
+        self.assertEqual(sd.stream.written, ['um'])
+        self.assertEqual(len(launched), 2)  # the piece that hung and the next one, by afplay
+        self.wait_closed(sd)
+        self.assertIn('abort', sd.stream.events)
+        self.assertEqual(sd.stream.events.count('close'), 1)
+        self.assertEqual([n for n in os.listdir(state) if n.endswith('.wav')], [])
+
+    def test_play_mac_sounddevice_stop_que_trava_termina_no_prazo(self):
+        import time
+        self.fast_deadline()
+        sd = FakeSoundDevice(hang_stop=True)
+        start = time.time()
+        code, launched, wavs, state = self.mac_play(sd)
+        self.assertLess(time.time() - start, 3)
+        self.assertEqual((code, launched), (0, []))
+        self.assertEqual(sd.stream.written, ['um', 'dois'])
+        self.wait_closed(sd)
+        self.assertEqual(sd.stream.events.count('close'), 1)
+
+    def test_play_mac_sounddevice_start_falha_fecha_o_fluxo(self):
+        sd = FakeSoundDevice(fail_start=True)
+        code, launched, wavs, state = self.mac_play(sd)
+        self.assertEqual((code, len(launched)), (0, 2))
+        self.assertEqual(sd.stream.events, ['start', 'close'])
+
+    def test_stream_close_is_once_even_from_two_threads(self):
+        import threading
+        sd = FakeSoundDevice()
+        with mock.patch.dict(sys.modules, {'sounddevice': sd}):
+            player = speak.StreamPlayer()
+        gate = threading.Barrier(2)
+        real = sd.stream.close
+
+        def slow_close():
+            real()
+        sd.stream.close = slow_close
+
+        def closer():
+            gate.wait()
+            player.close()
+        threads = [threading.Thread(target=closer) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(sd.stream.events.count('close'), 1)
 
     def test_play_mac_corte_pelo_microfone_no_sounddevice(self):
         import threading
@@ -388,7 +455,9 @@ class MacTest(unittest.TestCase):
             code, launched, wavs, state = self.mac_play(sd, watch_mic=recording)
         self.assertTrue(cut.is_set())
         self.assertEqual(launched, [])  # nothing more played, not even by afplay
+        self.wait_closed(sd)
         self.assertEqual(sd.stream.events[-2:], ['abort', 'close'])
+        self.assertEqual(sd.stream.events.count('abort'), 1)
         self.assertEqual(sd.stream.events.count('close'), 1)
 
     def test_linux_never_imports_sounddevice(self):
@@ -447,23 +516,33 @@ class FakeSamples:
     def tobytes(self):
         return b'\0'
 
+    def __len__(self):
+        return 24
+
     def reshape(self, *shape):
         return self
 
 
 class FakeStream:
-    def __init__(self, fail_write_at, block_write_at):
+    def __init__(self, owner):
         import threading
         self.events, self.written, self.count = [], [], 0
-        self.fail_write_at, self.block_write_at = fail_write_at, block_write_at
+        self.owner = owner
+        self.fail_write_at, self.block_write_at = owner.fail_write_at, owner.block_write_at
+        self.hung = threading.Event()  # never set by the stream: a call that waits on it hangs until the test ends
         self.blocked, self.released = threading.Event(), threading.Event()
 
     def start(self):
         self.events.append('start')
+        if self.owner.fail_start:
+            raise OSError('cannot start')
 
     def write(self, samples):
         self.count += 1
         self.events.append('write')
+        if self.count == self.owner.hang_write_at:
+            self.hung.wait(5)
+            return
         if self.count == self.fail_write_at:
             raise OSError('PortAudio write failed')
         if self.count == self.block_write_at:
@@ -474,6 +553,8 @@ class FakeStream:
 
     def stop(self):
         self.events.append('stop')
+        if self.owner.hang_stop:
+            self.hung.wait(5)
 
     def abort(self):
         self.events.append('abort')
@@ -486,15 +567,17 @@ class FakeStream:
 class FakeSoundDevice:
     """A stand-in for the `sounddevice` module."""
 
-    def __init__(self, fail_open=False, fail_write_at=None, block_write_at=None):
+    def __init__(self, fail_open=False, fail_write_at=None, block_write_at=None, hang_write_at=None,
+                 hang_stop=False, fail_start=False):
         self.fail_open, self.opened, self.stream = fail_open, [], None
         self.fail_write_at, self.block_write_at = fail_write_at, block_write_at
+        self.hang_write_at, self.hang_stop, self.fail_start = hang_write_at, hang_stop, fail_start
 
     def OutputStream(self, **kw):
         if self.fail_open:
             raise OSError('no output device')
         self.opened.append(kw)
-        self.stream = FakeStream(self.fail_write_at, self.block_write_at)
+        self.stream = FakeStream(self)
         return self.stream
 
 

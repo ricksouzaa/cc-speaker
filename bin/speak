@@ -699,42 +699,85 @@ class FilePlayer:
         self.discard()
 
 
+STREAM_SLACK = 2.0  # seconds a stream write or stop may take beyond the audio's own length before it is given up on
+
+
 class StreamPlayer:
     """Plays through one sounddevice output stream at the synthesis rate (Mac). Raises on anything that goes wrong
-    (import, device query or open, write); the caller falls back to files. Changes no system audio setting."""
+    (import, device query or open, write, or a write that takes longer than the piece plus STREAM_SLACK: a device
+    that vanished, such as a Bluetooth headset, may never answer); the caller falls back to files. Changes no
+    system audio setting."""
 
     def __init__(self):
         import sounddevice
         self.closed = False
+        self.lock = threading.Lock()
         self.stream = sounddevice.OutputStream(samplerate=RATE, channels=1, dtype='float32')
-        self.stream.start()
+        try:
+            self.stream.start()
+        except BaseException:
+            self.close()
+            raise
+
+    def bounded(self, call, seconds):
+        """Runs call() in a daemon thread and waits `seconds` for it; its error is raised here. On timeout the
+        stream is aborted without waiting (that may hang too) and TimeoutError is raised."""
+        box = []
+
+        def work():
+            try:
+                call()
+                box.append(None)
+            except BaseException as exc:
+                box.append(exc)
+
+        thread = threading.Thread(target=work, daemon=True)
+        thread.start()
+        thread.join(seconds)
+        if not box:
+            self.abort(wait=False)
+            raise TimeoutError('the audio stream did not answer in %.1f s' % seconds)
+        if box[0] is not None:
+            raise box[0]
 
     def play(self, samples):
-        self.stream.write(samples.astype('float32').reshape(-1, 1))
+        data = samples.astype('float32').reshape(-1, 1)
+        self.bounded(lambda: self.stream.write(data), len(samples) / RATE + STREAM_SLACK)
         return 0
 
     def finish(self):
-        """After the last piece: lets what was written play out, then closes."""
+        """After the last piece: lets what was written play out (for a limited time), then closes."""
         try:
-            self.stream.stop()
+            self.bounded(self.stream.stop, STREAM_SLACK)
+        except TimeoutError:
+            pass
         finally:
             self.close()
 
     def close(self):
-        if self.closed:
-            return
-        self.closed = True
+        with self.lock:
+            if self.closed:
+                return
+            self.closed = True
         try:
             self.stream.close()
         except Exception:
             pass
 
-    def abort(self):
-        try:
-            self.stream.abort()
-        except Exception:
-            pass
-        self.close()
+    def abort(self, wait=True):
+        """Aborts and closes the stream; with wait=False in a daemon thread (the call may never return)."""
+        def work():
+            if self.closed:
+                return
+            try:
+                self.stream.abort()
+            except Exception:
+                pass
+            self.close()
+        if wait:
+            work()
+        else:
+            threading.Thread(target=work, daemon=True).start()
 
 
 class MacPlayer:
@@ -766,7 +809,7 @@ class MacPlayer:
     def drop_stream(self):
         stream, self.stream = self.stream, None
         if stream is not None:
-            stream.close()
+            stream.abort(wait=False)  # not close(): on a device that vanished even close() may never return
 
     def finish(self):
         stream, self.stream = self.stream, None
