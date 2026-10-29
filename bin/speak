@@ -19,6 +19,11 @@
   speak test [text]        speak a test sentence, in the foreground (errors show)
   speak install            install the engine: Python 3.12 via uv, kokoro-onnx (on the Mac also sounddevice, optional),
                            model files (~350 MB); no sudo
+  speak autoinstall        start `speak install` in the background unless it is running, failed already in this plugin
+                           version, the uv is missing or CLAUDE_SPEAK_AUTOINSTALL=0; prints one word: ready (engine
+                           there), installing, no-uv, failed or off (plus `started` after installing when this call
+                           started it); exit 0 (used by hooks/speak-start.py and by the
+                           /speak module when the plugin is turned on in the middle of a session)
   speak say [text | -]     speak in the background and return at once; `-` reads the reply from stdin and applies
                            the mode (used by hooks/speak-stop.py)
   speak stop               cut the speech playing now, whoever's it is, and drop every speech waiting its turn; the
@@ -1047,7 +1052,9 @@ INSTALL_PROGRESS = os.path.join(STATE, 'install.progress')  # JSON of the step i
 PROGRESS_EVERY = 0.5  # seconds between two writes of INSTALL_PROGRESS while downloading
 WAIT_POLL = 1.0  # seconds between two looks of an install that waits for another
 INSTALL_LOG = os.path.join(STATE, 'install.log')  # where the SessionStart hook sends the background install's output
-INSTALL_FAILED = os.path.join(STATE, 'install.failed')  # present after a failed install, holding the plugin version; speak-start.py reads it
+INSTALL_FAILED = os.path.join(STATE, 'install.failed')  # present after a failed install, holding the plugin version; `autoinstall` reads it
+AUTOINSTALL_LOCK = os.path.join(STATE, 'autoinstall.lock')  # held for an instant by `autoinstall`, so two do not start two installs
+AUTOINSTALL_WAIT = 3.0  # seconds `autoinstall` waits for the install it started to take INSTALL_LOCK
 
 
 def plugin_version():
@@ -1181,6 +1188,57 @@ def install_unlocked():
     except OSError:
         pass
     return code
+
+
+def failed_this_version():
+    """True when INSTALL_FAILED holds the current plugin version. An empty one (older versions) or one of another
+    version is removed: the install is tried again, once per version."""
+    try:
+        with open(INSTALL_FAILED) as fh:
+            mark = fh.read().strip()
+    except OSError:
+        return False
+    if mark and mark == plugin_version():
+        return True
+    remove_quietly(INSTALL_FAILED)
+    return False
+
+
+def autoinstall():
+    """The one rule for starting the engine install by itself (used by the SessionStart hook and by the module when a
+    plugin is turned on in the middle of a session). Starts `speak install` detached (own session, output in
+    INSTALL_LOG) unless one runs, the last one failed in this version, the uv is missing or CLAUDE_SPEAK_AUTOINSTALL=0.
+    Returns (word, started): word is ready (engine there; also clears INSTALL_FAILED), installing, no-uv, failed or off;
+    started is True only when this call started the install (so only it tells the person).
+    Safe to call at the same time from several places: AUTOINSTALL_LOCK serializes the probe of INSTALL_LOCK and the
+    start, and the call returns only after the child holds INSTALL_LOCK (or AUTOINSTALL_WAIT passed), so the next call
+    sees `installing`. If two children still got started, the second waits for INSTALL_LOCK in `install_marked`, so it
+    is never two installs at once, and it redoes only what is missing."""
+    if engine_ready():
+        remove_quietly(INSTALL_FAILED)
+        return 'ready', False
+    if os.environ.get('CLAUDE_SPEAK_AUTOINSTALL') == '0':
+        return 'off', False
+    if not os.path.exists(shutil.which('uv') or os.path.join(HOME, '.local', 'bin', 'uv')):
+        return 'no-uv', False
+    os.makedirs(STATE, exist_ok=True)
+    with open(AUTOINSTALL_LOCK, 'a+') as gate:
+        fcntl.flock(gate, fcntl.LOCK_EX)
+        if engine_ready():  # a call that held the gate before us may have finished the job
+            remove_quietly(INSTALL_FAILED)
+            return 'ready', False
+        if failed_this_version():
+            return 'failed', False
+        if installing():
+            return 'installing', False
+        with open(INSTALL_LOG, 'ab') as log:
+            child = subprocess.Popen([sys.executable, '-u', '-I', os.path.realpath(__file__), 'install'],
+                                     stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True,
+                                     close_fds=True)
+        deadline = time.time() + AUTOINSTALL_WAIT
+        while time.time() < deadline and child.poll() is None and not installing():
+            time.sleep(0.05)
+    return 'installing', True
 
 
 def player_command():
@@ -1445,6 +1503,10 @@ def main(argv):
         return 0 if why else 1
     if cmd == 'install':
         return install_marked()
+    if cmd == 'autoinstall':
+        word, started = autoinstall()
+        print(word + (' started' if started else ''))
+        return 0
     if cmd == 'say':
         session = current_session()
         if text == '-':

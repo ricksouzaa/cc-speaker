@@ -48,6 +48,14 @@ function progress(s: State | undefined): string {
   const mb = (n: number) => Math.round(n / 1e6)
   return `${Math.min(100, Math.round((100 * (p.feito ?? 0)) / p.total))}% (${mb(p.feito ?? 0)} de ${mb(p.total)} MB)`
 }
+// Por que o motor não está se instalando, segundo `speak autoinstall` (a regra única do início automático).
+type Why = 'ready' | 'installing' | 'no-uv' | 'failed' | 'off'
+const WHYS: string[] = ['ready', 'installing', 'no-uv', 'failed', 'off']
+// O aviso fixo da linha de status quando nada vai instalar o motor sozinho.
+const missingLine = (why: Why) =>
+  why === 'no-uv'
+    ? '🔊 Voz não instalada: falta o uv; instale-o e rode /speak install'
+    : '🔊 Voz não instalada: rode /speak install'
 const isInstalling = (s: State | undefined) => !!s && !s.engine && (!!s.install || !!s.installing)
 const installLine = (s: State | undefined) => `🔊 Instalando a voz${progress(s) ? ': ' + progress(s) : '...'}`
 
@@ -56,8 +64,10 @@ const installLine = (s: State | undefined) => `🔊 Instalando a voz${progress(s
 const WATCH_MS = 2000
 const WATCH_FAILS = 5 // leituras falhas seguidas antes de desistir
 const WATCH_GRACE = 5 // consultas sem instalação à vista antes de desistir, se nunca se viu uma
+const WARN_EVERY = 5 // com o aviso fixo na tela, lê o estado a cada 5 toques (10 s)
 let watch: Timer | undefined
 let watching = false
+let hurry = false // um /speak install com o relógio já rodando: a próxima leitura não espera
 let live: State | undefined // a última leitura do relógio, só para o progresso do rodapé
 let footLine = '' // a linha de progresso já desenhada no rodapé
 
@@ -69,15 +79,25 @@ function stopWatch($: Engine) {
   $.ui.status(undefined)
 }
 
-function startWatch($: Engine) {
-  if (watching) return
+// `why` vem do `speak autoinstall`: com `no-uv`, `failed` ou `off` e o motor faltando, o relógio não desiste em
+// silêncio; deixa o aviso fixo na linha de status até o motor ficar pronto ou a sessão acabar.
+function startWatch($: Engine, why?: Why) {
+  if (watching) {
+    hurry = true
+    return
+  }
   watching = true
+  const warn = why === 'no-uv' || why === 'failed' || why === 'off' ? missingLine(why) : ''
   let seen = false
   let idle = 0
   let fails = 0
   let busy = false
+  let laps = 0
+  let shown = '' // o aviso fixo já desenhado
   const tick = async () => {
     if (busy || !watching) return
+    if (warn && !seen && !hurry && laps++ % WARN_EVERY !== 0) return
+    hurry = false
     busy = true
     try {
       const now = await state($)
@@ -89,6 +109,7 @@ function startWatch($: Engine) {
       fails = 0
       if (isInstalling(now)) {
         seen = true
+        shown = ''
         const line = installLine(now)
         $.ui.status(line)
         // O menu aberto só troca o progresso do rodapé, e só quando o texto muda; as linhas não são tocadas.
@@ -99,9 +120,20 @@ function startWatch($: Engine) {
         live = now
         return
       }
+      if (warn && !now.engine) { // nada instala o motor: o aviso fica
+        if (seen) { // uma instalação que começou depois (/speak install) e terminou sem motor
+          seen = false
+          $.ui.toast('A instalação da voz não terminou; rode /speak install', { timeoutMs: 8000 })
+        }
+        if (shown !== warn) {
+          shown = warn
+          $.ui.status(warn)
+        }
+        return
+      }
       if (!seen && !now.engine && ++idle <= WATCH_GRACE) return
       stopWatch($)
-      if (seen) {
+      if (seen || warn) {
         $.ui.toast(
           now.engine ? 'Voz pronta' : 'A instalação da voz não terminou; rode /speak install',
           { timeoutMs: 8000 },
@@ -114,6 +146,28 @@ function startWatch($: Engine) {
   watch = $.clock.every(WATCH_MS, () => void tick())
   void tick()
 }
+
+// Começa a instalação do motor (a mesma regra do gancho de começo da sessão; ver `speak autoinstall`) e liga o
+// relógio. Ao ativar o plugin no meio de uma sessão, o Claude Code roda este módulo, mas não o gancho de comando
+// SessionStart; sem isto nada iniciaria a instalação. Se a sessão começou normalmente, o gancho já iniciou e a
+// resposta é `installing`: o `autoinstall` olha a trava install.lock (e uma segunda trava só dele, que serializa os
+// dois), então nunca saem dois `speak install`; e o `install` espera a trava mesmo que saíssem.
+async function kick($: Engine) {
+  let why: Why | undefined
+  try {
+    const r = await $.process.run(speakArgv($, ['autoinstall']), { timeoutMs: 30000 })
+    const [word = '', extra] = r.exitCode === 0 ? r.stdout.trim().split(/\s+/) : []
+    if (WHYS.includes(word)) why = word as Why
+    // Só quem iniciou a instalação avisa (`installing started`): se o gancho de começo da sessão já a iniciou, o
+    // aviso dele (systemMessage) já está na tela. O `ui.log` é uma linha na conversa, que não some como o toast.
+    if (word === 'installing' && extra === 'started') $.ui.log(INSTALLING_NOTE)
+  } catch {
+    why = undefined
+  }
+  startWatch($, why)
+}
+
+const INSTALLING_NOTE = 'Instalando a voz (cerca de 350 MB, alguns minutos). Acompanhe com /speak status.'
 
 const cap = (word: string) => word.charAt(0).toUpperCase() + word.slice(1)
 
@@ -291,7 +345,7 @@ export const register: Register = on => {
       argumentHint: '[on|off|mode|size|voice|status|stop|install] [all]',
       immediate: true,
     })
-    startWatch($)
+    void kick($) // em segundo plano: não atrasa o registro da sessão
     return next(e)
   })
 

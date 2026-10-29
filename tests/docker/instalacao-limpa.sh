@@ -39,6 +39,13 @@ O plugin será instalado no contêiner e você cai num terminal comum dentro del
   3. abra uma sessão nova (ou /reload-plugins): embaixo do campo de texto aparece a linha
      "🔊 Instalando a voz: NN% (X de Y MB)";
   4. espere o aviso "Voz pronta".
+Para o plugin ativado no meio da sessão (issue #2), em vez dos passos 3 e 4, e com o plugin ainda não instalado
+(rode "claude plugin uninstall speak@cc-speaker" e "claude plugin marketplace remove cc-speaker" antes de abrir o claude):
+  a. dentro do claude, já logado e com a sessão aberta: /plugin marketplace add /plugin
+  b. /plugin install speak@cc-speaker
+  c. sem abrir outra sessão: aparece a linha "Instalando a voz (cerca de 350 MB...)" na conversa, a linha
+     "🔊 Instalando a voz: NN% (X de Y MB)" embaixo do campo e, no fim, "Voz pronta";
+  d. se faltar o uv, a linha fixa "🔊 Voz não instalada: falta o uv; instale-o e rode /speak install" fica na tela.
 Ao sair (exit), o contêiner e o login somem.
 TXT
 exec docker run -it --rm -v "$REPO":/plugin:ro "$IMAGEM" bash /plugin/tests/docker/dentro-do-conteiner.sh visual

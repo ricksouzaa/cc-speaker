@@ -5,11 +5,9 @@ detached from the session, once at a time (CLAUDE_SPEAK_AUTOINSTALL=0 turns that
 import sys
 
 try:  # fail-open from the first line: a copy without lib/ (or any failure below) ends the hook with 0
-    import fcntl
     import json
     import os
     import shlex
-    import shutil
     import subprocess
 
     SPEAK = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'bin', 'speak')
@@ -20,8 +18,6 @@ try:  # fail-open from the first line: a copy without lib/ (or any failure below
     ROOT = speak_paths.root(SPEAK)
     STATE = os.path.join(ROOT, 'state')
     INSTALL_LOG = os.path.join(STATE, 'install.log')
-    INSTALL_LOCK = os.path.join(STATE, 'install.lock')  # flock'ed by `speak install` itself, for as long as it runs
-    INSTALL_FAILED = os.path.join(STATE, 'install.failed')  # written by `speak install` when it fails
     NOTICE = {
         'installing': 'speak: o motor de voz está sendo instalado em segundo plano (cerca de 350 MB, sem sudo); a voz '
                       'começa sozinha quando terminar. Avise o humano na primeira resposta, em uma frase.',
@@ -46,61 +42,19 @@ except Exception:
     sys.exit(0)
 
 
-def plugin_version():
-    try:
-        with open(os.path.join(os.path.dirname(os.path.dirname(SPEAK)), '.claude-plugin', 'plugin.json')) as fh:
-            return str(json.load(fh).get('version', ''))
-    except (OSError, ValueError):
-        return ''
-
-
-def failed_this_version():
-    """True when INSTALL_FAILED holds the current plugin version. An empty one (older versions) or one of another
-    version is removed: the install is tried again, once per version."""
-    try:
-        with open(INSTALL_FAILED) as fh:
-            mark = fh.read().strip()
-    except OSError:
-        return False
-    if mark and mark == plugin_version():
-        return True
-    drop_failed()
-    return False
-
-
-def drop_failed():
-    try:
-        os.remove(INSTALL_FAILED)
-    except OSError:
-        pass
-
-
 def run(*args):
     return subprocess.run([sys.executable, '-I', SPEAK, *args], capture_output=True, text=True, timeout=10)
 
 
 def start_install():
-    """Starts `speak install` detached from the session, unless one is running, the last one failed or the uv is
-    missing. Returns the NOTICE key to tell Claude."""
-    if os.environ.get('CLAUDE_SPEAK_AUTOINSTALL') == '0':
-        return None
-    uv = shutil.which('uv') or os.path.join(os.path.expanduser('~'), '.local', 'bin', 'uv')
-    if not os.path.exists(uv):
-        return 'no-uv'
-    if failed_this_version():
-        return 'failed'
-    os.makedirs(STATE, exist_ok=True)
-    lock = open(INSTALL_LOCK, 'a+')
+    """Asks `speak autoinstall` (the one rule: it starts `speak install` detached, once at a time, unless the last one
+    failed in this version, the uv is missing or CLAUDE_SPEAK_AUTOINSTALL=0). Returns the NOTICE key to tell Claude,
+    or None when there is nothing to tell (engine ready, switched off, or the call failed)."""
     try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        lock.close()
-        return 'installing'
-    lock.close()  # only a probe: `speak install` takes the lock itself (and waits if another one got it first)
-    with open(INSTALL_LOG, 'ab') as log:
-        subprocess.Popen([sys.executable, '-u', '-I', SPEAK, 'install'], stdin=subprocess.DEVNULL, stdout=log,
-                         stderr=log, start_new_session=True, close_fds=True)
-    return 'installing'
+        word = (run('autoinstall').stdout.split() or [''])[0]
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return word if word in ('installing', 'no-uv', 'failed') else None
 
 
 def share_root():
@@ -131,12 +85,9 @@ def main():
         return
     missing = run('check').stdout.split()
     keys = []
-    if 'engine' not in missing:
-        drop_failed()
-    else:
-        why = start_install()
-        if why:
-            keys.append(why)
+    why = start_install()  # also clears a stale install.failed when the engine is there
+    if why and 'engine' in missing:
+        keys.append(why)
     if 'player' in missing:
         keys.append('player')
     if not keys:

@@ -34,7 +34,13 @@ falhou() { FALHAS+=("$1"); echo "   FALHA: $1"; }
 
 echo "-- Motor antes: $(python3 -I "$RAIZ/bin/speak" status --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print("engine =", d["engine"])')"
 
-echo "-- Rodando o gancho de começo como o Claude Code roda"
+echo "-- Plugin ativado no meio da sessão: só o módulo roda, e ele chama o speak autoinstall (não há gancho de começo)"
+MEIO="$(python3 -I "$RAIZ/bin/speak" autoinstall)"
+echo "   speak autoinstall -> $MEIO"
+[ "$MEIO" = "installing started" ] && echo "   ok: a instalação começou ali mesmo" \
+    || falhou "a ativação no meio da sessão não iniciou a instalação (resposta: '$MEIO')"
+
+echo "-- Rodando o gancho de começo como o Claude Code roda (uma sessão normal logo depois: não pode iniciar outra)"
 SAIDA="$(printf '%s' '{"hook_event_name":"SessionStart","source":"startup","session_id":"teste-limpo"}' \
     | python3 -I "$RAIZ/hooks/speak-start.py")"
 echo "$SAIDA"
@@ -47,6 +53,10 @@ assert "instalando a voz" in d["systemMessage"], d["systemMessage"]
 else
     falhou "a saída do gancho não é JSON com systemMessage de instalação"
 fi
+
+OUTRA="$(python3 -I "$RAIZ/bin/speak" autoinstall)"
+[ "$OUTRA" = "installing" ] && echo "   ok: um segundo pedido só reconhece a instalação em curso" \
+    || falhou "o segundo autoinstall não respondeu 'installing' (resposta: '$OUTRA')"
 
 echo "-- Acompanhando a instalação (status --json a cada 2 s, prazo ${PRAZO}s)"
 INICIO=$SECONDS
@@ -90,4 +100,4 @@ if [ "${#FALHAS[@]}" -gt 0 ]; then
     echo "== FALHOU:"; printf '   - %s\n' "${FALHAS[@]}"
     exit 1
 fi
-echo "== PASSOU: aviso na tela, progresso subindo, log linha a linha e motor pronto."
+echo "== PASSOU: início na ativação no meio da sessão sem instalar duas vezes, aviso na tela, progresso subindo, log linha a linha e motor pronto."

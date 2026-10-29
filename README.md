@@ -28,6 +28,7 @@ O Claude Code não tem passo de instalação para plugins. Por isso a voz se ins
 A voz começa sozinha quando termina. Se algo der errado, `/speak install` é o plano B: instala (ou tenta de novo) em primeiro plano. Enquanto o motor falta, o Claude não escreve a linha 🔊 e a nota de cada mensagem diz isso (instalando, com a porcentagem, ou não instalado), nunca "voz desligada". Detalhes:
 
 - Só uma instalação roda por vez: outra sessão que abra nesse meio tempo não começa outra.
+- Ao ativar o plugin com a sessão já aberta (`/plugin install`), a instalação começa ali mesmo, com uma linha na conversa e o progresso embaixo do campo de texto; sem o uv, ou depois de uma falha, fica um aviso fixo ("Voz não instalada: rode /speak install") até o motor ficar pronto. Nessa sessão as regras de voz só chegam ao Claude na próxima sessão.
 - O registro fica em `state/install.log` (cada etapa aparece na hora em que começa), dentro da pasta de dados do plugin (veja "Pastas").
 - Se faltar o `uv`, nada é instalado; o Claude diz como instalá-lo (https://docs.astral.sh/uv/).
 - Se a instalação falhar, ela não tenta de novo sozinha: o Claude aponta o registro e você roda `/speak install` para tentar outra vez, em primeiro plano.

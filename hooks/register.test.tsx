@@ -3,15 +3,17 @@ import { expect, mock, test } from 'claude-code/testing'
 // Nada aqui toca o motor, o áudio nem as pastas reais: `process.run` é respondido pelo teste, que guarda o estado
 // do speak numa variável. O menu é montado no painel `speak` da superfície `terminal` e operado pela escolha nas listas.
 
-type Opts = { fail?: boolean; statusFails?: boolean; scope?: Record<string, string>; placed?: boolean; surface?: string; init?: Record<string, unknown> }
+type Opts = { autoinstall?: string; fail?: boolean; statusFails?: boolean; scope?: Record<string, string>; placed?: boolean; surface?: string; init?: Record<string, unknown> }
 
 async function setup($: any, on: any, opts: Opts = {}) {
   const ran: string[][] = []
   const opened: any[] = []
   const lines: (string | undefined)[] = []
   const toasts: string[] = []
+  const logs: string[] = []
   const clock = mock.clock(on)
   on('ui.status', (_: unknown, e: any) => { lines.push(e.text); return { value: undefined } })
+  on('ui.log', (_: unknown, e: any) => { logs.push(e.text); return { value: undefined } })
   on('ui.toast', (_: unknown, e: any) => { toasts.push(e.text); return { value: undefined } })
   const st: any = {
     on: true, mode: 'full', size: 'medium', engine: true, voice: 'dora',
@@ -30,6 +32,7 @@ async function setup($: any, on: any, opts: Opts = {}) {
     ran.push(args)
     const done = (exitCode: number, stdout: string, stderr = '') =>
       ({ value: { exitCode, stdout, stderr, isStdoutTruncated: false, isStderrTruncated: false } })
+    if (args[0] === 'autoinstall') return done(0, (opts.autoinstall ?? 'ready') + '\n')
     if (args[0] === 'status' && args[1] === '--json') return opts.statusFails || st.__fail ? done(1, '', 'sem estado') : done(0, JSON.stringify(st))
     if (opts.fail) return done(1, '', 'voz: deu errado\n')
     if (args[0] === 'mode') st.mode = args[1]!
@@ -39,7 +42,8 @@ async function setup($: any, on: any, opts: Opts = {}) {
     return done(0, 'ok\n')
   })
   await $.session.start({ cwd: '/', surface: opts.surface ?? 'terminal', isInteractive: true })
-  return { ran, opened, st, lines, toasts, clock }
+  await clock.advance(0) // deixa o autoinstall do começo (em segundo plano) terminar
+  return { ran, opened, st, lines, toasts, clock, logs }
 }
 
 const PANE = {
@@ -51,7 +55,7 @@ const PANE = {
 } as const
 
 // Os comandos do speak que rodaram, sem as consultas de estado.
-const changes = (ran: string[][]) => ran.filter(a => !(a[0] === 'status' && a[1] === '--json')).map(a => a.join(' '))
+const changes = (ran: string[][]) => ran.filter(a => a[0] !== 'autoinstall' && !(a[0] === 'status' && a[1] === '--json')).map(a => a.join(' '))
 
 const HELP = 'Tab troca de linha · Enter escolhe o valor · Esc fecha'
 
@@ -355,3 +359,134 @@ test('com o menu aberto o relógio só mexe no rodapé, e só quando o progresso
   expect(reads()).toBeGreaterThan(1)
   await ui.unmount()
 })
+
+const WARN = '🔊 Voz não instalada: rode /speak install'
+const statuses = (lines: (string | undefined)[]) => lines.filter(l => l !== undefined)
+
+test('ao começar a sessão, o módulo roda o speak autoinstall antes de ler o estado', async ($, on) => {
+  const { ran } = await setup($, on, { autoinstall: 'installing', init: { engine: false, installing: true } })
+  expect(ran[0]).toEqual(['autoinstall'])
+  expect(ran.findIndex(a => a[0] === 'status')).toBeGreaterThan(0)
+  expect(ran.filter(a => a[0] === 'autoinstall').length).toBe(1)
+})
+
+test('o autoinstall não atrasa o registro do comando nem a sessão', async ($, on) => {
+  let release: (() => void) | undefined
+  const gate = new Promise<void>(r => { release = r })
+  let registered = false
+  on('command.register', () => { registered = true; return { value: { command: 'speak' } } })
+  on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
+  on('process.run', async (_: unknown, e: any) => {
+    if (e.argv[3] === 'autoinstall') await gate
+    return { value: { exitCode: 0, stdout: 'installing\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true }) // volta sem esperar o autoinstall
+  expect(registered).toBe(true)
+  release?.()
+})
+
+test('sem uv: o aviso fixo diz que falta o uv e não some enquanto o motor faltar', async ($, on) => {
+  const { lines, toasts, clock } = await setup($, on, { autoinstall: 'no-uv', init: { engine: false } })
+  await clock.advance(60000)
+  expect(statuses(lines).at(-1)).toBe('🔊 Voz não instalada: falta o uv; instale-o e rode /speak install')
+  expect(lines.at(-1)).not.toBeUndefined()
+  expect(toasts).toEqual([])
+})
+
+test('falhou antes: o aviso fixo manda rodar /speak install', async ($, on) => {
+  const { lines, clock } = await setup($, on, { autoinstall: 'failed', init: { engine: false } })
+  await clock.advance(60000)
+  expect(lines.at(-1)).toBe(WARN)
+})
+
+test('instalação desligada (off) com o motor faltando: aviso fixo', async ($, on) => {
+  const { lines, clock } = await setup($, on, { autoinstall: 'off', init: { engine: false } })
+  await clock.advance(60000)
+  expect(lines.at(-1)).toBe(WARN)
+})
+
+test('com o aviso fixo, o motor que aparece depois tira o aviso e traz o Voz pronta', async ($, on) => {
+  const { lines, toasts, clock, st } = await setup($, on, { autoinstall: 'failed', init: { engine: false } })
+  await clock.advance(30000)
+  expect(lines.at(-1)).toBe(WARN)
+  st.engine = true // por exemplo, outra sessão instalou
+  await clock.advance(10000)
+  expect(lines.at(-1)).toBeUndefined()
+  expect(toasts).toEqual(['Voz pronta'])
+  const count = lines.length
+  await clock.advance(30000)
+  expect(lines.length).toBe(count) // o relógio foi cancelado
+})
+
+test('com o aviso fixo, /speak install mostra o progresso na hora e depois o Voz pronta', async ($, on) => {
+  const { lines, toasts, clock, st } = await setup($, on, { autoinstall: 'failed', init: { engine: false } })
+  await clock.advance(30000)
+  expect(lines.at(-1)).toBe(WARN)
+  st.installing = true
+  await $.command.run({ command: 'speak', args: 'install' })
+  await clock.advance(2000)
+  expect(lines.at(-1)).toBe('🔊 Instalando a voz...')
+  st.engine = true
+  st.installing = false
+  await clock.advance(2000)
+  expect(lines.at(-1)).toBeUndefined()
+  expect(toasts).toEqual(['Voz pronta'])
+})
+
+test('com o aviso fixo, uma instalação que termina sem motor volta ao aviso', async ($, on) => {
+  const { lines, toasts, clock, st } = await setup($, on, { autoinstall: 'failed', init: { engine: false } })
+  await clock.advance(30000)
+  st.installing = true
+  await $.command.run({ command: 'speak', args: 'install' })
+  await clock.advance(2000)
+  expect(lines.at(-1)).toBe('🔊 Instalando a voz...')
+  st.installing = false
+  await clock.advance(2000)
+  expect(toasts.length).toBe(1)
+  expect(toasts[0]).toMatch(/\/speak install/)
+  expect(lines.at(-1)).toBe(WARN)
+})
+
+test('motor pronto no começo: sem aviso, e o relógio desiste como antes', async ($, on) => {
+  const { lines, toasts, clock } = await setup($, on, { autoinstall: 'ready' })
+  await clock.advance(30000)
+  expect(statuses(lines)).toEqual([])
+  expect(toasts).toEqual([])
+})
+
+test('autoinstall que falha ou responde algo estranho: cai no relógio de antes, sem aviso fixo', async ($, on) => {
+  const { lines, clock } = await setup($, on, { autoinstall: 'lixo', init: { engine: false } })
+  await clock.advance(30000)
+  expect(statuses(lines)).toEqual([])
+})
+
+test('quando este módulo inicia a instalação, deixa uma linha escrita na conversa', async ($, on) => {
+  const { logs } = await setup($, on, { autoinstall: 'installing started', init: { engine: false, installing: true } })
+  expect(logs).toEqual(['Instalando a voz (cerca de 350 MB, alguns minutos). Acompanhe com /speak status.'])
+})
+
+test('se o gancho de começo já iniciou a instalação, o módulo não repete o aviso', async ($, on) => {
+  const { logs } = await setup($, on, { autoinstall: 'installing', init: { engine: false, installing: true } })
+  expect(logs).toEqual([])
+})
+
+test('autoinstall no-uv: nenhuma linha de instalação na conversa', async ($, on) => {
+  const { logs } = await setup($, on, { autoinstall: 'no-uv', init: { engine: false } })
+  expect(logs).toEqual([])
+})
+
+test('autoinstall failed: nenhuma linha de instalação na conversa', async ($, on) => {
+  const { logs } = await setup($, on, { autoinstall: 'failed', init: { engine: false } })
+  expect(logs).toEqual([])
+})
+
+test('autoinstall off: nenhuma linha de instalação na conversa', async ($, on) => {
+  const { logs } = await setup($, on, { autoinstall: 'off', init: { engine: false } })
+  expect(logs).toEqual([])
+})
+
+test('autoinstall ready: nenhuma linha de instalação na conversa', async ($, on) => {
+  const { logs } = await setup($, on, { autoinstall: 'ready', init: { engine: false } })
+  expect(logs).toEqual([])
+})
+

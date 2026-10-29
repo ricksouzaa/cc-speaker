@@ -1594,134 +1594,202 @@ START_MOD = load('speak_start', START)
 isolation.pin_module(START_MOD, MODULE_ROOT)
 
 
-class AutoInstall(unittest.TestCase):
-    """The SessionStart hook starts `speak install` in the background. Everything here is in-process with a fake
-    Popen and a temporary home: no install, no download and no real folder is touched."""
+class AutoInstallCommand(unittest.TestCase):
+    """`speak autoinstall` is the one rule for starting the install by itself. In-process, with a fake Popen, a fake uv
+    and a temporary home: no install, no download and no real folder is touched."""
 
     def setUp(self):
         from unittest import mock
+        self.mock = mock
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.state = os.path.join(self.tmp.name, 'state')
+        isolate(self, self.tmp.name)
         self.uv = os.path.join(self.tmp.name, 'uv')
-        paths = {'STATE': self.state, 'INSTALL_LOG': os.path.join(self.state, 'install.log'),
-                 'INSTALL_LOCK': os.path.join(self.state, 'install.lock'),
-                 'INSTALL_FAILED': os.path.join(self.state, 'install.failed')}
-        for name, value in paths.items():
-            patcher = mock.patch.object(START_MOD, name, value)
-            patcher.start()
-            self.addCleanup(patcher.stop)
-        self.popen = mock.patch.object(START_MOD.subprocess, 'Popen')
-        self.popen = self.popen.start()
+        self.popen = mock.patch.object(speak.subprocess, 'Popen').start()
+        self.popen.return_value.poll.return_value = 0  # the fake child "ended": no waiting for the lock
         self.addCleanup(mock.patch.stopall)
-        mock.patch.object(START_MOD.shutil, 'which', side_effect=lambda n: self.uv if os.path.exists(self.uv) else None).start()
-        mock.patch.object(START_MOD.os.path, 'expanduser', lambda p: self.tmp.name).start()
+        mock.patch.object(speak.shutil, 'which',
+                          side_effect=lambda n: self.uv if os.path.exists(self.uv) else None).start()
         mock.patch.dict(os.environ, {'CLAUDE_SPEAK_AUTOINSTALL': '1'}).start()
 
     def have_uv(self):
         open(self.uv, 'w').close()
 
+    def have_engine(self):
+        for path in (speak.VENV_PY, speak.MODEL, speak.VOICES):
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            open(path, 'w').close()
+
     def test_starts_one_detached_install_with_the_log(self):
         self.have_uv()
-        self.assertEqual(START_MOD.start_install(), 'installing')
+        self.assertEqual(speak.autoinstall()[0], 'installing')
         args, kwargs = self.popen.call_args
-        self.assertEqual(args[0][1:], ['-u', '-I', START_MOD.SPEAK, 'install'])
+        self.assertEqual(args[0][1:], ['-u', '-I', os.path.realpath(SPEAK), 'install'])
         self.assertTrue(kwargs['start_new_session'])
-        self.assertEqual(kwargs['stdin'], START_MOD.subprocess.DEVNULL)
-        self.assertEqual(kwargs['stdout'].name, START_MOD.INSTALL_LOG)
+        self.assertEqual(kwargs['stdin'], speak.subprocess.DEVNULL)
+        self.assertEqual(kwargs['stdout'].name, speak.INSTALL_LOG)
 
     def test_free_lock_spawns_the_child_without_passing_the_lock(self):
         import fcntl
         self.have_uv()
-        self.assertEqual(START_MOD.start_install(), 'installing')
+        self.assertEqual(speak.autoinstall()[0], 'installing')
         self.assertNotIn('pass_fds', self.popen.call_args.kwargs)
-        with open(START_MOD.INSTALL_LOCK, 'a+') as probe:
-            fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)  # the hook left it free
+        for lock in (speak.INSTALL_LOCK, speak.AUTOINSTALL_LOCK):
+            with open(lock, 'a+') as probe:
+                fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)  # both left free
 
     def test_while_one_holds_the_lock_no_other_starts(self):
         import fcntl
         self.have_uv()
-        os.makedirs(self.state)
-        with open(START_MOD.INSTALL_LOCK, 'a+') as held:
+        os.makedirs(speak.STATE)
+        with open(speak.INSTALL_LOCK, 'a+') as held:
             fcntl.flock(held, fcntl.LOCK_EX)
-            self.assertEqual(START_MOD.start_install(), 'installing')
+            self.assertEqual(speak.autoinstall()[0], 'installing')
         self.popen.assert_not_called()
 
-    def test_without_uv_it_says_how_to_get_it_and_starts_nothing(self):
-        self.assertEqual(START_MOD.start_install(), 'no-uv')
-        self.assertIn('docs.astral.sh/uv', START_MOD.NOTICE['no-uv'])
-        self.popen.assert_not_called()
-
-    def test_after_a_failure_it_points_to_the_log_and_does_not_retry(self):
+    def test_two_calls_in_a_row_start_one_install(self):
+        """The child takes INSTALL_LOCK after the call returns; the fake child does it at the first look."""
+        import fcntl
         self.have_uv()
-        os.makedirs(self.state)
-        with open(START_MOD.INSTALL_FAILED, 'w') as fh:
-            fh.write(START_MOD.plugin_version())
-        self.assertEqual(START_MOD.start_install(), 'failed')
-        self.assertIn('install.log', START_MOD.NOTICE['failed'])
-        self.assertIn('/speak install', START_MOD.NOTICE['failed'])
+        held = []
+
+        def start(*args, **kwargs):
+            lock = open(speak.INSTALL_LOCK, 'a+')
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            held.append(lock)
+            self.addCleanup(lock.close)
+            return self.mock.Mock(poll=lambda: None)
+        self.popen.side_effect = start
+        self.assertEqual(speak.autoinstall()[0], 'installing')
+        self.assertEqual(speak.autoinstall()[0], 'installing')
+        self.assertEqual(self.popen.call_count, 1)
+
+    def test_the_call_waits_for_the_child_to_take_the_lock(self):
+        self.have_uv()
+        self.popen.return_value.poll.return_value = None  # the child is alive
+        seen = []
+        real = speak.installing
+        speak.installing = lambda: seen.append(1) or (len(seen) > 4)  # the lock shows up at the 5th look
+        self.addCleanup(setattr, speak, 'installing', real)
+        self.assertEqual(speak.autoinstall()[0], 'installing')
+        self.assertGreater(len(seen), 4)
+
+    def test_without_uv_it_says_so_and_starts_nothing(self):
+        self.assertEqual(speak.autoinstall()[0], 'no-uv')
+        self.popen.assert_not_called()
+
+    def test_after_a_failure_it_says_failed_and_does_not_retry(self):
+        self.have_uv()
+        os.makedirs(speak.STATE)
+        with open(speak.INSTALL_FAILED, 'w') as fh:
+            fh.write(speak.plugin_version())
+        self.assertEqual(speak.autoinstall()[0], 'failed')
         self.popen.assert_not_called()
 
     def test_an_empty_or_old_failure_mark_is_dropped_and_the_install_retried(self):
         self.have_uv()
-        os.makedirs(self.state)
+        os.makedirs(speak.STATE)
         for content in ('', '0.0.1'):
-            with open(START_MOD.INSTALL_FAILED, 'w') as fh:
+            with open(speak.INSTALL_FAILED, 'w') as fh:
                 fh.write(content)
             self.popen.reset_mock()
-            self.assertEqual(START_MOD.start_install(), 'installing')
+            self.assertEqual(speak.autoinstall()[0], 'installing')
             self.popen.assert_called_once()
-            self.assertFalse(os.path.exists(START_MOD.INSTALL_FAILED))
+            self.assertFalse(os.path.exists(speak.INSTALL_FAILED))
 
-    def test_the_failure_mark_is_dropped_when_the_engine_is_ready(self):
-        from unittest import mock
+    def test_with_the_engine_there_it_says_ready_and_clears_the_failure_mark(self):
         self.have_uv()
-        os.makedirs(self.state)
-        with open(START_MOD.INSTALL_FAILED, 'w') as fh:
-            fh.write(START_MOD.plugin_version())
-        fake = lambda *a: mock.Mock(stdout={'rule': 'regra\n', 'check': ''}[a[0]])
-        with mock.patch.object(START_MOD, 'run', fake), mock.patch.object(START_MOD.sys, 'stdin', io.StringIO('{}')), \
-                mock.patch.object(START_MOD.sys, 'stdout', io.StringIO()):
+        self.have_engine()
+        os.makedirs(speak.STATE, exist_ok=True)
+        with open(speak.INSTALL_FAILED, 'w') as fh:
+            fh.write(speak.plugin_version())
+        self.assertEqual(speak.autoinstall()[0], 'ready')
+        self.assertFalse(os.path.exists(speak.INSTALL_FAILED))
+        self.popen.assert_not_called()
+
+    def test_the_switch_says_off_and_starts_nothing(self):
+        self.have_uv()
+        with self.mock.patch.dict(os.environ, {'CLAUDE_SPEAK_AUTOINSTALL': '0'}):
+            self.assertEqual(speak.autoinstall()[0], 'off')
+        self.popen.assert_not_called()
+
+    def test_the_command_prints_the_word_and_exits_0(self):
+        for setup, word in ((lambda: None, 'no-uv'), (self.have_uv, 'installing started')):
+            setup()
+            out = io.StringIO()
+            with self.mock.patch('sys.stdout', out):
+                self.assertEqual(speak.main(['autoinstall']), 0)
+            self.assertEqual(out.getvalue(), word + '\n')
+
+    def test_only_the_call_that_starts_it_says_started(self):
+        import fcntl
+        self.have_uv()
+        self.assertEqual(speak.autoinstall(), ('installing', True))
+        with open(speak.INSTALL_LOCK, 'a+') as held:
+            fcntl.flock(held, fcntl.LOCK_EX)
+            self.assertEqual(speak.autoinstall(), ('installing', False))
+        self.assertEqual(speak.autoinstall()[0], 'installing')
+
+    def test_the_help_lists_the_command(self):
+        self.assertIn('speak autoinstall', speak.__doc__)
+
+
+class AutoInstall(unittest.TestCase):
+    """The SessionStart hook asks `speak autoinstall` and tells what it answers. Everything here is in-process with a
+    fake `run`: nothing is started."""
+
+    def setUp(self):
+        from unittest import mock
+        self.mock = mock
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.state = os.path.join(self.tmp.name, 'state')
+        self.words = {'autoinstall': 'installing\n'}
+        self.calls = []
+        self.addCleanup(mock.patch.stopall)
+        mock.patch.object(START_MOD, 'run', self.fake_run).start()
+
+    def fake_run(self, *args):
+        self.calls.append(args)
+        if args[0] == 'autoinstall' and isinstance(self.words['autoinstall'], Exception):
+            raise self.words['autoinstall']
+        return self.mock.Mock(stdout=self.words[args[0]])
+
+    def test_start_install_maps_the_word(self):
+        for word, key in (('installing', 'installing'), ('no-uv', 'no-uv'), ('failed', 'failed'), ('off', None),
+                          ('ready', None), ('', None), ('lixo', None)):
+            self.words['autoinstall'] = word + '\n'
+            self.assertEqual(START_MOD.start_install(), key, word)
+
+    def test_a_call_that_times_out_is_not_a_notice(self):
+        self.words['autoinstall'] = subprocess.TimeoutExpired('speak', 10)
+        self.assertIsNone(START_MOD.start_install())
+
+    def test_one_call_per_session_start(self):
+        self.main_out('engine\n')
+        self.assertEqual([c for c in self.calls if c[0] == 'autoinstall'], [('autoinstall',)])
+
+    def test_with_the_engine_there_the_notice_is_not_told_but_autoinstall_still_runs(self):
+        self.words['autoinstall'] = 'ready\n'
+        self.assertEqual(self.main_out(''), 'regra 🔊\n')
+        self.assertEqual([c for c in self.calls if c[0] == 'autoinstall'], [('autoinstall',)])  # clears install.failed
+
+    def main_out(self, check, rule='regra 🔊\n'):
+        self.words.update(rule=rule, check=check)
+        out = io.StringIO()
+        with self.mock.patch.object(START_MOD.sys, 'stdin', io.StringIO('{}')), \
+                self.mock.patch.object(START_MOD.sys, 'stdout', out):
             START_MOD.main()
-        self.assertFalse(os.path.exists(START_MOD.INSTALL_FAILED))
-        self.popen.assert_not_called()
-
-    def test_the_switch_turns_it_off(self):
-        from unittest import mock
-        self.have_uv()
-        with mock.patch.dict(os.environ, {'CLAUDE_SPEAK_AUTOINSTALL': '0'}):
-            self.assertIsNone(START_MOD.start_install())
-        self.popen.assert_not_called()
+        return out.getvalue()
 
     def test_main_tells_the_model_the_engine_is_being_installed(self):
-        from unittest import mock
-        self.have_uv()
-
-        def fake_run(*args):
-            out = {'rule': 'regra 🔊\n', 'check': 'engine\n'}[args[0]]
-            return mock.Mock(stdout=out)
-        out = io.StringIO()
-        with mock.patch.object(START_MOD, 'run', fake_run), mock.patch.object(START_MOD.sys, 'stdin', io.StringIO('{}')), \
-                mock.patch.object(START_MOD.sys, 'stdout', out):
-            START_MOD.main()
-        out = json.loads(out.getvalue())
+        out = json.loads(self.main_out('engine\n'))
         context = out['hookSpecificOutput']['additionalContext']
         self.assertIn('regra 🔊', context)
         self.assertIn('sendo instalado em segundo plano', context)
         self.assertIn('350 MB', context)
-        self.popen.assert_called_once()
-
-    def main_out(self, check, rule='regra 🔊\n', started=None):
-        from unittest import mock
-        fake = lambda *a: mock.Mock(stdout={'rule': rule, 'check': check}[a[0]])
-        out = io.StringIO()
-        with mock.patch.object(START_MOD, 'run', fake), mock.patch.object(START_MOD.sys, 'stdin', io.StringIO('{}')), \
-                mock.patch.object(START_MOD.sys, 'stdout', out):
-            START_MOD.main()
-        return out.getvalue()
 
     def test_a_warning_for_the_person_goes_in_system_message_and_the_rules_in_the_context(self):
-        self.have_uv()
         out = json.loads(self.main_out('engine\n'))
         self.assertIn('instalando a voz', out['systemMessage'])
         self.assertIn('/speak install', out['systemMessage'])
@@ -1729,21 +1797,26 @@ class AutoInstall(unittest.TestCase):
         self.assertTrue(out['hookSpecificOutput']['additionalContext'].startswith('regra 🔊'))
 
     def test_each_warning_reaches_the_person(self):
-        out = json.loads(self.main_out('engine\n'))  # no uv
+        self.words['autoinstall'] = 'no-uv\n'
+        out = json.loads(self.main_out('engine\n'))
         self.assertIn('uv', out['systemMessage'])
         self.assertIn('docs.astral.sh/uv', out['systemMessage'])
-        os.makedirs(self.state)
-        self.have_uv()
-        with open(START_MOD.INSTALL_FAILED, 'w') as fh:
-            fh.write(START_MOD.plugin_version())
+        self.words['autoinstall'] = 'failed\n'
         out = json.loads(self.main_out('engine\n'))
         self.assertIn('falhou', out['systemMessage'])
         self.assertIn('/speak install', out['systemMessage'])
+        self.assertIn('install.log', out['hookSpecificOutput']['additionalContext'])
+        self.words['autoinstall'] = 'ready\n'
         out = json.loads(self.main_out('player\n'))
         self.assertIn('tocador', out['systemMessage'])
         self.assertIn('tocador', out['hookSpecificOutput']['additionalContext'])
 
+    def test_switched_off_with_the_engine_missing_tells_nothing(self):
+        self.words['autoinstall'] = 'off\n'
+        self.assertEqual(self.main_out('engine\n'), 'regra 🔊\n')
+
     def test_without_a_warning_the_rules_stay_plain_text(self):
+        self.words['autoinstall'] = 'ready\n'
         self.assertEqual(self.main_out(''), 'regra 🔊\n')
 
 
@@ -2260,7 +2333,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.6.1')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.6.2')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):
