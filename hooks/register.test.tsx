@@ -358,6 +358,16 @@ test('a linha do microfone troca com "all" e avisa quando a voz toca na reunião
   await ui.unmount()
 })
 
+test('o painel lista a Alice e a escolha roda speak voice alice', async ($, on) => {
+  const { ran } = await setup($, on)
+  const { ui } = await openMenu($, 'voice')
+  expect(JSON.stringify((await selects(ui)).voice)).toContain('Alice')
+  await ui.select({ key: 'voice', value: 'alice' })
+  expect(changes(ran)).toEqual(['voice alice'])
+  expect((await selects(ui)).voice.value).toBe('alice')
+  await ui.unmount()
+})
+
 test('a voz de leitura nunca leva "all"', async ($, on) => {
   const { ran } = await setup($, on)
   const { ui } = await openMenu($, 'voice')

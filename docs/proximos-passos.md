@@ -17,6 +17,7 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 - **Pasta de dados no shell:** o gancho de começo exporta `CLAUDE_SPEAK_DATA`, nunca `CLAUDE_PLUGIN_DATA`, que outros plugins leriam como a pasta deles.
 - **Microfone no Mac:** a conta ignora a saída padrão e a saída do sistema, para o próprio som não parecer gravação. Limite: ditar no microfone do mesmo aparelho em que a voz toca não corta a fala.
 - **Opção do microfone:** `wait`, `play` e `auto`. O `auto` volta a `wait` quando o microfone passa de ocupado para livre, visto na espera pela vez, na vigia da fala e no gancho de mensagem nova (`speak _mictick`), sem processo novo em segundo plano. Limite: sem fala e sem mensagem nova, a volta espera a próxima. A vez vai para a fala mais antiga que pode tocar agora (0.8.1): a fala de uma sessão em `wait` com o microfone ocupado guarda o seu lugar, mas não segura as de trás (`play`, `auto`); quando o microfone fica livre ela toca antes das que chegaram depois. Bilhete sem sessão (versão antiga) conta como `wait`. O microfone é lido uma vez por volta. **Ditado (0.9.1):** em `play` e `auto` no Linux só o ditado do Claude Code (`application.name` terminando em `[<nome>]` ou `node.name` `alsa_capture.<nome>`, com `<nome>` o `comm` ou o nome do executável de um processo `claude` vivo da pessoa, lido do `/proc` só quando há uma gravação com esse jeito) segura e corta a fala; `wait` segue igual (qualquer gravação). Ditar sozinho não conta como reunião vista no `auto`. Mac: o CoreAudio não diz quem grava, então em `play`/`auto` nada segura (como antes).
+- **Vozes de leitura:** podem ser misturas de vozes do arquivo do motor (`voices-v1.0.bin`), descritas por uma receita por nome (`READING_VOICES` em `bin/speak`: vozes, pesos e velocidade padrão); a Alice (0,6 Dora + 0,4 `af_heart`, velocidade 1,05) é a primeira. O arquivo de configuração guarda o nome da receita (`alice`) ou o nome do motor das antigas (`pf_dora`).
 - **Versão e envio:** todo ajuste sobe a versão e é enviado na hora (`.claude/rules/git-workflow.md`).
 - **Versões publicadas (29/10/2026):** Versionamento Semântico completo, `CHANGELOG.md` no formato Keep a Changelog, marca anotada `vX.Y.Z` e página de versão no GitHub com as notas da seção; as 34 versões anteriores foram marcadas no commit de cada uma. Marca enviada não se move nem se apaga. A passagem para 1.0.0 é decisão do Ricardo.
 
@@ -42,6 +43,8 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 ## Recusado
 
 - Um comando por ação (`/speak-on`, `/speak-off` e outros), pedido pela sessão do smart-platform: recusado pelo Ricardo em 29/10/2026; `/speak on` e os demais já bastam.
+- Uma voz por sessão (do kokoro-tts do voiys): dispensada pelo Ricardo em 29/10/2026, porque o aviso de quem fala já mostra o projeto.
+- Voz masculina no estilo do Jarvis e variações mais leves do Alex: testadas em 29/10/2026 por misturas com vozes inglesas e recusadas pelo Ricardo, porque puxam sotaque britânico.
 
 ## Pendências
 
@@ -51,8 +54,7 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 
 ## Pedidos para depois
 
-- **Outros narradores** pesquisados em 28/10/2026, para escolher o que trazer: uma voz por sessão (do kokoro-tts do voiys); avisos falados durante o trabalho (do claude-voice do adjit).
-- **Voz no estilo do Jarvis**, ideia do Ricardo. Combinado: um estilo inspirado (voz masculina grave e calma, tratamento formal, talvez um leve efeito metálico no áudio), não uma cópia da voz do ator nem o nome como marca.
+- **Outros narradores** pesquisados em 28/10/2026: avisos falados durante o trabalho (do claude-voice do adjit).
 
 ## Retirado
 

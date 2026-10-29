@@ -2634,6 +2634,49 @@ class Voice(unittest.TestCase):
         self.assertIn('voz: pm_alex', self.speak('status').stdout)
         self.assertIn('voz: pm_santa', self.speak('status', CLAUDE_SPEAK_VOICE='pm_santa').stdout)
 
+    def test_alice_is_listed_saved_and_shown_by_name(self):
+        out = self.speak('voice').stdout
+        self.assertRegex(out, r'(?m)^  alice \(alice, feminina\)')
+        self.assertIn('voz: alice', self.speak('voice', 'alice').stdout)
+        self.assertEqual(open(data_dir(self.tmp.name, 'config', 'voice')).read().strip(), 'alice')
+        self.assertRegex(self.speak('voice').stdout, r'(?m)^\* alice')
+        self.assertNotIn('[', self.speak('status').stdout.split('voz: alice')[1].splitlines()[0])
+        self.assertEqual(json.loads(self.speak('status', '--json').stdout)['voice'], 'alice')
+
+    def test_old_saved_values_still_work(self):
+        os.makedirs(os.path.dirname(data_dir(self.tmp.name, 'config', 'voice')))
+        for full, short in (('pf_dora', 'dora'), ('pm_alex', 'alex'), ('pm_santa', 'santa')):
+            with open(data_dir(self.tmp.name, 'config', 'voice'), 'w') as fh:
+                fh.write(full + '\n')
+            self.assertIn('voz: %s, velocidade 1.1' % full, self.speak('status').stdout)
+            self.assertRegex(self.speak('voice').stdout, r'(?m)^\* ' + short)
+
+    def test_default_speed_follows_the_voice_and_the_variable_wins(self):
+        self.assertIn('velocidade 1.1', self.speak('status').stdout)
+        self.speak('voice', 'alice')
+        self.assertIn('velocidade 1.05', self.speak('status').stdout)
+        self.assertIn('velocidade 1.3', self.speak('status', CLAUDE_SPEAK_SPEED='1.3').stdout)
+        self.assertIn('velocidade 1.05', self.speak('status', CLAUDE_SPEAK_SPEED='x').stdout)
+        self.assertIn('voz: pm_alex, velocidade 1.1', self.speak('status', CLAUDE_SPEAK_VOICE='pm_alex').stdout)
+
+    def test_recipes(self):
+        self.assertEqual(speak.recipe('alice'), ((('pf_dora', 0.6), ('af_heart', 0.4)), 1.05))
+        self.assertEqual(speak.recipe('pf_dora'), ((('pf_dora', 1.0),), 1.1))
+        self.assertEqual(speak.recipe('pm_other'), ((('pm_other', 1.0),), 1.1))
+
+    @unittest.skipUnless(importlib.util.find_spec('numpy'), 'needs numpy')
+    def test_alice_style_is_the_weighted_sum_in_float32(self):
+        import numpy as np
+        path = os.path.join(self.tmp.name, 'voices.bin')
+        with open(path, 'wb') as fh:
+            np.savez(fh, pf_dora=np.array([1.0, 2.0, 3.0], dtype='float32'),
+                     af_heart=np.array([10.0, 20.0, 30.0], dtype='float32'))
+        voices = np.load(path)
+        style = speak.voice_style(voices, speak.recipe('alice')[0])
+        self.assertEqual(style.dtype, np.float32)
+        np.testing.assert_allclose(style, [4.6, 9.2, 13.8], rtol=1e-6)
+        self.assertEqual(speak.voice_style(voices, speak.recipe('pf_dora')[0]), 'pf_dora')
+
 
 class Rule(unittest.TestCase):
     def setUp(self):
@@ -3634,7 +3677,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.13.1')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.14.0')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

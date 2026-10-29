@@ -20,7 +20,7 @@
                            prints the version before and after, in Portuguese; the new version holds after
                            /reload-plugins or in a new session
   speak status --json      the same state as one JSON line (used by the /speak pane)
-  speak voice [name]       without a name: list the Portuguese voices (dora, alex, santa) and mark the current one;
+  speak voice [name]       without a name: list the Portuguese voices (dora, alex, santa, alice) and mark the current one;
                            with a name (short or full, e.g. dora or pf_dora): choose it for every session
   speak rule               print rules/speak.md with {line} replaced by the line of the mode and size in force
                            (the SessionStart hook hands it to Claude)
@@ -63,7 +63,7 @@ speeches waiting are kept and go on when the microphone is free. `speak off` in 
 Env: CLAUDE_SPEAK=0 silences one session (a first choice that a later `speak on` beats);
 CLAUDE_SPEAK_SESSION forces the session key ('-' means none; for tests and to force a key);
 CLAUDE_SPEAK_MODE overrides the mode; CLAUDE_SPEAK_SIZE the size; CLAUDE_SPEAK_MIC the microphone choice; CLAUDE_SPEAK_VOICE the voice (default pf_dora);
-CLAUDE_SPEAK_SPEED (default 1.1).
+CLAUDE_SPEAK_SPEED (default 1.1; 1.05 for alice).
 Files live in the plugin's data folder (CLAUDE_SPEAK_DATA or CLAUDE_PLUGIN_DATA; see lib/speak_paths.py): engine/, config/, state/.
 Errors of a background speech go to state/error.log there. state/speech.json says what plays now and what is paused
 (the /speak module reads it without running a process); CLAUDE_SPEAK_CWD (set by the Stop hook) is the folder of the
@@ -111,7 +111,14 @@ SIZE_TEXT = {'small': 'one short sentence',
              'large': 'a spoken paragraph of four to six sentences: what was done, what was found, the result and '
                       'what the human must decide'}
 VOICE_FILE = os.path.join(CONF, 'voice')
-PT_VOICES = {'dora': ('pf_dora', 'feminina'), 'alex': ('pm_alex', 'masculina'), 'santa': ('pm_santa', 'masculina')}
+DEFAULT_SPEED = 1.1
+READING_VOICES = {  # short name -> the name saved in VOICE_FILE, its kind, the recipe (engine voice, weight) and the default speed
+    'dora': {'full': 'pf_dora', 'kind': 'feminina', 'mix': (('pf_dora', 1.0),), 'speed': DEFAULT_SPEED},
+    'alex': {'full': 'pm_alex', 'kind': 'masculina', 'mix': (('pm_alex', 1.0),), 'speed': DEFAULT_SPEED},
+    'santa': {'full': 'pm_santa', 'kind': 'masculina', 'mix': (('pm_santa', 1.0),), 'speed': DEFAULT_SPEED},
+    'alice': {'full': 'alice', 'kind': 'feminina', 'mix': (('pf_dora', 0.6), ('af_heart', 0.4)), 'speed': 1.05},
+}
+PT_VOICES = {short: (v['full'], v['kind']) for short, v in READING_VOICES.items()}
 RULE = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'rules', 'speak.md')
 VENV_PY = os.path.join(DATA, '.venv', 'bin', 'python')
 MODEL = os.path.join(DATA, 'kokoro-v1.0.onnx')
@@ -155,11 +162,36 @@ def voice_name(wanted):
     return None
 
 
+def reading_voice(wanted):
+    """The entry of READING_VOICES for a short or full name; None if it is not one of them."""
+    wanted = (wanted or '').strip().lower()
+    for short, entry in READING_VOICES.items():
+        if wanted in (short, entry['full']):
+            return entry
+    return None
+
+
+def recipe(wanted):
+    """(mix, default speed) of a voice: its recipe, or the engine voice of that name alone."""
+    entry = reading_voice(wanted)
+    return (entry['mix'], entry['speed']) if entry else (((wanted, 1.0),), DEFAULT_SPEED)
+
+
+def voice_style(voices, mix):
+    """What kokoro.create takes as `voice`: the engine voice name when the recipe is one voice alone, else the
+    weighted sum of the style vectors of `voices` (the engine's voices file) in float32. Made once per speech."""
+    if len(mix) == 1:
+        return mix[0][0]
+    return sum(voices[name] * weight for name, weight in mix).astype('float32')
+
+
 def speed():
+    """CLAUDE_SPEAK_SPEED, then the default speed of the voice in force."""
+    default = recipe(voice())[1]
     try:
-        return float(os.environ.get('CLAUDE_SPEAK_SPEED') or 1.1)
+        return float(os.environ.get('CLAUDE_SPEAK_SPEED') or default)
     except ValueError:
-        return 1.1
+        return default
 
 
 def mode(session=None):
@@ -1390,8 +1422,11 @@ def play(text):
             return 1
         kokoro = Kokoro(MODEL, VOICES)
 
+        style = voice_style(kokoro.voices, recipe(voice())[0])
+        rate = speed()
+
         def synth(piece):
-            return kokoro.create(piece, voice=voice(), speed=speed(), lang='pt-br')[0]
+            return kokoro.create(piece, voice=style, speed=rate, lang='pt-br')[0]
 
         if not speak_os.streams():
             return play_files(player, synthesize_ahead(pieces(text), synth), watch, session)

@@ -25,12 +25,12 @@ type Heard = { playing: Speech | null; paused: Speech[] }
 const MODES: Record<string, string> = { full: 'Resposta inteira', summary: 'Só o resumo' }
 const SIZES: Record<string, string> = { small: 'Pequeno', medium: 'Médio', large: 'Grande' }
 const MICS: Record<string, string> = { wait: 'Espera', play: 'Toca', auto: 'Toca nesta reunião' }
-const VOICES: Record<string, string> = { dora: 'Dora (feminina)', alex: 'Alex (masculina)', santa: 'Santa (masculina)' }
-const READERS: Record<string, string> = { dora: 'Dora', alex: 'Alex', santa: 'Santa' }
+const VOICES: Record<string, string> = { dora: 'Dora (feminina)', alex: 'Alex (masculina)', santa: 'Santa (masculina)', alice: 'Alice (feminina)' }
+const READERS: Record<string, string> = { dora: 'Dora', alex: 'Alex', santa: 'Santa', alice: 'Alice' }
 const POWER: Record<string, string> = { on: 'Ligada', off: 'Desligada' }
 const USAGE =
   'Escreva a ação: /speak on, /speak off, /speak mode full|summary, /speak size small|medium|large, /speak mic wait|play|auto, ' +
-  '/speak voice dora|alex|santa, /speak again [summary|full], /speak pause, /speak resume, /speak status, /speak stop, ' +
+  '/speak voice dora|alex|santa|alice, /speak again [summary|full], /speak pause, /speak resume, /speak status, /speak stop, ' +
   '/speak install, /speak update ' +
   '(com "all" no fim, vale para todas as sessões).'
 const where = (all: boolean) => (all ? 'em todas as sessões' : 'nesta sessão')

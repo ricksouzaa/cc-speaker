@@ -50,7 +50,7 @@ Digite `/speak` sozinho. Abre um painel com uma lista por linha, já com o tecla
 | Voz | ligada (padrão) ou desligada |
 | Leitura | só o resumo (padrão) ou a resposta inteira |
 | Tamanho do resumo | pequeno (uma frase), médio (padrão, duas ou três frases) ou grande (um parágrafo); a linha só aparece com a leitura em "só o resumo" (o `/speak size` escrito vale em qualquer modo) |
-| Voz de leitura | Dora (padrão, feminina), Alex ou Santa (masculinas); vale sempre para todas as sessões |
+| Voz de leitura | Dora (padrão, feminina), Alice (feminina, a Dora mais suave), Alex ou Santa (masculinas); vale sempre para todas as sessões |
 | Com o microfone em uso | Espera (padrão), Toca ou Toca nesta reunião (veja [Microfone](#microfone)) |
 | Ouvir de novo | dois botões, Resumo e Resposta inteira: tocam na hora a última fala desta sessão; a linha não guarda valor |
 
@@ -71,7 +71,7 @@ Para pular o painel, escreva a ação. Com `all` no fim, vale para todas as sess
 | `/speak on` · `/speak off` | liga ou desliga a voz (padrão: `on`) |
 | `/speak mode summary` · `full` | lê só o resumo ou a resposta inteira (padrão: `summary`) |
 | `/speak size small` · `medium` · `large` | tamanho do resumo (padrão: `medium`) |
-| `/speak voice dora` · `alex` · `santa` | troca a voz, sempre em todas as sessões (padrão: `dora`) |
+| `/speak voice dora` · `alice` · `alex` · `santa` | troca a voz, sempre em todas as sessões (padrão: `dora`) |
 | `/speak mic wait` · `play` · `auto` | o que fazer com o microfone em uso (padrão: `wait`) |
 | `/speak again` · `again summary` · `again full` | ouve de novo a última fala desta sessão, mesmo com a voz desligada: do jeito em que tocou, só o resumo ou a resposta inteira |
 | `/speak pause` | congela a fala que está tocando, de qualquer sessão, no ponto exato; a vez passa para a próxima da fila, e a pausada espera você pedir |

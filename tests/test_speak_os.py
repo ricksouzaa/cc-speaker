@@ -368,7 +368,7 @@ class MacTest(unittest.TestCase):
 
         class Kokoro:
             def __init__(self, *a):
-                pass
+                self.voices = {}
 
             def create(self, piece, **kw):
                 return (FakeSamples(piece), 24000)

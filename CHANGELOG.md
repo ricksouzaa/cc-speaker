@@ -7,6 +7,11 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.14.0] - 2026-10-29
+
+### Adicionado
+- Voz Alice: a Dora mais suave, feita misturando a Dora com uma voz americana do próprio arquivo de vozes (nada novo para baixar), com leitura em português e velocidade padrão 1,05. Escolha no painel ou com `/speak voice alice`; quem já tinha Dora, Alex ou Santa guardada continua como estava.
+
 ## [0.13.1] - 2026-10-29
 
 ### Corrigido
@@ -229,7 +234,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.13.1...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.14.0
 [0.13.1]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.13.1
 [0.13.0]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.13.0
 [0.12.0]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.12.0
