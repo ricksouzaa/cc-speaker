@@ -17,7 +17,8 @@
   speak check              print `engine` and/or `player` for what is missing; exit 0 when nothing is
                            (on stderr, a line "processos acima: pid nome, ...": the ancestors, to find the session)
   speak test [text]        speak a test sentence, in the foreground (errors show)
-  speak install            install the engine: Python 3.12 via uv, kokoro-onnx, model files (~350 MB); no sudo
+  speak install            install the engine: Python 3.12 via uv, kokoro-onnx (on the Mac also sounddevice, optional),
+                           model files (~350 MB); no sudo
   speak say [text | -]     speak in the background and return at once; `-` reads the reply from stdin and applies
                            the mode (used by hooks/speak-stop.py)
   speak stop               cut the speech playing now, whoever's it is, and drop every speech waiting its turn; the
@@ -698,15 +699,104 @@ class FilePlayer:
         self.discard()
 
 
+class StreamPlayer:
+    """Plays through one sounddevice output stream at the synthesis rate (Mac). Raises on anything that goes wrong
+    (import, device query or open, write); the caller falls back to files. Changes no system audio setting."""
+
+    def __init__(self):
+        import sounddevice
+        self.closed = False
+        self.stream = sounddevice.OutputStream(samplerate=RATE, channels=1, dtype='float32')
+        self.stream.start()
+
+    def play(self, samples):
+        self.stream.write(samples.astype('float32').reshape(-1, 1))
+        return 0
+
+    def finish(self):
+        """After the last piece: lets what was written play out, then closes."""
+        try:
+            self.stream.stop()
+        finally:
+            self.close()
+
+    def close(self):
+        if self.closed:
+            return
+        self.closed = True
+        try:
+            self.stream.close()
+        except Exception:
+            pass
+
+    def abort(self):
+        try:
+            self.stream.abort()
+        except Exception:
+            pass
+        self.close()
+
+
+class MacPlayer:
+    """What the Mac plays through: the sounddevice stream while it works, `afplay` per piece from the first failure
+    on, for the rest of the speech (the piece that failed is played again by afplay, so nothing is lost). A failure
+    of sounddevice never ends the speech. `kill()` (microphone cut) stops whichever is in progress."""
+
+    def __init__(self, command):
+        self.files = FilePlayer(command)
+        self.stream = None
+        self.streaming = True
+        self.cut = False
+
+    def play(self, samples):
+        if self.cut:
+            return 0
+        if self.streaming:
+            try:
+                if self.stream is None:
+                    self.stream = StreamPlayer()
+                return self.stream.play(samples)
+            except Exception:
+                self.streaming = False
+                self.drop_stream()
+                if self.cut:  # the failure was the cut itself: play nothing more
+                    return 0
+        return self.files.play(samples)
+
+    def drop_stream(self):
+        stream, self.stream = self.stream, None
+        if stream is not None:
+            stream.close()
+
+    def finish(self):
+        stream, self.stream = self.stream, None
+        if stream is not None:
+            try:
+                stream.finish()
+            except Exception:
+                stream.close()
+
+    def kill(self):
+        self.cut = True
+        stream = self.stream
+        if stream is not None:
+            stream.abort()
+        self.files.kill()
+
+
 def play_files(command, chunks, watch):
-    """Plays each synthesized piece as a WAV file in the state folder, in order; returns the last exit code."""
-    player = FilePlayer(command)
-    if watch:
-        watch_microphone(player)
-    code = 0
-    for samples in chunks:
-        code = player.play(samples)
-    return code
+    """Plays each synthesized piece in order (see MacPlayer); returns the last exit code."""
+    player = MacPlayer(command)
+    try:
+        if watch:
+            watch_microphone(player)
+        code = 0
+        for samples in chunks:
+            code = player.play(samples)
+        player.finish()
+        return code
+    finally:
+        player.drop_stream()
 
 
 def play(text):
@@ -770,6 +860,13 @@ def install():
             shutil.rmtree(venv)
         subprocess.check_call([uv, 'venv', '--python', '3.12', '-q', venv])
     subprocess.check_call([uv, 'pip', 'install', '-q', '--python', VENV_PY, 'kokoro-onnx'])
+    if speak_os.SYSTEM == 'mac':  # a separate step: without it the Mac plays through afplay
+        try:
+            ok = subprocess.call([uv, 'pip', 'install', '-q', '--python', VENV_PY, 'sounddevice']) == 0
+        except OSError:
+            ok = False
+        if not ok:
+            print('voz: sounddevice não instalou; o Mac toca pelo afplay')
     for path in (MODEL, VOICES):
         if not os.path.exists(path):
             print('voz: baixando %s' % os.path.basename(path))
