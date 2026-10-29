@@ -669,7 +669,7 @@ test('depois do turno, o último bloco ganha os dois botões; outro bloco fica s
   const { ran } = await setup($, on)
   await finish($, 'Feito.\n\n🔊 Resumo falado.')
   const last = await $.ui.mount(msg('Feito.\n\n🔊 Resumo falado.'))
-  expect(await buttons(last)).toEqual(['[ ▶ Resumo ]', '[ ▶ Resposta inteira ]'])
+  expect(await buttons(last)).toEqual(['▶ Resumo', '▶ Resposta inteira'])
   await last.press({ key: 'msg-again-summary' })
   await last.press({ key: 'msg-again-full' })
   expect(changes(ran)).toEqual(['again summary', 'again full'])
@@ -684,7 +684,7 @@ test('sem a linha 🔊 só aparece "Resposta inteira"', async ($, on) => {
   const { ran } = await setup($, on)
   await finish($, 'Resposta sem resumo.')
   const ui = await $.ui.mount(msg('Resposta sem resumo.'))
-  expect(await buttons(ui)).toEqual(['[ ▶ Resposta inteira ]'])
+  expect(await buttons(ui)).toEqual(['▶ Resposta inteira'])
   await ui.press({ key: 'msg-again-full' })
   expect(changes(ran)).toEqual(['again full'])
 })
@@ -699,7 +699,7 @@ test('durante um turno não há botões; no turno novo somem da resposta anterio
   expect(await buttons(await $.ui.mount(msg('Parcial')))).toEqual([])
   await finish($, 'Segunda.', { turnId: 't2' })
   expect(await buttons(await $.ui.mount(msg('Primeira.\n🔊 um')))).toEqual([])
-  expect(await buttons(await $.ui.mount(msg('Segunda.')))).toEqual(['[ ▶ Resposta inteira ]'])
+  expect(await buttons(await $.ui.mount(msg('Segunda.')))).toEqual(['▶ Resposta inteira'])
 })
 
 test('turno de subagente e turno interrompido não mexem nos botões', async ($, on) => {

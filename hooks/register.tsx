@@ -404,7 +404,7 @@ function drawAgainButtons(el: any, withSummary: boolean, press: (which: string) 
         .filter(v => v === 'full' || withSummary)
         .map(v => (
           <Box key={'box-' + v} marginRight={2}>
-            <Button key={'msg-again-' + v} label={`[ ▶ ${AGAINS[v]} ]`} onPress={() => press(v)} />
+            <Button key={'msg-again-' + v} label={`▶ ${AGAINS[v]}`} onPress={() => press(v)} />
           </Box>
         ))}
     </Box>
