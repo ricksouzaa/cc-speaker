@@ -204,6 +204,20 @@ class Ahead(unittest.TestCase):
         gen.close()  # the player was cut: the background synthesis must not keep the program alive
 
 
+def fake_claude(path):
+    """A program named `claude` that is not the Python interpreter: a copy of the system shell. A symlink to Python
+    would not do on the Mac, where python3 is a stub that re-executes `.../Python.app/Contents/MacOS/Python` and the
+    process then shows that name, as it never would for the real Claude Code (a binary called `claude`)."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    shutil.copy('/bin/sh', path)
+    return path
+
+
+def run_under_claude(fake, code, *args, **kw):
+    """Runs `python -I -c code args...` as a child of the fake claude (which waits for it and does not exec it)."""
+    return subprocess.run([fake, '-c', '"$@"; exit $?', 'sh', sys.executable, '-I', '-c', code, *args], **kw)
+
+
 @unittest.skipUnless(sys.platform.startswith('linux'),
                      'pw-play, paplay and aplay are the Linux players; the Mac plays with afplay')
 class Player(unittest.TestCase):
@@ -593,16 +607,12 @@ class Session(unittest.TestCase):
         self.assertIn('voz: ligada', self.speak('status', session=self.me).stdout)
 
     def test_session_found_through_shells(self):
-        bindir = os.path.join(self.tmp.name, 'bin')
-        os.makedirs(bindir)
-        fake = os.path.join(bindir, 'claude')
-        os.symlink(sys.executable, fake)
+        fake = fake_claude(os.path.join(self.tmp.name, 'bin', 'claude'))
 
         def run(cmd):
             code = 'import subprocess,sys; print(subprocess.run(["sh","-c",sys.argv[1]],capture_output=True,text=True).stdout)'
             inner = '%s -I %s %s' % (sys.executable, SPEAK, cmd)
-            return subprocess.run([fake, '-I', '-c', code, inner], capture_output=True, text=True,
-                                  env=self.env).stdout
+            return run_under_claude(fake, code, inner, capture_output=True, text=True, env=self.env).stdout
 
         status = run('status')
         self.assertIn('voz: ', status)
@@ -612,14 +622,11 @@ class Session(unittest.TestCase):
 
     def test_session_found_through_shells_pid(self):
         """The session file is named after the fake claude's own pid."""
-        bindir = os.path.join(self.tmp.name, 'bin')
-        os.makedirs(bindir)
-        fake = os.path.join(bindir, 'claude')
-        os.symlink(sys.executable, fake)
-        code = ('import subprocess,sys,os; print(os.getpid()); sys.stdout.flush();'
+        fake = fake_claude(os.path.join(self.tmp.name, 'bin', 'claude'))
+        code = ('import subprocess,sys,os; print(os.getppid()); sys.stdout.flush();'
                 'subprocess.run(["sh","-c",sys.argv[1]],capture_output=True,text=True)')
         inner = '%s -I %s off' % (sys.executable, SPEAK)
-        out = subprocess.run([fake, '-I', '-c', code, inner], capture_output=True, text=True, env=self.env).stdout
+        out = run_under_claude(fake, code, inner, capture_output=True, text=True, env=self.env).stdout
         pid = out.split()[0]
         self.assertEqual([n.split('-')[0] for n in os.listdir(self.state)], [pid])
 
@@ -637,14 +644,13 @@ class Session(unittest.TestCase):
                      's = importlib.util.spec_from_loader("speak_real", l)\n'
                      'm = importlib.util.module_from_spec(s); l.exec_module(m)\n'
                      'open(%r, "w").write(str(m.current_session()))\n' % (SPEAK, recorded))
-        fake = os.path.join(self.tmp.name, 'claude')
-        os.symlink(sys.executable, fake)
-        code = ('import subprocess,sys,os,json; print(os.getpid()); sys.stdout.flush();'
+        fake = fake_claude(os.path.join(self.tmp.name, 'claude'))
+        code = ('import subprocess,sys,os,json; print(os.getppid()); sys.stdout.flush();'
                 'subprocess.run(["sh","-c",sys.argv[1]],input=sys.argv[2].encode(),capture_output=True)')
         hook_cmd = '%s -I %s' % (sys.executable, hook)
         event = json.dumps({'last_assistant_message': 'Olá, tudo bem.'})
-        out = subprocess.run([fake, '-I', '-c', code, hook_cmd, event], capture_output=True, text=True,
-                             env=self.env, timeout=30).stdout
+        out = run_under_claude(fake, code, hook_cmd, event, capture_output=True, text=True,
+                               env=self.env, timeout=30).stdout
         pid = out.split()[0]
         for _ in range(60):
             if os.path.exists(recorded) and open(recorded).read():

@@ -19,7 +19,7 @@ class Diag(unittest.TestCase):
                 r = subprocess.Popen([p, '5']); 
                 import time; time.sleep(0.5)
                 o = subprocess.run(['ps', '-o', 'pid=,ppid=,comm=,command=', '-p', str(r.pid)], capture_output=True, text=True)
-                r.kill(); r.wait()
+                o2 = subprocess.run(['ps','-o','ppid=,comm=','-p',str(r.pid)],capture_output=True,text=True); print('DIAG lastcol', o2.stdout.strip()); r.kill(); r.wait()
                 print('DIAG', k, o.returncode, o.stdout.strip(), o.stderr.strip())
             elif k == 'copy-sh':
                 o = subprocess.run([p, '-c', 'ps -o pid=,ppid=,comm=,command= -p $$'], capture_output=True, text=True)
