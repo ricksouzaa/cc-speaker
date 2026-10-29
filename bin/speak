@@ -94,7 +94,8 @@ MIC_TEXT = {'wait': 'espera', 'play': 'toca', 'auto': 'toca nesta reunião'}
 MIC_SEEN = os.path.join(STATE, 'mic-seen')  # `auto` in the general setting: a busy microphone was seen under it
 RULE_LINE = {  # the first bullet of rules/speak.md, by the mode in force
     'summary': 'While the voice is on, every reply to the human ends with that `\U0001f50a` line, in plain Brazilian '
-               'Portuguese: {size}. The full reading skips it.',
+               'Portuguese: {size}. The full reading skips it. Only in replies to the human: never in the recap '
+               '(away summary, "while you were away") nor in titles or other text Claude Code writes on its own.',
     'full': 'The voice reads the whole reply (`speak mode full`) and skips the `\U0001f50a` line, so in this mode '
             'do not write it: the new-message hook says so in a `speak:` note.'}
 SIZE_TEXT = {'small': 'one short sentence',

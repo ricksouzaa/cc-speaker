@@ -2122,6 +2122,11 @@ class Rule(unittest.TestCase):
         self.assertIn('four to six sentences', self.rule(CLAUDE_SPEAK_SIZE='large'))
         self.assertNotIn('{size}', self.rule())
 
+    def test_a_linha_so_vai_nas_respostas_ao_humano_nunca_no_recap(self):
+        text = self.rule(CLAUDE_SPEAK_MODE='summary')
+        self.assertIn('Only in replies to the human: never in the recap (away summary', text)
+        self.assertIn('nor in titles or other text Claude Code writes on its own', text)
+
     def test_regra_sem_linha_no_full(self):
         full = self.rule(CLAUDE_SPEAK_MODE='full')
         self.assertIn('do not write', full)
