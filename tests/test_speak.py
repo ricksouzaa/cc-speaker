@@ -1445,7 +1445,9 @@ class Rule(unittest.TestCase):
     def test_rule_names_the_commands(self):
         text = self.rule()
         for name in ('on', 'off', 'mode', 'size', 'phone', 'voice', 'status', 'stop', 'install'):
-            self.assertIn('/speak:' + name, text)
+            self.assertIn('`speak %s' % name, text)
+        self.assertIn('`/speak`', text)
+        self.assertNotIn('/speak:', text)
         self.assertIn('speak size', text)
         self.assertIn('speak voice', text)
         self.assertIn('speak phone on', text)
@@ -1457,7 +1459,8 @@ class StartHook(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.home = self.tmp.name
-        self.env = {'HOME': self.home, 'PATH': '/usr/bin:/bin', 'CLAUDE_SPEAK_SESSION': '-'}
+        self.env = {'HOME': self.home, 'PATH': '/usr/bin:/bin', 'CLAUDE_SPEAK_SESSION': '-',
+                    'CLAUDE_SPEAK_AUTOINSTALL': '0'}
 
     def run_hook(self, **env):
         r = subprocess.run([sys.executable, '-I', START], input='{}', capture_output=True, text=True,
@@ -1483,22 +1486,144 @@ class StartHook(unittest.TestCase):
         self.assertIn('🔊', out)
         self.assertNotIn('{size}', out)
 
-    def test_without_engine_it_asks_claude_to_offer_the_install(self):
-        out = self.run_hook()
-        self.assertIn('motor de voz não está instalado', out)
-        self.assertIn('350 MB', out)
-
     def test_with_engine_and_player_there_is_no_notice(self):
         self.engine()
         out = self.run_hook(**self.player())
-        self.assertNotIn('motor de voz não está instalado', out)
+        self.assertNotIn('instalado', out)
         self.assertNotIn('tocador', out)
 
     def test_without_player_it_says_so(self):
         self.engine()
         out = self.run_hook(PATH='/nonexistent')
         self.assertIn('tocador', out)
-        self.assertNotIn('motor de voz não está instalado', out)
+        self.assertNotIn('instalado', out)
+
+
+START_MOD = load('speak_start', START)
+
+
+class AutoInstall(unittest.TestCase):
+    """The SessionStart hook starts `speak install` in the background. Everything here is in-process with a fake
+    Popen and a temporary home: no install, no download and no real folder is touched."""
+
+    def setUp(self):
+        from unittest import mock
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.state = os.path.join(self.tmp.name, 'state')
+        self.uv = os.path.join(self.tmp.name, 'uv')
+        paths = {'STATE': self.state, 'INSTALL_LOG': os.path.join(self.state, 'install.log'),
+                 'INSTALL_LOCK': os.path.join(self.state, 'install.lock'),
+                 'INSTALL_FAILED': os.path.join(self.state, 'install.failed')}
+        for name, value in paths.items():
+            patcher = mock.patch.object(START_MOD, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.popen = mock.patch.object(START_MOD.subprocess, 'Popen')
+        self.popen = self.popen.start()
+        self.addCleanup(mock.patch.stopall)
+        mock.patch.object(START_MOD.shutil, 'which', side_effect=lambda n: self.uv if os.path.exists(self.uv) else None).start()
+        mock.patch.object(START_MOD.os.path, 'expanduser', lambda p: self.tmp.name).start()
+        mock.patch.dict(os.environ, {'CLAUDE_SPEAK_AUTOINSTALL': '1'}).start()
+
+    def have_uv(self):
+        open(self.uv, 'w').close()
+
+    def test_starts_one_detached_install_with_the_log(self):
+        self.have_uv()
+        self.assertEqual(START_MOD.start_install(), 'installing')
+        args, kwargs = self.popen.call_args
+        self.assertEqual(args[0][1:], ['-I', START_MOD.SPEAK, 'install'])
+        self.assertTrue(kwargs['start_new_session'])
+        self.assertEqual(kwargs['stdin'], START_MOD.subprocess.DEVNULL)
+        self.assertEqual(kwargs['stdout'].name, START_MOD.INSTALL_LOG)
+
+    def test_while_one_holds_the_lock_no_other_starts(self):
+        import fcntl
+        self.have_uv()
+        os.makedirs(self.state)
+        with open(START_MOD.INSTALL_LOCK, 'a+') as held:
+            fcntl.flock(held, fcntl.LOCK_EX)
+            self.assertEqual(START_MOD.start_install(), 'installing')
+        self.popen.assert_not_called()
+
+    def test_without_uv_it_says_how_to_get_it_and_starts_nothing(self):
+        self.assertEqual(START_MOD.start_install(), 'no-uv')
+        self.assertIn('docs.astral.sh/uv', START_MOD.NOTICE['no-uv'])
+        self.popen.assert_not_called()
+
+    def test_after_a_failure_it_points_to_the_log_and_does_not_retry(self):
+        self.have_uv()
+        os.makedirs(self.state)
+        open(START_MOD.INSTALL_FAILED, 'w').close()
+        self.assertEqual(START_MOD.start_install(), 'failed')
+        self.assertIn('install.log', START_MOD.NOTICE['failed'])
+        self.assertIn('/speak install', START_MOD.NOTICE['failed'])
+        self.popen.assert_not_called()
+
+    def test_the_switch_turns_it_off(self):
+        from unittest import mock
+        self.have_uv()
+        with mock.patch.dict(os.environ, {'CLAUDE_SPEAK_AUTOINSTALL': '0'}):
+            self.assertIsNone(START_MOD.start_install())
+        self.popen.assert_not_called()
+
+    def test_main_tells_the_model_the_engine_is_being_installed(self):
+        from unittest import mock
+        self.have_uv()
+
+        def fake_run(*args):
+            out = {'rule': 'regra 🔊\n', 'check': 'engine\n'}[args[0]]
+            return mock.Mock(stdout=out)
+        out = io.StringIO()
+        with mock.patch.object(START_MOD, 'run', fake_run), mock.patch.object(START_MOD.sys, 'stdin', io.StringIO('{}')), \
+                mock.patch.object(START_MOD.sys, 'stdout', out):
+            START_MOD.main()
+        self.assertIn('sendo instalado em segundo plano', out.getvalue())
+        self.assertIn('350 MB', out.getvalue())
+        self.popen.assert_called_once()
+
+
+class InstallMark(unittest.TestCase):
+    """`speak install` leaves a mark when it fails and clears it when it works (fake uv steps, temporary folders)."""
+
+    def setUp(self):
+        from unittest import mock
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        isolate(self, self.tmp.name)
+        self.mark = os.path.join(speak.STATE, 'install.failed')
+        patcher = mock.patch.object(speak, 'INSTALL_FAILED', self.mark)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.mock = mock
+
+    def test_a_failure_leaves_the_mark_and_a_success_removes_it(self):
+        with self.mock.patch.object(speak, 'install', side_effect=subprocess.CalledProcessError(1, 'uv')), \
+                self.mock.patch('sys.stderr', io.StringIO()):
+            self.assertEqual(speak.install_marked(), 1)
+        self.assertTrue(os.path.exists(self.mark))
+        with self.mock.patch.object(speak, 'install', return_value=0):
+            self.assertEqual(speak.install_marked(), 0)
+        self.assertFalse(os.path.exists(self.mark))
+
+    def test_no_uv_leaves_no_mark(self):
+        with self.mock.patch.object(speak, 'install', return_value=1):
+            self.assertEqual(speak.install_marked(), 1)
+        self.assertFalse(os.path.exists(self.mark))
+
+
+class StatusJson(unittest.TestCase):
+    def test_one_json_line_with_the_state(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as root:
+            isolate(self, root)
+            out = io.StringIO()
+            with mock.patch.dict(os.environ, {'CLAUDE_SPEAK_SESSION': '-'}), mock.patch('sys.stdout', out):
+                self.assertEqual(speak.main(['status', '--json']), 0)
+        data = json.loads(out.getvalue())
+        self.assertEqual((data['mode'], data['size'], data['output'], data['voice'], data['engine']),
+                         ('full', 'medium', 'speaker', 'dora', False))
 
 
 class Plugin(unittest.TestCase):
@@ -1528,19 +1653,15 @@ class Plugin(unittest.TestCase):
                     self.assertTrue(match, hook['command'])
                     self.assertTrue(os.path.exists(os.path.join(ROOT, match.group(1))))
 
-    def test_slash_commands_are_for_the_human_only(self):
-        names = ('on', 'off', 'mode', 'size', 'phone', 'voice', 'status', 'stop', 'install')
-        self.assertEqual(sorted(os.listdir(os.path.join(ROOT, 'skills'))), sorted(names))
-        for name in names:
-            with open(os.path.join(ROOT, 'skills', name, 'SKILL.md'), encoding='utf-8') as fh:
-                front = fh.read().split('---')[1]
-            self.assertRegex(front, r'(?m)^disable-model-invocation: true$', name)
-            self.assertRegex(front, r'(?m)^name: %s$' % name)
-        with open(os.path.join(ROOT, 'skills', 'stop', 'SKILL.md'), encoding='utf-8') as fh:
-            self.assertNotIn('$ARGUMENTS', fh.read())
+    def test_the_slash_command_is_a_hooks_module(self):
+        hooks = self.load('hooks', 'hooks.json')
+        self.assertEqual(hooks['modules'], ['./register.ts'])
+        self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.ts')))
+        self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.ts')))
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.3.0')
 
     def test_removed_pieces_are_gone(self):
-        for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills/speak'):
+        for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):
             self.assertFalse(os.path.exists(os.path.join(ROOT, rel)), rel)
 
 

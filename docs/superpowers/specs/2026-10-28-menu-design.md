@@ -31,3 +31,13 @@ Data: 28/10/2026. Pedido do Ricardo: ao digitar o comando, escolher as opções 
 ## Motor instalado sozinho (pedido do Ricardo no mesmo dia)
 
 O Claude Code não tem passo de pós-instalação para plugins. Então, no começo de uma sessão sem motor, `hooks/speak-start.py` dispara `speak install` em segundo plano, desligado da sessão (novo processo, saída em `~/.local/state/claude-speak/install.log`), sem perguntar, e só uma instalação por vez (trava de arquivo; outra sessão que abra durante a instalação não dispara outra). O aviso ao modelo passa a dizer que o motor está sendo instalado em segundo plano (cerca de 350 MB) e que a voz começa sozinha quando terminar; se faltar o uv, o aviso diz como instalá-lo (https://docs.astral.sh/uv/) e não dispara nada; se a última tentativa falhou, o aviso diz isso e aponta o log e `/speak install` para tentar de novo. `/speak install` continua, para tentar de novo em primeiro plano. README atualizado.
+
+## Correção do Ricardo: lista, não pergunta
+
+O diálogo de perguntas (`$.ui.ask`, o do AskUserQuestion) não é o que ele quer: quer uma lista como a do `/model`. Então o `/speak` abre um painel (`$.ui.open({ id: 'speak', title: 'Voz', focus: true, closeOnEscape: true, rows })`) desenhado por `ui.render` em `{ component: 'Pane', requestId: 'speak' }`, com elementos `Select` (setas movem, Enter escolhe, Esc fecha; `onSelect` roda o `speak` sem turno do modelo):
+
+- `/speak` sozinho: o painel de ajustes, uma linha `Select` por ajuste, cada uma mostrando o valor atual: Voz (Ligada / Desligada), Leitura (Resposta inteira / Só o resumo), Tamanho do resumo (Pequeno / Médio / Grande), Voz (Dora, Alex, Santa, com o tipo), Saída (Computador / Celular), Alcance (Só esta sessão / Todas as sessões: vale para as escolhas seguintes de ligar, leitura, tamanho e saída). Cada escolha aplica na hora e redesenha com o novo valor; uma linha de rodapé diz o que acabou de mudar.
+- `/speak <ação>` sem escolha: o mesmo painel só com a lista daquela ação (e o alcance, quando couber).
+- Escolha completa (`/speak voice alex`), `status`, `stop`, `install`: como antes, sem painel.
+- Painel que não abre (`isPlaced` false, sem superfície): texto com as opções e a forma escrita.
+- `$.ui.ask` não é usado.

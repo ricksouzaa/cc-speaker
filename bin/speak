@@ -11,6 +11,7 @@
                            a paragraph); same scopes as `mode`; default medium
   speak phone on|off [all]  send each reply as an mp3 file to the phone (Remote Control) instead of speaking it on
                            the computer; same scopes as `mode`; default off (the computer's speaker)
+  speak status --json      the same state as one JSON line (used by the /speak menus)
   speak voice [name]       without a name: list the Portuguese voices (dora, alex, santa) and mark the current one;
                            with a name (short or full, e.g. dora or pf_dora): choose it for every session
   speak rule               print rules/speak.md with {size} replaced by the size in force (the SessionStart hook
@@ -793,6 +794,29 @@ def install():
     return 0
 
 
+INSTALL_FAILED = os.path.join(STATE, 'install.failed')  # present after a failed install; speak-start.py reads it
+
+
+def install_marked():
+    """install(), leaving INSTALL_FAILED behind when it fails (so the SessionStart hook does not retry by itself)
+    and removing it when it works."""
+    failed = False
+    try:
+        code = install()  # 1 without an exception: no uv, nothing was tried
+    except (subprocess.CalledProcessError, OSError) as exc:
+        print('voz: a instalação falhou: %s' % exc, file=sys.stderr)
+        code, failed = 1, True
+    try:
+        if failed:
+            os.makedirs(STATE, exist_ok=True)
+            open(INSTALL_FAILED, 'w').close()
+        elif not code and os.path.exists(INSTALL_FAILED):
+            os.remove(INSTALL_FAILED)
+    except OSError:
+        pass
+    return code
+
+
 def player_found():
     return any(shutil.which(p[0]) for p in PLAYERS)
 
@@ -877,6 +901,16 @@ def _translate_config():
         pass
 
 
+def status_json():
+    """The state in force here as one JSON line, for the /speak menus (hooks/register.ts) to mark what is current."""
+    session = current_session()
+    now = voice()
+    print(json.dumps({'on': is_on(session), 'mode': mode(session), 'size': summary_size(session),
+                      'output': output(session), 'engine': engine_ready(),
+                      'voice': next((short for short, (full, _) in PT_VOICES.items() if full == now), now)}))
+    return 0
+
+
 def main(argv):
     migrate()
     cmd, rest = (argv[0], argv[1:]) if argv else ('status', [])
@@ -904,6 +938,8 @@ def main(argv):
             set_session(session, voice='speaking')
         return status()
     if cmd == 'status':
+        if text == '--json':
+            return status_json()
         return status()
     if cmd == 'stop':
         if text:
@@ -987,7 +1023,7 @@ def main(argv):
     if cmd == 'silent':
         return 1 if is_on(current_session()) and engine_ready() else 0
     if cmd == 'install':
-        return install()
+        return install_marked()
     if cmd == 'say':
         session = current_session()
         if text == '-':
