@@ -5,15 +5,15 @@
                            named `claude`); `all` (or outside a session) acts on every session and the general switch
   speak status             show the state: effective here, general, this session, mode, engine, voice
   speak mode full|summary [all]  for this session (with `all`, or outside a session: the general mode and every
-                           session); full (default): the whole reply without code, paths, links and file names;
-                           summary: only its last line starting with 🔊 (rules/speak.md)
+                           session); full: the whole reply without code, paths, links and file names;
+                           summary (default): only its last line starting with 🔊 (rules/speak.md)
   speak size small|medium|large [all]  how long the spoken summary is (one short sentence; two or three sentences;
                            a paragraph); same scopes as `mode`; default medium
   speak status --json      the same state as one JSON line (used by the /speak pane)
   speak voice [name]       without a name: list the Portuguese voices (dora, alex, santa) and mark the current one;
                            with a name (short or full, e.g. dora or pf_dora): choose it for every session
-  speak rule               print rules/speak.md with {size} replaced by the size in force (the SessionStart hook
-                           hands it to Claude)
+  speak rule               print rules/speak.md with {line} replaced by the line of the mode and size in force
+                           (the SessionStart hook hands it to Claude)
   speak check              print `engine` and/or `player` for what is missing; exit 0 when nothing is
                            (on stderr, a line "processos acima: pid nome, ...": the ancestors, to find the session)
   speak test [text]        speak a test sentence, in the foreground (errors show)
@@ -34,8 +34,8 @@
 The speech starts after its first short piece is ready and goes on while the rest is synthesized. A new speech, from
 any session, never cuts the one playing: it waits its turn in a queue (arrival order, one at a time, and only while no
 program is recording from the microphone). Only a recording that starts meanwhile cuts the speech playing (holding
-the space bar to dictate in Claude Code does), seen through pw-dump; the speeches waiting are kept and go on when the
-microphone is free. `speak off` in a session also drops that session's speeches (playing or waiting).
+the space bar to dictate in Claude Code does), seen through pw-dump on Linux and through CoreAudio on the Mac; the
+speeches waiting are kept and go on when the microphone is free. `speak off` in a session also drops that session's speeches (playing or waiting).
 Env: CLAUDE_SPEAK=0 silences one session (a first choice that a later `speak on` beats);
 CLAUDE_SPEAK_SESSION forces the session key ('-' means none; for tests and to force a key);
 CLAUDE_SPEAK_MODE overrides the mode; CLAUDE_SPEAK_SIZE the size; CLAUDE_SPEAK_VOICE the voice (default pf_dora);
