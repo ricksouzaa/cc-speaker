@@ -280,6 +280,9 @@ const ROWS: { key: Key; label: string; table: Record<string, string>; current: (
   { key: 'voice', label: 'Voz de leitura', table: READERS, current: s => s.voice, own: () => false },
   { key: 'mic', label: 'Com o microfone em uso', table: MICS, current: s => s.mic ?? 'wait', own: s => s.scope?.mic === 'session' },
 ]
+// A linha do tamanho só aparece com a leitura em "só o resumo": na resposta inteira o tamanho não é usado. Vale o
+// valor que a linha Leitura mostra (o do alcance de "Mudar em"); sem estado lido, todas as linhas aparecem.
+const shown = (key: Key, now: State | undefined): boolean => !(key === 'size' && now?.mode === 'full')
 const MIC_WARNING = 'Com o microfone em uso, a voz toca: ele pode captar a voz e quem está na reunião ouve.'
 
 // O estado da voz lido para o desenho: vazio ao abrir (o desenho lê), e trocado a cada mudança pela leitura que a
@@ -328,7 +331,7 @@ function drawMenu(el: any, m: Menu) {
   const width = Math.max(...ROWS.map(r => r.label.length)) + 2
   return (
     <Box flexDirection="column">
-      {ROWS.map(r => {
+      {ROWS.filter(r => shown(r.key, m.now)).map(r => {
         const value = r.key === 'where' ? m.where : m.now ? r.current(m.now) : ''
         const own = m.now ? r.own(m.now) : false
         return (
@@ -367,7 +370,8 @@ async function menuTree($: Engine, e: any): Promise<unknown> {
     install: progressNow,
     where: (await $.state.get(STATE)).value ?? 'all',
     note: (await $.state.get(NOTE)).value ?? '',
-    first: (ROWS.some(r => r.key === focus) ? focus : 'where') as Key,
+    // o foco pedido numa linha que não aparece (o tamanho, na resposta inteira) vai para a linha Leitura
+    first: (ROWS.some(r => r.key === focus && shown(r.key, view!.now)) ? focus : focus === 'size' ? 'mode' : 'where') as Key,
     choose: (key, value) => enqueue(() => menuChange($, key, value)),
     again: which => enqueue(() => menuAgain($, which)),
     close: () => $.ui.close({ id: PANE }),

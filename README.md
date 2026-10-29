@@ -49,7 +49,7 @@ Digite `/speak` sozinho. Abre um painel com uma lista por linha, já com o tecla
 | Mudar em | onde as próximas trocas valem: todas as sessões (padrão ao abrir) ou só nesta |
 | Voz | ligada (padrão) ou desligada |
 | Leitura | só o resumo (padrão) ou a resposta inteira |
-| Tamanho do resumo | pequeno (uma frase), médio (padrão, duas ou três frases) ou grande (um parágrafo) |
+| Tamanho do resumo | pequeno (uma frase), médio (padrão, duas ou três frases) ou grande (um parágrafo); a linha só aparece com a leitura em "só o resumo" (o `/speak size` escrito vale em qualquer modo) |
 | Voz de leitura | Dora (padrão, feminina), Alex ou Santa (masculinas); vale sempre para todas as sessões |
 | Com o microfone em uso | Espera (padrão), Toca ou Toca nesta reunião (veja [Microfone](#microfone)) |
 | Ouvir de novo | dois botões, Resumo e Resposta inteira: tocam na hora a última fala desta sessão; a linha não guarda valor |

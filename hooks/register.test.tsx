@@ -16,7 +16,7 @@ async function setup($: any, on: any, opts: Opts = {}) {
   on('ui.log', (_: unknown, e: any) => { logs.push(e.text); return { value: undefined } })
   on('ui.toast', (_: unknown, e: any) => { toasts.push(e.text); return { value: undefined } })
   const st: any = {
-    on: true, mode: 'full', size: 'medium', mic: 'wait', engine: true, voice: 'dora',
+    on: true, mode: 'summary', size: 'medium', mic: 'wait', engine: true, voice: 'dora',
     scope: { on: 'all', mode: 'all', size: 'all', mic: 'all', ...(opts.scope ?? {}) },
     ...(opts.init ?? {}),
   }
@@ -140,7 +140,7 @@ test('/speak sozinho abre o painel com o foco, uma lista por linha e o botão Fe
   expect(Object.keys(s)).toEqual(['where', 'power', 'mode', 'size', 'voice', 'mic'])
   expect(s.where.value).toBe('all')
   expect(s.power.value).toBe('on')
-  expect(s.mode.value).toBe('full')
+  expect(s.mode.value).toBe('summary')
   expect(s.size.value).toBe('medium')
   expect(s.voice.value).toBe('dora')
   expect(s.mic.value).toBe('wait')
@@ -154,6 +154,60 @@ test('/speak sozinho abre o painel com o foco, uma lista por linha e o botão Fe
   expect((await texts(ui, 'Text')).map((t: any) => t.text.trim())).toContain('Ouvir de novo')
   expect(await footer(ui)).toBe(HELP)
   expect(changes(ran)).toEqual([])
+  await ui.unmount()
+})
+
+test('o tamanho do resumo só aparece com a leitura em "só o resumo"', async ($, on) => {
+  const { st } = await setup($, on)
+  st.mode = 'full'
+  const { ui } = await openMenu($)
+  expect(Object.keys(await selects(ui))).toEqual(['where', 'power', 'mode', 'voice', 'mic'])
+  expect((await texts(ui, 'Button')).map((b: any) => b.props.label)).toEqual(['Resumo', 'Resposta inteira', 'Fechar'])
+  await ui.unmount()
+})
+
+test('escolher a leitura no painel esconde e mostra a linha do tamanho na hora', async ($, on) => {
+  const { ran } = await setup($, on)
+  const { ui } = await openMenu($, 'mode')
+  expect(Object.keys(await selects(ui))).toContain('size')
+  await ui.select({ key: 'mode', value: 'full' })
+  expect(Object.keys(await selects(ui))).toEqual(['where', 'power', 'mode', 'voice', 'mic'])
+  await ui.select({ key: 'mode', value: 'summary' })
+  expect(Object.keys(await selects(ui))).toEqual(['where', 'power', 'mode', 'size', 'voice', 'mic'])
+  expect(changes(ran)).toEqual(['mode full all', 'mode summary all'])
+  await ui.unmount()
+})
+
+test('a linha do tamanho segue o valor da Leitura no alcance de "Mudar em" (só nesta sessão)', async ($, on) => {
+  const { ran } = await setup($, on, { scope: { mode: 'session' } })
+  const { ui } = await openMenu($, 'mode')
+  await ui.select({ key: 'where', value: 'session' })
+  await ui.select({ key: 'mode', value: 'full' })
+  expect((await selects(ui)).mode.value).toBe('full')
+  expect(Object.keys(await selects(ui))).not.toContain('size')
+  expect(changes(ran)).toEqual(['mode full'])
+  await ui.unmount()
+})
+
+test('/speak size com a leitura inteira abre o painel com o foco em Leitura; escrito com valor funciona em qualquer modo', async ($, on) => {
+  const { ran, st } = await setup($, on)
+  st.mode = 'full'
+  const { ui } = await openMenu($, 'size')
+  const s = await selects(ui)
+  expect(s.size).toBeUndefined()
+  expect(s.mode.autoFocus).toBe(true)
+  expect(s.where.autoFocus).toBeUndefined()
+  await ui.unmount()
+  const r = await $.command.run({ command: 'speak', args: 'size large' })
+  expect(changes(ran)).toEqual(['size large'])
+  expect(st.size).toBe('large')
+  expect((r as any).text).toMatch(/grande/i)
+})
+
+test('com o resumo, /speak size abre com o foco no tamanho', async ($, on) => {
+  await setup($, on)
+  const { ui } = await openMenu($, 'size')
+  expect((await selects(ui)).size.autoFocus).toBe(true)
   await ui.unmount()
 })
 
@@ -306,8 +360,8 @@ test('duas escolhas seguidas rodam o speak uma depois da outra', async ($, on) =
 test('speak com código 1 mostra o erro no rodapé e o valor lido de volta do estado', async ($, on) => {
   await setup($, on, { fail: true })
   const { ui } = await openMenu($, 'mode')
-  await ui.select({ key: 'mode', value: 'summary' })
-  expect((await selects(ui)).mode.value).toBe('full')
+  await ui.select({ key: 'mode', value: 'full' })
+  expect((await selects(ui)).mode.value).toBe('summary')
   expect(await footer(ui)).toBe('voz: deu errado')
   await ui.unmount()
 })
@@ -455,7 +509,7 @@ test('com o menu aberto o relógio só mexe no rodapé, e só quando o progresso
   await clock.advance(2000)
   expect(await footer(ui)).toBe('🔊 Instalando a voz: 50% (2 de 4 MB)')
   const s = await selects(ui)
-  expect(s.mode.value).toBe('full')
+  expect(s.mode.value).toBe('summary')
   expect(s.mode.autoFocus).toBe(true) // o pedido de foco vale em todo desenho; o anel que a pessoa moveu fica onde está
   expect(s.where.autoFocus).toBeUndefined()
   expect(reads()).toBeGreaterThan(1)
