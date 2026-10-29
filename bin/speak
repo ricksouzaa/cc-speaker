@@ -11,8 +11,9 @@
                            a paragraph); same scopes as `mode`; default medium
   speak mic wait|play|auto [all]  what the speech does while a program records from the microphone (dictation,
                            video call); same scopes as `mode`; wait (default): the speech waits and a recording that
-                           starts cuts it; play: it plays anyway and nothing cuts it, until changed (the microphone
-                           may pick up the voice and the people in the meeting hear it); auto: as play, and when the
+                           starts cuts it; play: it plays anyway, until changed, and only Claude Code's own dictation (holding the
+                           space bar; Linux) still holds and cuts it (the microphone may pick up the voice and the
+                           people in the meeting hear it); auto: as play, and when the
                            microphone goes from busy to free (the meeting ends) the choice goes back to wait by itself,
                            in the scope where it was written
   speak update             update this plugin: `claude plugin marketplace update` and `claude plugin update` (120 s each);
@@ -740,6 +741,17 @@ def mic_busy(recs):
     return bool(recs)
 
 
+def dictating(recs):
+    """True when Claude Code's own dictation (holding the space bar) is among the recordings (Linux only: the Mac
+    cannot tell who records)."""
+    return bool(getattr(recs, 'dictation', None))
+
+
+def meeting_busy(recs):
+    """True when something other than Claude Code's dictation is recording: dictating is not a meeting."""
+    return bool(recs) and bool(set(recs) - set(getattr(recs, 'dictation', ())))
+
+
 def track_mic(session, recs):
     """The `auto` choice: seeing the microphone busy is written down (in the session file when the choice is the
     session's own, else in STATE/mic-seen); seeing it free after that sends the choice back to `wait`, in that same
@@ -750,12 +762,12 @@ def track_mic(session, recs):
             return
         own = own_field(session, 'mic')
         seen = read_session(session).get('micseen', False) if own else os.path.exists(MIC_SEEN)
-        if mic_busy(recs) and not seen:
+        if meeting_busy(recs) and not seen:
             if own:
                 set_session(session, micseen=True)
             else:
                 write_atomic(MIC_SEEN, '')
-        elif not mic_busy(recs) and seen:
+        elif not meeting_busy(recs) and seen:
             if own:
                 set_session(session, mic='wait', micseen=None)
             else:
@@ -766,23 +778,24 @@ def track_mic(session, recs):
 
 
 def holds_with(session, recs):
-    """True when the microphone is busy (`recs`, already read) and the choice of `session` is `wait`. With `play` or
-    `auto` nothing holds."""
-    return mic_busy(recs) and mic(session) == 'wait'
+    """True when the speech of `session` must hold (`recs`, already read): with `wait`, any recording; with `play` or
+    `auto`, only Claude Code's own dictation (the meeting does not hold)."""
+    return mic_busy(recs) if mic(session) == 'wait' else dictating(recs)
 
 
 def ticket_holds(key, recs):
-    """True when the speech behind a ticket (its session key as written there) holds for the microphone. A ticket
-    from an old version has no session: it counts as `wait`. A '-' is a speech with no session (general choice)."""
+    """True when the speech behind a ticket (its session key as written there) holds for the microphone (see
+    `holds_with`). A ticket from an old version has no session: it counts as `wait`. A '-' is a speech with no session (general choice)."""
     if not key:
         return mic_busy(recs)
     return holds_with(None if key == '-' else key, recs)
 
 
 def holds_for_microphone(session):
-    """True when a speech must wait (or be cut): the microphone is busy and the choice is `wait`. With `play` the
-    microphone is not even looked at; with `auto` it is looked at to see when the meeting ends."""
-    if mic(session) == 'play':
+    """True when a speech must wait (or be cut): with `wait` any recording; with `play` or `auto` only the dictation of
+    Claude Code. On the Mac `play` does not even look at the microphone (nothing could hold); with `auto` it is looked
+    at to see when the meeting ends."""
+    if mic(session) == 'play' and speak_os.SYSTEM == 'mac':
         return False
     recs = current_recordings()
     track_mic(session, recs)

@@ -332,6 +332,157 @@ class Microphone(unittest.TestCase):
         self.assertFalse(thread.is_alive())
 
 
+class Dictation(unittest.TestCase):
+    """The dictation of Claude Code (holding the space bar) shows in pw-dump as `PipeWire ALSA [<process name>]` /
+    `alsa_capture.<process name>`, the name being that of a live `claude` process. In `play` and `auto` only it holds
+    and cuts the speech; `wait` is as ever. The data are from a real pw-dump (Ubuntu 26.04, Claude Code 2.1.312)."""
+    NAME = '2.1.312'
+
+    def setUp(self):
+        no_leaked_watcher(self)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        isolate(self, self.tmp.name)
+        self.me = speak.session_key(os.getpid())
+        from unittest import mock
+        system = mock.patch.object(speak.speak_os, 'SYSTEM', 'linux')  # these tests see the machine as Linux does
+        system.start()
+        self.addCleanup(system.stop)
+
+    @staticmethod
+    def stream(ident, app, node_name, binary=None):
+        props = {'media.class': 'Stream/Input/Audio', 'application.name': app, 'node.name': node_name}
+        if binary:
+            props.update({'application.process.binary': binary, 'application.process.id': 1044783})
+        return {'id': ident, 'info': {'props': props}}
+
+    def dump(self, discord=False, dictation=False, other=False):
+        nodes = [{'id': 5, 'info': {'props': {'media.class': 'Audio/Source'}}}]
+        if discord:
+            nodes.append(self.stream(94, 'WEBRTC VoiceEngine', 'WEBRTC VoiceEngine', 'Discord'))
+        if dictation:
+            nodes.append(self.stream(72, 'PipeWire ALSA [%s]' % self.NAME, 'alsa_capture.%s' % self.NAME))
+        if other:
+            nodes.append(self.stream(80, 'PipeWire ALSA [firefox]', 'alsa_capture.firefox'))
+        return json.dumps(nodes)
+
+    def read(self, **kinds):
+        """What speak reads from a fake pw-dump while a `claude` process called NAME is alive."""
+        from unittest import mock
+        done = subprocess.CompletedProcess([], 0, self.dump(**kinds).encode(), b'')
+        with mock.patch.object(speak.speak_os, 'SYSTEM', 'linux'), \
+                mock.patch.object(speak.speak_os, 'claude_names', return_value={self.NAME}), \
+                mock.patch.object(speak.speak_os.subprocess, 'run', return_value=done):
+            return speak.current_recordings()
+
+    def test_the_dictation_is_told_from_the_meeting(self):
+        recs = self.read(discord=True, dictation=True, other=True)
+        self.assertEqual(recs, {94, 72, 80})  # still a set of every recording
+        self.assertEqual(recs.dictation, {72})
+        self.assertEqual(self.read(discord=True).dictation, set())
+        self.assertEqual(self.read(), set())
+
+    def test_by_the_node_name_alone_too(self):
+        from unittest import mock
+        nodes = [self.stream(7, 'ALSA plug-in', 'alsa_capture.%s' % self.NAME)]
+        with mock.patch.object(speak.speak_os, 'claude_names', return_value={self.NAME}):
+            self.assertEqual(speak.speak_os.recordings(json.dumps(nodes)).dictation, {7})
+        with mock.patch.object(speak.speak_os, 'claude_names', return_value={'9.9.9'}):
+            self.assertEqual(speak.speak_os.recordings(json.dumps(nodes)).dictation, set())
+
+    def test_processes_are_read_only_when_a_stream_looks_like_alsa(self):
+        from unittest import mock
+        with mock.patch.object(speak.speak_os, 'claude_names', side_effect=AssertionError('read')):
+            self.assertEqual(speak.speak_os.recordings(self.dump(discord=True)), {94})
+
+    @unittest.skipIf(sys.platform == 'darwin', 'the names are read from /proc')
+    def test_claude_names_come_from_a_process_made_by_the_test(self):
+        bin_dir = tempfile.mkdtemp(dir=self.tmp.name)
+        fake = os.path.join(bin_dir, '8.8.8-teste')  # the native build is named by its version, argv[0] is `claude`
+        os.symlink(os.path.realpath(sys.executable), fake)  # comm is the name it was started by
+        proc = subprocess.Popen(['claude', '-I', '-c', 'import time; time.sleep(60)'], executable=fake)
+        self.addCleanup(proc.wait)
+        self.addCleanup(proc.kill)
+        end = time.time() + 5
+        while time.time() < end and '8.8.8-teste' not in speak.speak_os.claude_names():
+            time.sleep(0.05)
+        self.assertIn('8.8.8-teste', speak.speak_os.claude_names())
+        proc.kill()
+        proc.wait()
+        self.assertNotIn('8.8.8-teste', speak.speak_os.claude_names())
+
+    def test_the_mac_cannot_tell_who_records(self):
+        from unittest import mock
+        with mock.patch.object(speak.speak_os, 'SYSTEM', 'mac'):
+            self.assertEqual(speak.speak_os.claude_names(), set())
+        for choice in ('play', 'auto', 'wait'):
+            speak.set_session(self.me, mic=choice)  # written as on Linux; only the reading of the microphone is the Mac's
+            with mock.patch.object(speak.speak_os, 'SYSTEM', 'mac'):
+                self.assertEqual(speak.holds_with(self.me, {'input'}), choice == 'wait', choice)
+                self.assertEqual(speak.ticket_holds(self.me, {'input'}), choice == 'wait', choice)
+        speak.set_session(self.me, mic='play')
+        with mock.patch.object(speak.speak_os, 'SYSTEM', 'mac'), \
+                mock.patch.object(speak, 'current_recordings', return_value={'input'}):
+            self.assertFalse(speak.holds_for_microphone(self.me))
+
+    def test_play_and_auto_hold_only_for_the_dictation_wait_for_any(self):
+        cases = {  # (meeting, dictation, both) -> holds
+            'wait': (True, True, True), 'play': (False, True, True), 'auto': (False, True, True)}
+        for choice, (meeting, dictation, both) in cases.items():
+            speak.set_session(self.me, mic=choice)
+            for kinds, expected in ((dict(discord=True), meeting), (dict(dictation=True), dictation),
+                                    (dict(discord=True, dictation=True), both), ({}, False)):
+                recs = self.read(**kinds)
+                self.assertEqual(speak.holds_with(self.me, recs), expected, (choice, kinds))
+                self.assertEqual(speak.ticket_holds(self.me, recs), expected, (choice, kinds))
+        self.assertTrue(speak.ticket_holds('', self.read(discord=True)))  # no session in the ticket: wait
+        self.assertFalse(speak.ticket_holds(self.me, self.read(other=True)))  # another program's ALSA is not it
+
+    def test_a_ticket_of_another_session_follows_that_sessions_choice(self):
+        speak.set_session(self.me, mic='play')
+        recs = self.read(discord=True)
+        self.assertFalse(speak.ticket_holds(self.me, recs))
+        self.assertTrue(speak.ticket_holds('', recs))
+        self.assertTrue(speak.ticket_holds(self.me, self.read(discord=True, dictation=True)))
+
+    def test_the_turn_in_play_comes_with_the_meeting_and_waits_for_the_dictation(self):
+        from unittest import mock
+        speak.set_session(self.me, mic='play')
+        with mock.patch.object(speak, 'QUEUE_POLL', 0.01), \
+                mock.patch.object(speak, 'current_recordings', return_value=self.read(discord=True)):
+            self.assertTrue(speak.wait_turn(self.me, True))
+        speak.clear_speech(os.getpid())
+        seen = [self.read(discord=True, dictation=True), self.read(discord=True, dictation=True), self.read(discord=True)]
+        with mock.patch.object(speak, 'QUEUE_POLL', 0.01), \
+                mock.patch.object(speak, 'current_recordings', side_effect=lambda: seen.pop(0)):
+            self.assertTrue(speak.wait_turn(self.me, True))
+        self.assertEqual(seen, [])  # two laps held by the dictation, then it let go (the meeting went on)
+        speak.clear_speech(os.getpid())
+        speak.drop_own_tickets()
+
+    def test_the_watcher_cuts_in_play_only_for_the_dictation(self):
+        import threading
+        from unittest import mock
+        speak.set_session(self.me, mic='play')
+        for kinds, cuts in ((dict(discord=True), False), (dict(discord=True, dictation=True), True)):
+            done = threading.Event()
+            with mock.patch.object(speak, 'MIC_POLL', 0.01), \
+                    mock.patch.object(speak, 'current_recordings', return_value=self.read(**kinds)), \
+                    mock.patch.object(speak, 'cut_by_microphone', side_effect=lambda p: done.set()):
+                watcher = speak.watch_microphone(object(), self.me)
+                self.assertEqual(done.wait(0.5), cuts, kinds)
+                speak.stop_watching(watcher)
+
+    def test_auto_does_not_take_the_dictation_for_a_meeting(self):
+        speak.set_session(self.me, mic='auto')
+        speak.track_mic(self.me, self.read(dictation=True))
+        self.assertNotIn('micseen', speak.read_session(self.me))
+        speak.track_mic(self.me, self.read(discord=True, dictation=True))  # a meeting starts, with dictation going on
+        self.assertTrue(speak.read_session(self.me).get('micseen'))
+        speak.track_mic(self.me, self.read(dictation=True))  # the meeting ends while the user still dictates
+        self.assertEqual(speak.mic(self.me), 'wait')
+
+
 class MicChoice(unittest.TestCase):
     """`speak mic wait|play|auto`: wait (default) holds and cuts, play does neither, auto is play and goes back to wait
     when the microphone turns from busy to free, in the scope where it was written."""
@@ -432,10 +583,11 @@ class MicChoice(unittest.TestCase):
         with mock.patch.object(speak, 'current_recordings', return_value=set()):
             self.assertFalse(speak.holds_for_microphone(self.me))
 
-    def test_play_does_not_even_look_at_the_microphone(self):
+    def test_play_on_the_mac_does_not_even_look_at_the_microphone(self):
         from unittest import mock
         speak.set_session(self.me, mic='play')
-        with mock.patch.object(speak, 'current_recordings', side_effect=AssertionError('looked')):
+        with mock.patch.object(speak.speak_os, 'SYSTEM', 'mac'), \
+                mock.patch.object(speak, 'current_recordings', side_effect=AssertionError('looked')):
             self.assertFalse(speak.holds_for_microphone(self.me))
 
     def test_turn_comes_at_once_with_play_while_recording(self):

@@ -85,10 +85,12 @@ O microfone é detectado pelo `pw-dump` no Linux e pelo CoreAudio no Mac. Há tr
 | Escolha | O que acontece com o microfone gravando |
 |---|---|
 | `wait`, Espera (padrão) | a fala espera na fila até o microfone ficar livre; se uma gravação começa durante a fala, ela é cortada |
-| `play`, Toca | a fala toca mesmo assim e nada a corta, até você mudar |
-| `auto`, Toca nesta reunião | como `play`, e quando a reunião acaba (o microfone fica livre) volta sozinho para `wait` |
+| `play`, Toca | a fala toca mesmo com a reunião gravando, até você mudar; no Linux, o ditado do Claude Code (segurar a barra de espaço) continua segurando e cortando a fala |
+| `auto`, Toca nesta reunião | como `play` (o ditado do Claude Code continua cortando, no Linux), e quando a reunião acaba (o microfone fica livre) volta sozinho para `wait`; ditar sozinho não conta como reunião |
 
 O `play` e o `auto` servem para quando você quer que as pessoas da reunião ouçam: sem fone de ouvido, o microfone capta a voz. O `auto` percebe o fim da reunião na próxima fala ou na próxima mensagem; se for escolhido com o microfone livre, vale para a próxima reunião.
+
+No Linux, o `pw-dump` mostra o nome do programa que grava, e o ditado do Claude Code aparece como `PipeWire ALSA [<nome do processo>]`, com o nome de um processo `claude` seu: é assim que ele é reconhecido e separado da reunião. No Mac, o CoreAudio não diz quem grava: em `play` e `auto` nada segura nem corta a fala, nem o ditado.
 
 ## Quando a voz não instala
 

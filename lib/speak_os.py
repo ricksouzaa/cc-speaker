@@ -191,14 +191,80 @@ def streams():
     return SYSTEM != 'mac'
 
 
+class Recordings(set):
+    """Ids of the recording streams (a set); `dictation` holds those that are Claude Code's own dictation (holding
+    the space bar), a subset. A plain set stands for "no dictation seen" (the Mac, where CoreAudio does not say who
+    records)."""
+    dictation = frozenset()
+
+
+def claude_names():
+    """Linux: the names under which the live `claude` processes of this account show up as audio clients: the process
+    name (`comm`, which for the native build is its version, like 2.1.312) and the file name of the executable. A
+    process counts as `claude` when `claude` is the base name of its comm or of one of its first two arguments. Empty
+    on the Mac (nothing there uses it) and when /proc cannot be read."""
+    if SYSTEM == 'mac':
+        return set()
+    names = set()
+    try:
+        pids = [int(n) for n in os.listdir('/proc') if n.isdigit()]
+    except OSError:
+        return names
+    me = os.getuid()
+    for pid in pids:
+        try:
+            if os.stat('/proc/%d' % pid).st_uid != me:
+                continue
+        except OSError:
+            continue
+        label = name(pid)
+        words = (argv(pid) or [])[:2]
+        if label != 'claude' and not any(os.path.basename(w) == 'claude' for w in words):
+            continue
+        if label:
+            names.add(label)
+        try:
+            exe = os.path.basename(os.readlink('/proc/%d/exe' % pid))
+        except OSError:
+            exe = ''
+        if exe.endswith(' (deleted)'):
+            exe = exe[:-len(' (deleted)')]
+        if exe:
+            names.add(exe)
+    return names
+
+
+def _dictation_name(props):
+    """The client name a stream carries when it looks like the ALSA capture of a process: `PipeWire ALSA [<name>]`
+    or the node `alsa_capture.<name>`; '' otherwise."""
+    app = props.get('application.name')
+    if isinstance(app, str) and app.endswith(']') and '[' in app:
+        return app[app.rindex('[') + 1:-1]
+    node_name = props.get('node.name')
+    if isinstance(node_name, str) and node_name.startswith('alsa_capture.'):
+        return node_name[len('alsa_capture.'):]
+    return ''
+
+
 def recordings(dump):
-    """Ids of the audio streams recording from a microphone, in pw-dump's JSON; None when it cannot be read."""
+    """The audio streams recording from a microphone, in pw-dump's JSON, as a `Recordings` set of ids (its
+    `dictation` says which are Claude Code's dictation: the client name in `PipeWire ALSA [<name>]` or in
+    `alsa_capture.<name>` is the name of a live `claude` process); None when the dump cannot be read. The processes
+    are read only when a stream looks like an ALSA capture."""
     try:
         nodes = json.loads(dump)
     except ValueError:
         return None
-    return {n.get('id') for n in nodes if isinstance(n, dict)
-            and ((n.get('info') or {}).get('props') or {}).get('media.class') == 'Stream/Input/Audio'}
+    found, wanted = Recordings(), {}
+    for n in nodes:
+        props = (n.get('info') or {}).get('props') if isinstance(n, dict) else None
+        if isinstance(props, dict) and props.get('media.class') == 'Stream/Input/Audio':
+            found.add(n.get('id'))
+            wanted[n.get('id')] = _dictation_name(props)
+    if any(wanted.values()):
+        names = claude_names()
+        found.dictation = frozenset(i for i, who in wanted.items() if who and who in names)
+    return found
 
 
 def _fourcc(text):
@@ -317,8 +383,8 @@ def player_names():
 
 
 def recordings_now():
-    """Linux: ids of the streams recording right now (from `pw-dump`), or None when it cannot be read. Mac: the set
-    {'input'} when an input device is running, an empty set when none is, None when it cannot be read."""
+    """Linux: the streams recording right now (from `pw-dump`, a `Recordings` set), or None when it cannot be read.
+    Mac: the set {'input'} when an input device is running, an empty set when none is, None when it cannot be read."""
     if SYSTEM == 'mac':
         busy = _mac_mic_busy()
         return None if busy is None else ({'input'} if busy else set())
