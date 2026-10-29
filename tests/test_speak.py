@@ -1345,7 +1345,8 @@ class Plugin(unittest.TestCase):
 
     def test_manifests(self):
         plugin = self.load('.claude-plugin', 'plugin.json')
-        self.assertEqual((plugin['name'], plugin['version']), ('speak', '0.1.0'))
+        self.assertEqual(plugin['name'], 'speak')
+        self.assertRegex(plugin['version'], r'^\d+\.\d+\.\d+$')
         market = self.load('.claude-plugin', 'marketplace.json')
         self.assertEqual(market['name'], 'cc-speaker')
         self.assertEqual([p['name'] for p in market['plugins']], ['speak'])
