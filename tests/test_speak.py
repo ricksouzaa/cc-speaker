@@ -142,6 +142,39 @@ class Full(unittest.TestCase):
         self.assertEqual(' '.join(parts), text)
 
 
+class Filter(unittest.TestCase):
+    def test_inline_code_keeps_only_plain_words(self):
+        self.assertEqual(speak.clean('Rode `speak off` na `main`, veja `summary`.'), 'Rode speak off na main, veja summary.')
+        for gone in ('ci-mac', 'cc-speaker', 'speak-cc-speaker', 'install_marked', 'e863ea0', '0.7.3', 'CLAUDE_SPEAK=0'):
+            self.assertEqual(speak.clean('Veja `%s` agora.' % gone), 'Veja agora.')
+
+    def test_commit_codes_and_head_go(self):
+        self.assertEqual(speak.clean('Commit b48e609 e 93a66bd prontos.'), 'Commit e prontos.')
+        self.assertEqual(speak.clean('Está no HEAD agora.'), 'Está no agora.')
+        self.assertEqual(speak.clean('Versão decade e 1234567 ficam.'), 'Versão decade e 1234567 ficam.')
+
+    def test_middle_dot_becomes_a_comma(self):
+        self.assertEqual(speak.clean('um · dois'), 'um, dois')
+
+    def test_pickup_line(self):
+        self.assertEqual(speak.full_text('cc-speaker — ramo main · HEAD 93a66bd · enviado'),
+                         'cc-speaker — ramo main, enviado.')
+
+    def test_branch_names_go_after_the_keyword(self):
+        self.assertEqual(speak.clean('Estou no ramo main agora'), 'Estou no ramo main agora')
+        self.assertEqual(speak.clean('Estou no ramo ci-mac.'), 'Estou no ramo.')
+        self.assertEqual(speak.clean('O branch fix_1 e o worktree wt2 sumiram'), 'O branch e o worktree sumiram')
+        self.assertEqual(speak.clean('No ramo fix/fila-da-voz agora'), 'No ramo agora')
+        self.assertEqual(speak.clean('No `fix/fila-da-voz` agora'), 'No agora')
+
+    def test_lowercase_words_with_hyphen_and_digit_go(self):
+        self.assertEqual(speak.clean('Use wt-1 e python3-venv hoje'), 'Use e hoje')
+        self.assertEqual(speak.clean('Em 2026-10-29 sim'), 'Em 2026-10-29 sim')
+
+    def test_portuguese_compounds_stay(self):
+        self.assertEqual(speak.clean('O alto-falante e o guarda-costas'), 'O alto-falante e o guarda-costas')
+
+
 class Ahead(unittest.TestCase):
     """The next piece is synthesized while the current one plays, so no silence falls between pieces."""
 
@@ -2511,7 +2544,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.7.3')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.7.4')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

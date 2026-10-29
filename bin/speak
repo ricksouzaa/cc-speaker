@@ -357,9 +357,10 @@ def engine_ready():
 # --- what is spoken -----------------------------------------------------------------------------------------------
 
 def _inline_code(match):
-    """Keeps `speak off` (words); drops `~/.claude/x`, `CLAUDE_SPEAK=0` and the like (symbols)."""
+    """Keeps `speak off` (plain words); drops `ci-mac`, `e863ea0`, `~/.claude/x`, `CLAUDE_SPEAK=0` and the like."""
     inner = match.group(1).strip()
-    return inner.replace('_', ' ') if re.fullmatch(r"[^\W\d][\w' -]{0,39}", inner) else ''
+    word = r"[^\W\d_]+(?:'[^\W\d_]+)*"
+    return inner if len(inner) <= 40 and re.fullmatch(word + '(?: ' + word + ')*', inner) else ''
 
 
 def clean(text):
@@ -368,6 +369,11 @@ def clean(text):
     text = re.sub(r'!?\[([^\]]*)\]\([^)]*\)', r'\1', text)  # [label](url) -> label
     text = re.sub(r'`([^`]*)`', _inline_code, text)
     text = re.sub(r'https?://\S+', '', text)
+    text = re.sub(r'(?<![\w-])(?=[0-9a-fA-F]*\d)(?=[0-9a-fA-F]*[a-fA-F])[0-9a-fA-F]{7,40}(?![\w-])', '', text)  # commit code
+    text = re.sub(r'\bHEAD\b', '', text)
+    text = text.replace('·', ', ')
+    text = re.sub(r'(?i)\b(ramos?|branch|worktree)\s+(?=[\w./-]*[-_\d/])[\w/-]+(?:\.[\w/-]+)*', r'\1', text)  # branch name
+    text = re.sub(r'(?<![\w-])(?=[a-z0-9-]*[a-z])(?=[a-z0-9-]*\d)[a-z0-9]+(?:-[a-z0-9]+)+(?![\w-])', '', text)  # wt-1
     text = re.sub(r'(?<![\w/])[~.]{0,2}/[^\s,;)]+', '', text)  # /abs, ~/x, ./x, ../x
     text = re.sub(r'\b[\w.-]+/[\w./-]+', '', text)  # dir/file
     text = re.sub(r'\b[\w-]+\.(?:py|sh|json|jsonl|md|js|ts|tsx|txt|log|wav|onnx|bin|yml|yaml|toml|html|css)\b', '', text)

@@ -33,6 +33,7 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 - Opção do microfone (espera, toca, toca nesta reunião), no menu, por escrito e em palavras.
 - README reorganizado em tabelas, com os padrões de cada opção.
 - Tamanho do resumo (pequeno, médio, grande) e escolha da voz (dora, alex, santa).
+- Filtro do que se narra: a voz não lê nomes de ramo, códigos de commit, HEAD nem código entre crases com hífen, sublinhado ou número (0.7.4).
 - Testes que não tocam a pasta de dados real: um só ajudante de isolamento (`tests/isolation.py`) e um guarda-costas que compara a pasta real antes e depois da bateria.
 
 ## Recusado
@@ -55,7 +56,6 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 
 ## Pedidos para depois
 
-- **Filtrar melhor o que se narra.** Exemplo real: na linha de sincronização do pickup a voz leu "HEAD 93a66bd" e o ramo "fix/fila-da-voz". Não narrar códigos de commit (sequências hexadecimais de 7 a 40 caracteres com dígitos), a palavra HEAD, nomes de ramo com barra e separadores como o ponto médio; revisar as outras regras de limpeza com exemplos de respostas reais.
 - **Outros narradores** pesquisados em 28/10/2026, para escolher o que trazer: uma voz por sessão (do kokoro-tts do voiys); avisos falados durante o trabalho (do claude-voice do adjit).
 - **Voz no estilo do Jarvis**, ideia do Ricardo. Combinado: um estilo inspirado (voz masculina grave e calma, tratamento formal, talvez um leve efeito metálico no áudio), não uma cópia da voz do ator nem o nome como marca.
 
