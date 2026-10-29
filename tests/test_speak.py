@@ -65,7 +65,7 @@ def isolate(case, root):
              'MODEL': os.path.join(data, 'kokoro-v1.0.onnx'), 'VOICES': os.path.join(data, 'voices-v1.0.bin'),
              'INSTALL_LOCK': os.path.join(state, 'install.lock'), 'INSTALL_LOG': os.path.join(state, 'install.log')}
     for name, value in paths.items():
-        patcher = mock.patch.object(speak, name, value, create=True)
+        patcher = mock.patch.object(speak, name, value)
         patcher.start()
         case.addCleanup(patcher.stop)
     return paths
@@ -1437,10 +1437,35 @@ class AutoInstall(unittest.TestCase):
     def test_after_a_failure_it_points_to_the_log_and_does_not_retry(self):
         self.have_uv()
         os.makedirs(self.state)
-        open(START_MOD.INSTALL_FAILED, 'w').close()
+        with open(START_MOD.INSTALL_FAILED, 'w') as fh:
+            fh.write(START_MOD.plugin_version())
         self.assertEqual(START_MOD.start_install(), 'failed')
         self.assertIn('install.log', START_MOD.NOTICE['failed'])
         self.assertIn('/speak install', START_MOD.NOTICE['failed'])
+        self.popen.assert_not_called()
+
+    def test_an_empty_or_old_failure_mark_is_dropped_and_the_install_retried(self):
+        self.have_uv()
+        os.makedirs(self.state)
+        for content in ('', '0.0.1'):
+            with open(START_MOD.INSTALL_FAILED, 'w') as fh:
+                fh.write(content)
+            self.popen.reset_mock()
+            self.assertEqual(START_MOD.start_install(), 'installing')
+            self.popen.assert_called_once()
+            self.assertFalse(os.path.exists(START_MOD.INSTALL_FAILED))
+
+    def test_the_failure_mark_is_dropped_when_the_engine_is_ready(self):
+        from unittest import mock
+        self.have_uv()
+        os.makedirs(self.state)
+        with open(START_MOD.INSTALL_FAILED, 'w') as fh:
+            fh.write(START_MOD.plugin_version())
+        fake = lambda *a: mock.Mock(stdout={'rule': 'regra\n', 'check': ''}[a[0]])
+        with mock.patch.object(START_MOD, 'run', fake), mock.patch.object(START_MOD.sys, 'stdin', io.StringIO('{}')), \
+                mock.patch.object(START_MOD.sys, 'stdout', io.StringIO()):
+            START_MOD.main()
+        self.assertFalse(os.path.exists(START_MOD.INSTALL_FAILED))
         self.popen.assert_not_called()
 
     def test_the_switch_turns_it_off(self):
@@ -1489,6 +1514,16 @@ class InstallMark(unittest.TestCase):
             self.assertEqual(speak.install_marked(), 0)
         self.assertFalse(os.path.exists(self.mark))
 
+    def test_the_mark_holds_the_plugin_version(self):
+        with self.mock.patch.object(speak, 'install', side_effect=OSError('x')), self.mock.patch('sys.stderr', io.StringIO()):
+            speak.install_marked()
+        with open(self.mark) as fh:
+            self.assertEqual(fh.read(), self.load_version())
+
+    def load_version(self):
+        with open(os.path.join(ROOT, '.claude-plugin', 'plugin.json')) as fh:
+            return json.load(fh)['version']
+
     def test_no_uv_leaves_no_mark(self):
         with self.mock.patch.object(speak, 'install', return_value=1):
             self.assertEqual(speak.install_marked(), 1)
@@ -1526,7 +1561,9 @@ class InstallLock(unittest.TestCase):
                 self.mock.patch('sys.stdout', out):
             t = threading.Thread(target=lambda: result.append(speak.install_marked()))
             t.start()
-            time.sleep(0.5)
+            deadline = time.time() + 5
+            while 'em andamento' not in out.getvalue() and time.time() < deadline:
+                time.sleep(0.02)
             self.assertEqual(calls, [])
             self.assertTrue(t.is_alive())
             self.assertIn('outra instalação está em andamento', out.getvalue())

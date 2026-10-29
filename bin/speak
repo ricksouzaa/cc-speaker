@@ -736,7 +736,17 @@ def install():
 
 INSTALL_LOCK = os.path.join(STATE, 'install.lock')  # flock'ed by `speak install` for as long as it runs
 INSTALL_LOG = os.path.join(STATE, 'install.log')  # where the SessionStart hook sends the background install's output
-INSTALL_FAILED = os.path.join(STATE, 'install.failed')  # present after a failed install; speak-start.py reads it
+INSTALL_FAILED = os.path.join(STATE, 'install.failed')  # present after a failed install, holding the plugin version; speak-start.py reads it
+
+
+def plugin_version():
+    """The version in .claude-plugin/plugin.json ('' when unreadable)."""
+    try:
+        with open(os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), '.claude-plugin',
+                               'plugin.json')) as fh:
+            return str(json.load(fh).get('version', ''))
+    except (OSError, ValueError):
+        return ''
 
 
 def installing():
@@ -789,7 +799,8 @@ def install_unlocked():
     try:
         if failed:
             os.makedirs(STATE, exist_ok=True)
-            open(INSTALL_FAILED, 'w').close()
+            with open(INSTALL_FAILED, 'w') as fh:
+                fh.write(plugin_version())  # the hook retries by itself once per plugin version
         elif not code and os.path.exists(INSTALL_FAILED):
             os.remove(INSTALL_FAILED)
     except OSError:

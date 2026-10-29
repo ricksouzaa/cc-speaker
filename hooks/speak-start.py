@@ -3,6 +3,7 @@
 when the engine or an audio player is missing. Without the engine it also starts `speak install` in the background,
 detached from the session, once at a time (CLAUDE_SPEAK_AUTOINSTALL=0 turns that off). Fail-open: exits 0 in every case."""
 import fcntl
+import json
 import os
 import shlex
 import shutil
@@ -30,6 +31,35 @@ NOTICE = {
 }
 
 
+def plugin_version():
+    try:
+        with open(os.path.join(os.path.dirname(os.path.dirname(SPEAK)), '.claude-plugin', 'plugin.json')) as fh:
+            return str(json.load(fh).get('version', ''))
+    except (OSError, ValueError):
+        return ''
+
+
+def failed_this_version():
+    """True when INSTALL_FAILED holds the current plugin version. An empty one (older versions) or one of another
+    version is removed: the install is tried again, once per version."""
+    try:
+        with open(INSTALL_FAILED) as fh:
+            mark = fh.read().strip()
+    except OSError:
+        return False
+    if mark and mark == plugin_version():
+        return True
+    drop_failed()
+    return False
+
+
+def drop_failed():
+    try:
+        os.remove(INSTALL_FAILED)
+    except OSError:
+        pass
+
+
 def run(*args):
     return subprocess.run([sys.executable, '-I', SPEAK, *args], capture_output=True, text=True, timeout=10)
 
@@ -42,7 +72,7 @@ def start_install():
     uv = shutil.which('uv') or os.path.join(os.path.expanduser('~'), '.local', 'bin', 'uv')
     if not os.path.exists(uv):
         return 'no-uv'
-    if os.path.exists(INSTALL_FAILED):
+    if failed_this_version():
         return 'failed'
     os.makedirs(STATE, exist_ok=True)
     lock = open(INSTALL_LOCK, 'a+')
@@ -86,7 +116,9 @@ def main():
         return
     missing = run('check').stdout.split()
     notes = []
-    if 'engine' in missing:
+    if 'engine' not in missing:
+        drop_failed()
+    else:
         why = start_install()
         notes.append(NOTICE[why]) if why else None
     notes += [NOTICE['player']] if 'player' in missing else []
