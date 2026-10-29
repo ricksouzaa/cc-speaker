@@ -1579,6 +1579,16 @@ class StartHook(unittest.TestCase):
         self.assertIn('tocador', out)
         self.assertNotIn('instalado', out)
 
+    def test_copy_without_lib_exits_0_and_prints_nothing(self):
+        """A plugin copy that lost lib/ must not break the session start: fail-open, exit 0."""
+        with tempfile.TemporaryDirectory() as copy:
+            hooks = os.path.join(copy, 'hooks')
+            os.makedirs(hooks)
+            shutil.copy(START, hooks)
+            r = subprocess.run([sys.executable, '-I', os.path.join(hooks, 'speak-start.py')], input='{}',
+                               capture_output=True, text=True, env=isolation.clean_env(copy))
+        self.assertEqual((r.returncode, r.stdout), (0, ''), r.stderr)
+
 
 START_MOD = load('speak_start', START)
 isolation.pin_module(START_MOD, MODULE_ROOT)
