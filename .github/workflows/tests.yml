@@ -10,11 +10,17 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
+        python: ['3.12']
+        include:
+          # The python3 that comes with the Mac is 3.9: the hooks and bin/speak must run on it. setup-python has 3.9
+          # for macOS arm64 (3.9.13), the architecture of macos-latest.
+          - os: macos-latest
+            python: '3.9'
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4.2.2
       - uses: actions/setup-python@v5.6.0
         with:
-          python-version: '3.12'
+          python-version: ${{ matrix.python }}
       - name: Testes
         run: python3 -m unittest discover -s tests
