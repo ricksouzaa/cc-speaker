@@ -13,6 +13,8 @@ import tempfile
 import time
 import unittest
 
+import isolation
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOOK = os.path.join(ROOT, 'hooks', 'speak-stop.py')
 START = os.path.join(ROOT, 'hooks', 'speak-start.py')
@@ -20,12 +22,7 @@ CUT = os.path.join(ROOT, 'hooks', 'speak-cut.py')
 SPEAK = os.path.join(ROOT, 'bin', 'speak')
 
 
-DATA_PARTS = ('.claude', 'plugins', 'data', 'speak-cc-speaker')  # the data root below HOME when nothing else decides
-
-
-def data_dir(home, *sub):
-    """A path inside the plugin's data root below `home` (sub: 'engine', 'config' or 'state', then names)."""
-    return os.path.join(home, *DATA_PARTS, *sub)
+data_dir = isolation.data_dir  # a path inside the plugin's data root below a home
 
 
 def load(name, path):
@@ -38,6 +35,13 @@ def load(name, path):
 
 speak = load('speak', SPEAK)
 speak_stop = load('speak_stop', HOOK)
+MODULE_ROOT, _remove_module_root = isolation.module_root()  # threads that outlive a test read this, never the real folder
+isolation.pin_module(speak, MODULE_ROOT)
+
+
+def tearDownModule():
+    _remove_module_root()
+    isolation.assert_untouched(unittest.TestCase())
 
 
 def no_leaked_watcher(case):
@@ -51,36 +55,11 @@ def no_leaked_watcher(case):
     case.addCleanup(check)
 
 
-def isolate(case, root):
-    """Points every path constant of the in-process `speak` module into `root`, and pins HOME (clearing the XDG
-    variables, CLAUDE_PLUGIN_DATA, CLAUDE_SPEAK_DATA and CLAUDE_CONFIG_DIR) so that the in-process migrate() can only look inside `root`:
-    no test touches the real plugin data folder or the former ~/.config, ~/.local/share, ~/.local/state.
-    Undone at the test's cleanup."""
-    from unittest import mock
-    env = mock.patch.dict(os.environ, {'HOME': root})
-    env.start()
-    case.addCleanup(env.stop)
-    for name in ('XDG_DATA_HOME', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'CLAUDE_PLUGIN_DATA', 'CLAUDE_SPEAK_DATA',
-                 'CLAUDE_CONFIG_DIR'):
-        os.environ.pop(name, None)
-    data = data_dir(root, 'engine')
-    conf = data_dir(root, 'config')
-    state = data_dir(root, 'state')
-    paths = {'DATA': data, 'CONF': conf, 'STATE': state,
-             'OFF_FLAG': os.path.join(conf, 'off'), 'MODE_FILE': os.path.join(conf, 'mode'),
-             'SIZE_FILE': os.path.join(conf, 'size'), 'VOICE_FILE': os.path.join(conf, 'voice'),
-             'ALL_MARK': os.path.join(state, 'all'), 'SESSIONS': os.path.join(state, 'sessions'),
-             'PID': os.path.join(state, 'speech.pid'), 'OWNER': os.path.join(state, 'speech.owner'),
-             'QUEUE': os.path.join(state, 'queue'), 'LOCK': os.path.join(state, 'queue.lock'),
-             'LOG': os.path.join(state, 'error.log'), 'VENV_PY': os.path.join(data, '.venv', 'bin', 'python'),
-             'MODEL': os.path.join(data, 'kokoro-v1.0.onnx'), 'VOICES': os.path.join(data, 'voices-v1.0.bin'),
-             'INSTALL_LOCK': os.path.join(state, 'install.lock'), 'INSTALL_LOG': os.path.join(state, 'install.log'),
-             'INSTALL_PROGRESS': os.path.join(state, 'install.progress')}
-    for name, value in paths.items():
-        patcher = mock.patch.object(speak, name, value)
-        patcher.start()
-        case.addCleanup(patcher.stop)
-    return paths
+def isolate(case, root, module=None):
+    """Points every path constant of the in-process `speak` module (or `module`) into `root`, pins HOME and drops
+    CLAUDE_* and XDG_* from the environment (see tests/isolation.py). Undone at the test's cleanup."""
+    return isolation.isolate(case, module or speak, root)
+
 
 REPLY = """## O que mudou
 
@@ -1602,6 +1581,7 @@ class StartHook(unittest.TestCase):
 
 
 START_MOD = load('speak_start', START)
+isolation.pin_module(START_MOD, MODULE_ROOT)
 
 
 class AutoInstall(unittest.TestCase):

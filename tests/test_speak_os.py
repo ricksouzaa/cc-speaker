@@ -8,6 +8,8 @@ import sys
 import unittest
 from unittest import mock
 
+import isolation
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -21,6 +23,13 @@ def load(name, path):
 
 speak_os = load('speak_os_under_test', os.path.join(ROOT, 'lib', 'speak_os.py'))
 speak = load('speak_for_os_tests', os.path.join(ROOT, 'bin', 'speak'))
+MODULE_ROOT, _remove_module_root = isolation.module_root()  # threads that outlive a test read this, never the real folder
+isolation.pin_module(speak, MODULE_ROOT)
+
+
+def tearDownModule():
+    _remove_module_root()
+    isolation.assert_untouched(unittest.TestCase())
 
 
 def fake_open(files):
@@ -74,6 +83,10 @@ class LinuxTest(unittest.TestCase):
 
 class MacTest(unittest.TestCase):
     def setUp(self):
+        import tempfile
+        home = tempfile.TemporaryDirectory()
+        self.addCleanup(home.cleanup)
+        isolation.isolate(self, speak, home.name)
         self.addCleanup(self.no_leaked_watcher)  # safety net: runs after the patches are undone
         patch = mock.patch.object(speak_os, 'SYSTEM', 'mac')
         patch.start()
@@ -480,6 +493,7 @@ class MacTest(unittest.TestCase):
         import tempfile
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
+        isolation.isolate(self, speak, tmp.name)  # progress, lock, log and failure mark go into the temporary root
         model, voices = os.path.join(tmp.name, 'm'), os.path.join(tmp.name, 'v')
         for path in (model, voices):
             open(path, 'w').close()
@@ -590,8 +604,11 @@ class FakeSoundDevice:
 
 class CheckTest(unittest.TestCase):
     def test_check_prints_ancestors_on_stderr_only(self):
+        import tempfile
+        home = tempfile.TemporaryDirectory()
+        self.addCleanup(home.cleanup)
         out = subprocess.run([sys.executable, '-I', os.path.join(ROOT, 'bin', 'speak'), 'check'],
-                             capture_output=True, text=True, env={**os.environ, 'HOME': '/nonexistent-home-for-test'})
+                             capture_output=True, text=True, env=isolation.clean_env(home.name))
         self.assertIn('processos acima: ', out.stderr)
         self.assertNotIn('processos acima', out.stdout)
 

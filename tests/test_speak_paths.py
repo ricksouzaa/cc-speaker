@@ -11,6 +11,8 @@ import tempfile
 import unittest
 from unittest import mock
 
+import isolation
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'lib'))
 import speak_paths  # noqa: E402
@@ -26,17 +28,16 @@ def put(path, text=''):
         fh.write(text)
 
 
+def tearDownModule():
+    isolation.assert_untouched(unittest.TestCase())
+
+
 class Base(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.home = tmp.name
-        patch = mock.patch.dict(os.environ, {'HOME': self.home})
-        patch.start()
-        self.addCleanup(patch.stop)
-        for name in ('XDG_DATA_HOME', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'CLAUDE_PLUGIN_DATA', 'CLAUDE_SPEAK_DATA',
-                     'CLAUDE_CONFIG_DIR'):
-            os.environ.pop(name, None)
+        isolation.scrub_environ(self, self.home)
 
     def path(self, *parts):
         return os.path.join(self.home, *parts)
