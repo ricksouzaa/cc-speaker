@@ -45,6 +45,58 @@ class SnapshotTest(unittest.TestCase):
         self.assertTrue(isolation.differences(before, isolation.snapshot([self.root])))
 
 
+class SpeechNoise(unittest.TestCase):
+    HOME = os.path.expanduser('~')
+
+    def test_so_o_que_a_fala_real_escreve_e_ruido(self):
+        state = os.path.join(self.HOME, '.claude', 'plugins', 'data', 'speak-cc-speaker', 'state')
+        old = os.path.join(self.HOME, '.local', 'state', 'claude-speak')
+        for path in (state, os.path.join(state, 'queue'), os.path.join(state, 'queue', '1-2'),
+                     os.path.join(state, 'queue.lock'), os.path.join(state, 'speech.owner'),
+                     os.path.join(state, 'sessions', 'k'), os.path.join(state, 'error.log'),
+                     old, os.path.join(old, 'queue'), os.path.join(old, 'speech.pid')):
+            self.assertTrue(isolation.is_speech_noise(path), path)
+        for path in (os.path.join(state, 'install.lock'), os.path.join(state, 'all'),
+                     os.path.join(self.HOME, '.claude', 'plugins', 'data', 'speak-cc-speaker', 'engine', 'queue'),
+                     os.path.join(self.HOME, '.config', 'claude-speak', 'mode'),
+                     os.path.join(old, 'install.progress')):
+            self.assertFalse(isolation.is_speech_noise(path), path)
+
+    PROCS = [(100, 1, ['python3', '-m', 'unittest']), (101, 100, ['py', '-I', '/x/bin/speak', '_play', 'oi']),
+             (200, 1, ['py', '-I', '/c/0.7.3/bin/speak', '_play', 'oi']), (201, 1, ['py', '-I', '/c/bin/speak', 'say', '-']),
+             (202, 1, ['py', '-I', '/c/bin/speak', 'status']), (203, 1, ['py', '-I', '/c/bin/speak', '_play', 'x'])]
+
+    def test_processo_real_exclui_filho_da_bateria_e_o_de_home_temporaria(self):
+        home = {200: isolation.pwd.getpwuid(os.getuid()).pw_dir, 201: isolation.pwd.getpwuid(os.getuid()).pw_dir,
+                203: '/tmp/tmpabc'}
+        found = isolation.real_speech_pids(self.PROCS, me=100, home_of=home.get)
+        self.assertEqual(found, {200, 201} if os.path.isdir('/proc/self') else {200, 201, 203})
+
+    def test_sem_fala_real_tudo_e_acusado_e_com_ela_so_o_ruido(self):
+        class Case(unittest.TestCase):
+            def runTest(self):
+                pass
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = os.path.join(tmp.name, 'speak-cc-speaker')
+        state = os.path.join(root, 'state')
+        os.makedirs(state)
+        before = dict(isolation.BEFORE), isolation.ROOTS
+        self.addCleanup(lambda: (isolation.BEFORE.clear(), isolation.BEFORE.update(before[0]),
+                                 setattr(isolation, 'ROOTS', before[1])))
+        isolation.BEFORE.clear()
+        isolation.ROOTS = [root]
+        isolation.BEFORE.update(isolation.snapshot([root]))
+        open(os.path.join(state, 'queue.lock'), 'w').close()
+        with self.assertRaises(AssertionError):
+            isolation.assert_untouched(Case(), speech_after=set(), speech_before=set())
+        isolation.assert_untouched(Case(), speech_after={5}, speech_before=set())
+        isolation.assert_untouched(Case(), speech_after=set(), speech_before={5})
+        open(os.path.join(state, 'install.lock'), 'w').close()
+        with self.assertRaises(AssertionError):
+            isolation.assert_untouched(Case(), speech_after={5}, speech_before=set())
+
+
 class RealRoots(unittest.TestCase):
     def test_a_bateria_nao_tocou_na_raiz_real(self):
         isolation.assert_untouched(self)

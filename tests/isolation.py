@@ -4,6 +4,8 @@ temporary HOME, and a guard compares the real data folders before and after the 
 contents are never read)."""
 import os
 import pwd
+import shlex
+import subprocess
 import sys
 import tempfile
 from unittest import mock
@@ -61,12 +63,98 @@ def differences(before, after):
     return lines
 
 
+# What a real `speak` process (a player, a `say`) that is not ours writes in the real folders while it speaks: the
+# queue, its lock, the speech owner and pid, the session files (pruned), the error log, the microphone mark. These
+# names count as noise only below a `state` folder (or the former `claude-speak` state folder) and only while such a
+# process is alive; everything else (engine, config, install files) is always reported.
+SPEECH_NAMES = ('queue', 'queue.lock', 'speech.pid', 'speech.owner', 'sessions', 'error.log', 'mic-seen')
+SPEECH_SUBCOMMANDS = ('_play', 'say')
+
+
+def is_speech_noise(path):
+    """True when `path` is something a real speaking process may write (see SPEECH_NAMES), directories above included."""
+    parts = path.split(os.sep)
+    if parts[-1] == 'state' and len(parts) > 1 and parts[-2] == speak_paths_dirname():
+        return True
+    if parts[-1] == 'claude-speak' and len(parts) > 1 and parts[-2] == 'state':
+        return True
+    for i, part in enumerate(parts):
+        if i and part in SPEECH_NAMES and parts[i - 1] in ('state', 'claude-speak'):
+            return True
+    return False
+
+
+def speak_paths_dirname():
+    return DATA_PARTS[-1]
+
+
+def processes():
+    """[(pid, ppid, argv)] of every process, from `ps` (the same on Linux and macOS); [] when `ps` is not usable."""
+    try:
+        out = subprocess.run(['ps', '-axo', 'pid=,ppid=,command='], capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    found = []
+    for line in out.splitlines():
+        bits = line.split(None, 2)
+        if len(bits) == 3 and bits[0].isdigit() and bits[1].isdigit():
+            try:
+                argv = shlex.split(bits[2])
+            except ValueError:
+                argv = bits[2].split()
+            found.append((int(bits[0]), int(bits[1]), argv))
+    return found
+
+
+def _home_of(pid):
+    """HOME in the process's environment; None when it cannot be read (then the process is not trusted as real)."""
+    try:
+        with open('/proc/%d/environ' % pid, 'rb') as fh:
+            for item in fh.read().split(b'\0'):
+                if item.startswith(b'HOME='):
+                    return item[5:].decode(errors='replace')
+    except OSError:
+        pass
+    return None
+
+
+def real_speech_pids(procs=None, me=None, home_of=_home_of):
+    """Pids of real `speak _play`/`speak say` processes: not descendants of `me` (the battery) and with the account's
+    real HOME (a child of a test has a temporary one, even when orphaned). Where /proc does not exist (macOS) the HOME
+    check cannot be made and the process counts when it is not a descendant."""
+    procs = processes() if procs is None else procs
+    me = os.getpid() if me is None else me
+    parent = {pid: ppid for pid, ppid, _ in procs}
+    real_home = pwd.getpwuid(os.getuid()).pw_dir
+    out = set()
+    for pid, _, argv in procs:
+        if not any(os.path.basename(a) == 'speak' and i + 1 < len(argv) and argv[i + 1] in SPEECH_SUBCOMMANDS
+                   for i, a in enumerate(argv)):
+            continue
+        up, hops = pid, 0
+        while up and hops < 200 and up != me:
+            up, hops = parent.get(up, 0), hops + 1
+        if up == me:
+            continue
+        if os.path.isdir('/proc/self') and home_of(pid) != real_home:
+            continue
+        out.add(pid)
+    return out
+
+
 ROOTS = real_roots()
 BEFORE = snapshot(ROOTS)
+SPEECH_BEFORE = real_speech_pids()  # alive when the battery started, so surely not started by it
 
 
-def assert_untouched(case):
+def assert_untouched(case, speech_after=None, speech_before=None):
+    """No change under the real folders, except the noise of a real speaking process that was alive at the start or is
+    alive at the end of the battery (checked here); with none alive, every change is reported."""
+    after = real_speech_pids() if speech_after is None else speech_after
+    before = SPEECH_BEFORE if speech_before is None else speech_before
     changes = differences(BEFORE, snapshot(ROOTS))
+    if before or after:
+        changes = [c for c in changes if not is_speech_noise(c.split(': ', 1)[1])]
     case.assertEqual(changes, [], 'a bateria mexeu na pasta real:\n' + '\n'.join(changes))
 
 
