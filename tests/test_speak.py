@@ -2247,7 +2247,7 @@ class Plugin(unittest.TestCase):
         hooks = self.load('hooks', 'hooks.json')['hooks']
         self.assertEqual(set(hooks), {'SessionStart', 'UserPromptSubmit', 'Stop', 'SessionEnd'})
         self.assertNotIn('matcher', hooks['SessionEnd'][0])
-        self.assertEqual(hooks['SessionStart'][0]['matcher'], 'startup|resume|clear|compact')
+        self.assertEqual(hooks['SessionStart'][0]['matcher'], 'startup|resume|clear|compact|fork')
         for entries in hooks.values():
             for entry in entries:
                 for hook in entry['hooks']:
