@@ -48,4 +48,4 @@ No ai-harness, hoje, o instalador liga `bin/speak` em `~/.local/bin/speak`, e os
 ## Pendente de decidir
 
 - ~~Licença~~: MIT, decidida pelo Ricardo em 28/10/2026.
-- Se este repositório usa o fluxo do harness (`/harness-init`): o Ricardo decide.
+- Fluxo do harness (`/harness-init`): o Ricardo cancelou a instalação em 28/10/2026; o repositório segue sem quadro.
