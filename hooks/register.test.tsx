@@ -39,6 +39,7 @@ async function setup($: any, on: any, opts: Opts = {}) {
       return done(0, args[1] === 'full' ? 'Lendo de novo a última resposta inteira.\n'
         : (opts.again === 'noline' ? 'Essa resposta não tinha resumo; vou ler a resposta inteira.\n' : '') + 'Lendo de novo o resumo da última resposta.\n')
     }
+    if (args[0] === 'update') return done(opts.fail ? 1 : 0, opts.fail ? '' : 'atualizado de 0.8.1 para 0.9.0; rode /reload-plugins ou abra uma sessão nova para valer\n', opts.fail ? 'voz: `claude plugin update speak@cc-speaker` falhou (código 3):\nsem rede\n' : '')
     if (opts.fail) return done(1, '', 'voz: deu errado\n')
     if (args[0] === 'mode') st.mode = args[1]!
     if (args[0] === 'size') st.size = args[1]!
@@ -99,6 +100,26 @@ test('status mostra o estado do speak e install roda direto', async ($, on) => {
   expect((await $.command.run({ command: 'speak', args: 'status' })).text).toBe('ok')
   await $.command.run({ command: 'speak', args: 'install' })
   expect(changes(ran)).toEqual(['status', 'install'])
+})
+
+test('/speak update roda o speak update e devolve o texto dele, sem menu', async ($, on) => {
+  const { ran, opened } = await setup($, on)
+  expect((await $.command.run({ command: 'speak', args: 'update' })).text).toBe(
+    'atualizado de 0.8.1 para 0.9.0; rode /reload-plugins ou abra uma sessão nova para valer')
+  expect(changes(ran)).toEqual(['update'])
+  expect(opened).toEqual([])
+})
+
+test('/speak update devolve o erro do speak', async ($, on) => {
+  await setup($, on, { fail: true })
+  expect((await $.command.run({ command: 'speak', args: 'update' })).text).toBe(
+    'voz: `claude plugin update speak@cc-speaker` falhou (código 3):\nsem rede')
+})
+
+test('o rodapé do painel mostra a versão do plugin', async ($, on) => {
+  await setup($, on, { init: { version: '0.9.0' } })
+  const { ui } = await openMenu($)
+  expect(await footer(ui)).toBe(HELP + ' · versão 0.9.0')
 })
 
 test('escrita completa não abre o menu', async ($, on) => {

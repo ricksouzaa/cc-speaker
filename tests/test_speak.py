@@ -2761,11 +2761,144 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.8.1')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.9.0')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):
             self.assertFalse(os.path.exists(os.path.join(ROOT, rel)), rel)
+
+
+class Update(unittest.TestCase):
+    """`speak update` and the version in `status`, on a copy of the plugin laid out as the cache does
+    (`.claude/plugins/cache/cc-speaker/speak/<version>/`) and a fake `claude` that only logs and answers. The real
+    `claude` is never run: PATH holds only the fake (or nothing)."""
+
+    FAKE = (
+        '#!/bin/sh\n'
+        'echo "$*" >> "$FAKE_LOG"\n'
+        'case "$FAKE_MODE" in\n'
+        '  slow) exec sleep 30 ;;\n'
+        '  fail) case "$*" in "plugin update"*) echo "sem rede: não deu" >&2; exit 3 ;; esac ;;\n'
+        '  new) case "$*" in "plugin update"*) echo "✔ Plugin updated from 0.8.1 to 0.9.0"; exit 0 ;; esac ;;\n'
+        '  cached) case "$*" in "plugin update"*) echo "feito"; exit 0 ;; esac ;;\n'
+        '  same) case "$*" in "plugin update"*) echo "already at the latest version"; exit 0 ;; esac ;;\n'
+        'esac\n'
+        'echo ok\n')
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.home = os.path.join(self.tmp.name, 'home')
+        cache = os.path.join(self.home, '.claude', 'plugins', 'cache', 'cc-speaker', 'speak')
+        self.plugin = os.path.join(cache, '0.8.1')
+        os.makedirs(os.path.join(self.plugin, '.claude-plugin'))
+        shutil.copytree(os.path.join(ROOT, 'bin'), os.path.join(self.plugin, 'bin'), ignore=shutil.ignore_patterns('__pycache__'))
+        shutil.copytree(os.path.join(ROOT, 'lib'), os.path.join(self.plugin, 'lib'), ignore=shutil.ignore_patterns('__pycache__'))
+        self.write_version(self.plugin, '0.8.1')
+        self.cache = cache
+        self.script = os.path.join(self.plugin, 'bin', 'speak')
+        self.fakebin = os.path.join(self.tmp.name, 'fakebin')
+        os.makedirs(self.fakebin)
+        self.log = os.path.join(self.tmp.name, 'claude.log')
+        self.install_fake(os.path.join(self.fakebin, 'claude'))
+        self.data = os.path.join(self.tmp.name, 'data')
+
+    def install_fake(self, path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'w') as fh:
+            fh.write(self.FAKE)
+        os.chmod(path, 0o755)
+
+    @staticmethod
+    def write_version(folder, version):
+        os.makedirs(os.path.join(folder, '.claude-plugin'), exist_ok=True)
+        with open(os.path.join(folder, '.claude-plugin', 'plugin.json'), 'w') as fh:
+            json.dump({'name': 'speak', 'version': version}, fh)
+
+    def speak(self, *args, mode='', path=None, **env):
+        base = {'HOME': self.home, 'PATH': path if path is not None else self.fakebin + ':/usr/bin:/bin',
+                'CLAUDE_SPEAK_DATA': self.data, 'FAKE_LOG': self.log, 'FAKE_MODE': mode, 'CLAUDE_SPEAK_SESSION': '-'}
+        return subprocess.run([sys.executable, '-I', self.script, *args], capture_output=True, text=True,
+                              stdin=subprocess.DEVNULL, env={**base, **env}, timeout=60)
+
+    def calls(self):
+        try:
+            with open(self.log) as fh:
+                return fh.read().splitlines()
+        except OSError:
+            return []
+
+    def test_updated_from_to_read_from_the_claude_answer(self):
+        r = self.speak('update', mode='new')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), 'atualizado de 0.8.1 para 0.9.0; rode /reload-plugins ou abra uma sessão '
+                                           'nova para valer')
+        self.assertEqual(self.calls(), ['plugin marketplace update cc-speaker', 'plugin update speak@cc-speaker'])
+
+    def test_updated_from_to_read_from_the_newest_plugin_json_in_the_cache(self):
+        self.write_version(os.path.join(self.cache, '0.10.0'), '0.10.0')
+        self.write_version(os.path.join(self.cache, '0.9.0'), '0.9.0')  # 0.10.0 is higher than 0.9.0
+        r = self.speak('update', mode='cached')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('atualizado de 0.8.1 para 0.10.0;', r.stdout)
+
+    def test_already_up_to_date(self):
+        r = self.speak('update', mode='same')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), 'já está na versão mais nova (0.8.1)')
+
+    def test_claude_missing_says_so_and_exits_1(self):
+        if shutil.which('claude', path='/usr/bin:/bin'):
+            self.skipTest('a claude in the system folders')
+        r = self.speak('update', path='/usr/bin:/bin')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('não achei o comando claude', r.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_claude_in_local_bin_is_the_fallback(self):
+        if shutil.which('claude', path='/usr/bin:/bin'):
+            self.skipTest('a claude in the system folders')
+        self.install_fake(os.path.join(self.home, '.local', 'bin', 'claude'))
+        r = self.speak('update', mode='same', path='/usr/bin:/bin')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(len(self.calls()), 2)
+
+    def test_a_failing_claude_passes_its_code_and_message(self):
+        r = self.speak('update', mode='fail')
+        self.assertEqual(r.returncode, 3)
+        self.assertIn('falhou (código 3)', r.stderr)
+        self.assertIn('sem rede: não deu', r.stderr)
+        self.assertEqual(r.stdout, '')
+
+    def test_a_claude_that_takes_too_long_is_stopped(self):
+        started = time.time()
+        r = self.speak('update', mode='slow', CLAUDE_SPEAK_UPDATE_TIMEOUT='1')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('passou de 1 segundos', r.stderr)
+        self.assertLess(time.time() - started, 20)
+        self.assertEqual(len(self.calls()), 1)  # it did not go on to the second command
+
+    def test_outside_the_cache_the_names_are_the_fixed_ones(self):
+        outside = os.path.join(self.tmp.name, 'dev')
+        shutil.copytree(self.plugin, outside)
+        self.script = os.path.join(outside, 'bin', 'speak')
+        r = self.speak('update', mode='same')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.calls(), ['plugin marketplace update cc-speaker', 'plugin update speak@cc-speaker'])
+
+    def test_status_shows_the_version_first_and_json_has_it(self):
+        out = self.speak('status').stdout.splitlines()
+        self.assertEqual(out[0], 'versão: 0.8.1')
+        self.assertTrue(out[1].startswith('voz: '))
+        self.assertEqual(json.loads(self.speak('status', '--json').stdout)['version'], '0.8.1')
+
+    def test_the_version_comes_from_the_real_plugin_json(self):
+        self.assertEqual(speak.plugin_version(), self.load_real())
+
+    @staticmethod
+    def load_real():
+        with open(os.path.join(ROOT, '.claude-plugin', 'plugin.json')) as fh:
+            return json.load(fh)['version']
 
 
 class Isolation(unittest.TestCase):

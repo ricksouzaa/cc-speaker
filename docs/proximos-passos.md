@@ -35,6 +35,7 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 - Tamanho do resumo (pequeno, médio, grande) e escolha da voz (dora, alex, santa).
 - Filtro do que se narra: a voz não lê nomes de ramo, códigos de commit, HEAD nem código entre crases com hífen, sublinhado ou número (0.7.5).
 - Ouvir de novo (0.8.0): `speak again [summary|full]` repete a última fala da sessão (guardada em `state/last/`, podada com as sessões mortas), mesmo com a voz desligada; no `/speak again` e numa linha do painel; sem 🔊, o resumo lê a resposta inteira e avisa.
+- Versão no `status` (linha própria `versão:`, campo `version` no `--json` e no rodapé do painel) e `speak update` (0.9.0): roda `claude plugin marketplace update` e `claude plugin update`, 120 s cada, e diz de que versão para qual; a nova só vale depois do `/reload-plugins` (o módulo não consegue dispará-lo). `plugin_version` agora vive em `lib/speak_paths.py`.
 - Testes que não tocam a pasta de dados real: um só ajudante de isolamento (`tests/isolation.py`) e um guarda-costas que compara a pasta real antes e depois da bateria.
 
 ## Recusado
@@ -47,7 +48,6 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 - **Microfone embutido sempre ligado no Mac**: se a escuta da Siri (ou outro programa) deixar a entrada embutida em uso o tempo todo, a fila pode achar que alguém grava e a voz esperar para sempre. A ver no teste do Mac.
 - **Ramo do `.part` sem teste**: o caminho em que o arquivo temporário (`<arquivo>.part-<pid>`, no download em `bin/speak` e na cópia entre discos em `lib/speak_paths.py`) é removido depois de um erro no meio não tem teste próprio para cada falha possível.
 - **Arquivo de ambiente binário sem teste**: `share_root` (`hooks/speak-start.py`) não é testado com um `CLAUDE_ENV_FILE` que tenha bytes que não são texto.
-- **`plugin_version()` duplicado**: existe em `bin/speak` e em `hooks/speak-start.py`; deveria viver em `lib/`.
 - **Limpeza única sem trava**: `_drop_copied_fields_once` (`bin/speak`) não toma trava; duas sessões que comecem juntas podem rodá-la ao mesmo tempo (o efeito é o mesmo, mas não há garantia).
 - **Aviso de instalação repetido**: numa corrida rara em que o módulo e o gancho de começo chamam o `speak autoinstall` no mesmo instante, a linha "Instalando a voz" pode aparecer duas vezes.
 - **Módulo e ganchos com pastas diferentes**: com `--plugin-dir` (cópia de desenvolvimento) o módulo do painel e os ganchos podem derivar pastas de dados diferentes.

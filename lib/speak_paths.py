@@ -91,3 +91,14 @@ def migrate_old(base):
     if 'state' in moved:
         shutil.rmtree(os.path.join(base, 'state', 'phone'), ignore_errors=True)
     return moved
+
+
+def plugin_version(script):
+    """The version in the `.claude-plugin/plugin.json` beside the plugin script at path `script` ('' when unreadable)."""
+    import json
+    try:
+        with open(os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(script))), '.claude-plugin',
+                               'plugin.json')) as fh:
+            return str(json.load(fh).get('version', ''))
+    except (OSError, ValueError):
+        return ''

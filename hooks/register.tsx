@@ -8,6 +8,7 @@ import type { EngineInterface, Register, Timer } from 'claude-code'
 type Engine = EngineInterface
 type Reply = { text?: string }
 type State = {
+  version?: string
   on: boolean; mode: string; size: string; mic?: string; voice: string; engine: boolean
   scope?: { on?: string; mode?: string; size?: string; mic?: string }
   installing?: boolean
@@ -22,7 +23,7 @@ const READERS: Record<string, string> = { dora: 'Dora', alex: 'Alex', santa: 'Sa
 const POWER: Record<string, string> = { on: 'Ligada', off: 'Desligada' }
 const USAGE =
   'Escreva a ação: /speak on, /speak off, /speak mode full|summary, /speak size small|medium|large, /speak mic wait|play|auto, ' +
-  '/speak voice dora|alex|santa, /speak again [summary|full], /speak status, /speak stop, /speak install ' +
+  '/speak voice dora|alex|santa, /speak again [summary|full], /speak status, /speak stop, /speak install, /speak update ' +
   '(com "all" no fim, vale para todas as sessões).'
 const where = (all: boolean) => (all ? 'em todas as sessões' : 'nesta sessão')
 const speakArgv = ($: Engine, args: string[]) => ['python3', '-I', `${$.plugin.root}/bin/speak`, ...args]
@@ -225,6 +226,12 @@ async function direct($: Engine, body: string[], all: boolean): Promise<Reply | 
     case 'again':
       if (all || extra.length > 0 || (value && value !== 'summary' && value !== 'full')) return { text: USAGE }
       return { text: await again($, value) }
+    case 'update': {
+      // Atualiza o plugin (até dois comandos do claude, com prazo de 120 s cada); a nova versão só vale depois do
+      // /reload-plugins, que o módulo não consegue disparar.
+      const r = await run($, body)
+      return { text: r.out || (r.ok ? 'Pronto.' : 'O speak falhou.') }
+    }
     case 'status':
     case 'stop':
     case 'install': {
@@ -345,7 +352,7 @@ function drawMenu(el: any, m: Menu) {
       </Box>
       <Button key="fechar" label="Fechar" onPress={m.close} />
       {m.now && (m.now.mic === 'play' || m.now.mic === 'auto') ? <Text dimColor>{MIC_WARNING}</Text> : null}
-      <Text dimColor>{m.note || (isInstalling(m.install) ? installLine(m.install) : m.now ? HELP : UNREAD)}</Text>
+      <Text dimColor>{m.note || (isInstalling(m.install) ? installLine(m.install) : m.now ? HELP + (m.now.version ? ` · versão ${m.now.version}` : '') : UNREAD)}</Text>
     </Box>
   )
 }
@@ -382,7 +389,7 @@ export const register: Register = on => {
     await $.command.register({
       name: 'speak',
       description: 'Ajusta a voz que lê as respostas: ligar, modo, tamanho, microfone, voz; ouve de novo a última fala',
-      argumentHint: '[on|off|mode|size|mic|voice|again|status|stop|install] [all]',
+      argumentHint: '[on|off|mode|size|mic|voice|again|status|stop|install|update] [all]',
       immediate: true,
     })
     void kick($) // em segundo plano: não atrasa o registro da sessão

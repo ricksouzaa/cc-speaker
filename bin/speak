@@ -3,7 +3,7 @@
 
   speak on | off [all]     turn the voice on or off for this Claude Code session (the nearest ancestor process
                            named `claude`); `all` (or outside a session) acts on every session and the general switch
-  speak status             show the state: effective here, general, this session, mode, engine, voice
+  speak status             show the version of the plugin (first line) and the state: effective here, general, this session, mode, engine, voice
   speak mode full|summary [all]  for this session (with `all`, or outside a session: the general mode and every
                            session); full: the whole reply without code, paths, links and file names;
                            summary (default): only its last line starting with 🔊 (rules/speak.md)
@@ -15,6 +15,9 @@
                            may pick up the voice and the people in the meeting hear it); auto: as play, and when the
                            microphone goes from busy to free (the meeting ends) the choice goes back to wait by itself,
                            in the scope where it was written
+  speak update             update this plugin: `claude plugin marketplace update` and `claude plugin update` (120 s each);
+                           prints the version before and after, in Portuguese; the new version holds after
+                           /reload-plugins or in a new session
   speak status --json      the same state as one JSON line (used by the /speak pane)
   speak voice [name]       without a name: list the Portuguese voices (dora, alex, santa) and mark the current one;
                            with a name (short or full, e.g. dora or pf_dora): choose it for every session
@@ -72,6 +75,7 @@ import urllib.request
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))  # python3 -I does not add it
 import speak_os  # noqa: E402
 import speak_paths  # noqa: E402
+import speak_update  # noqa: E402
 
 HOME = os.path.expanduser('~')
 DATA, CONF, STATE = speak_paths.paths(os.path.realpath(__file__))  # engine, choices, state: see lib/speak_paths.py
@@ -1179,12 +1183,7 @@ AUTOINSTALL_WAIT = 3.0  # seconds `autoinstall` waits for the install it started
 
 def plugin_version():
     """The version in .claude-plugin/plugin.json ('' when unreadable)."""
-    try:
-        with open(os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), '.claude-plugin',
-                               'plugin.json')) as fh:
-            return str(json.load(fh).get('version', ''))
-    except (OSError, ValueError):
-        return ''
+    return speak_paths.plugin_version(os.path.realpath(__file__))
 
 
 def installing():
@@ -1409,6 +1408,8 @@ def again(which):
 
 def status():
     session = current_session()
+    if plugin_version():
+        print('versão: %s' % plugin_version())
     here = ' \u00b7 s\u00f3 nesta sess\u00e3o'
     print('voz: %s%s' % ('ligada' if is_on(session) else 'desligada', here if own_field(session, 'voice') else ''))
     print('  geral: %s' % ('desligada' if os.path.exists(OFF_FLAG) else 'ligada'))
@@ -1521,7 +1522,7 @@ def status_json():
     """The state in force here as one JSON line, for the /speak pane (hooks/register.tsx) to mark what is current."""
     session = current_session()
     now = voice()
-    print(json.dumps({'on': is_on(session), 'mode': mode(session), 'size': summary_size(session), 'mic': mic(session),
+    print(json.dumps({'version': plugin_version(), 'on': is_on(session), 'mode': mode(session), 'size': summary_size(session), 'mic': mic(session),
                       'scope': {f: 'session' if own_field(session, g) else 'all'
                                 for f, g in (('on', 'voice'), ('mode', 'mode'), ('size', 'size'), ('mic', 'mic'))},
                       'engine': engine_ready(), 'installing': not engine_ready() and installing(),
@@ -1684,6 +1685,8 @@ def main(argv):
             save_last(session, message, how)  # kept also with the voice off or without the engine
             return speak_background(to_speak(message, how, summary_size(session)), session)
         return speak_background(text, session)
+    if cmd == 'update':
+        return speak_update.update(os.path.realpath(__file__), plugin_version())
     if cmd == 'again':
         if text not in ('', 'summary', 'full'):
             print('voz: use "speak again", "speak again summary" ou "speak again full"', file=sys.stderr)

@@ -67,9 +67,10 @@ Para pular o painel, escreva a ação. Com `all` no fim, vale para todas as sess
 | `/speak voice dora` · `alex` · `santa` | troca a voz, sempre em todas as sessões (padrão: `dora`) |
 | `/speak mic wait` · `play` · `auto` | o que fazer com o microfone em uso (padrão: `wait`) |
 | `/speak again` · `again summary` · `again full` | ouve de novo a última fala desta sessão, mesmo com a voz desligada: do jeito em que tocou, só o resumo ou a resposta inteira |
-| `/speak status` | mostra como está tudo: voz, leitura, tamanho, microfone e motor |
+| `/speak status` | mostra a versão do plugin e como está tudo: voz, leitura, tamanho, microfone e motor |
 | `/speak stop` | corta a fala que está tocando e esvazia a fila |
 | `/speak install` | instala o motor de novo, em primeiro plano |
+| `/speak update` | atualiza o plugin para a versão mais nova do catálogo; vale depois de `/reload-plugins` ou numa sessão nova |
 
 Sem o valor (`/speak mode`, `/speak voice`…), o painel abre já na linha certa. Sair de uma sessão corta as falas dela, e as de outras sessões continuam.
 
