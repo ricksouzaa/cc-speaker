@@ -1,10 +1,11 @@
 {
   "name": "speak",
-  "version": "0.5.5",
+  "version": "0.5.6",
   "description": "Lê em voz alta, em português do Brasil, as respostas do Claude Code, com um motor de voz local (Kokoro): sem rede e sem custo.",
   "author": {
     "name": "Ricardo Souza"
   },
   "repository": "https://github.com/ricksouzaa/cc-speaker",
-  "license": "MIT"
+  "license": "MIT",
+  "types": "./types/index.d.ts"
 }

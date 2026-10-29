@@ -1,25 +1,22 @@
-// Módulo de ganchos do plugin: o comando /speak. Sem escolha escrita, pergunta em caixas de escolha nativas
-// (`$.ui.ask`, o diálogo do AskUserQuestion, que abre abaixo do campo de digitação, como o /model), uma pergunta por
-// vez: o ajuste, o valor e, se couber, o alcance. Só depois roda o `bin/speak` uma vez, com tudo já escolhido. Esc em
-// qualquer caixa não muda nada. Responde sozinho, sem o modelo. Com a escolha escrita (/speak voice alex), roda
-// direto, sem caixa, e responde uma linha.
+// Módulo de ganchos do plugin: o comando /speak. Sem escolha escrita, abre o menu de setas (painel `speak`, desenhado
+// por `menu.tsx`): cima e baixo mudam de linha, esquerda e direita o valor, e cada troca roda o `bin/speak` na hora.
+// A primeira linha, "Mudar em", só diz onde as próximas trocas são gravadas (todas as sessões ou só esta); abre sempre
+// em "Todas as sessões" e trocá-la não roda nada. Responde sozinho, sem o modelo. Com a escolha escrita
+// (/speak voice alex), roda direto, sem menu, e responde uma linha.
 import type { EngineInterface, Register } from 'claude-code'
 
 type Engine = EngineInterface
 type Reply = { text?: string }
-type State = { on: boolean; mode: string; size: string; voice: string; engine: boolean }
-type Setting = 'power' | 'mode' | 'size' | 'voice'
+type State = {
+  on: boolean; mode: string; size: string; voice: string; engine: boolean
+  scope?: { on?: string; mode?: string; size?: string }
+}
 
 const MODES: Record<string, string> = { full: 'Resposta inteira', summary: 'Só o resumo' }
 const SIZES: Record<string, string> = { small: 'Pequeno', medium: 'Médio', large: 'Grande' }
 const VOICES: Record<string, string> = { dora: 'Dora (feminina)', alex: 'Alex (masculina)', santa: 'Santa (masculina)' }
+const READERS: Record<string, string> = { dora: 'Dora', alex: 'Alex', santa: 'Santa' }
 const POWER: Record<string, string> = { on: 'Ligada', off: 'Desligada' }
-const SETTINGS: Record<Setting, string> = {
-  power: 'Ligar ou desligar', mode: 'Leitura', size: 'Tamanho do resumo', voice: 'Voz de leitura',
-}
-const SESSION = 'Só esta sessão'
-const ALL = 'Todas as sessões'
-const CURRENT = ' (atual)'
 const USAGE =
   'Escreva a ação: /speak on, /speak off, /speak mode full|summary, /speak size small|medium|large, ' +
   '/speak voice dora|alex|santa, /speak status, /speak stop, /speak install ' +
@@ -67,7 +64,7 @@ async function change($: Engine, args: string[]): Promise<{ ok: boolean; text: s
   return { ok: true, text: said(args, await state($)) }
 }
 
-// Escrita completa: roda direto, sem caixa. Devolve undefined quando falta a escolha (então pergunta em caixas).
+// Escrita completa: roda direto, sem menu. Devolve undefined quando falta a escolha (então abre o menu).
 async function direct($: Engine, body: string[], all: boolean): Promise<Reply | undefined> {
   const [action, value, ...extra] = body
   if (extra.length > 0) return { text: USAGE }
@@ -102,53 +99,65 @@ async function runChoice($: Engine, cmd: string, value: string, valid: Record<st
   return { text: (await change($, [cmd, value, ...tail])).text }
 }
 
-// Cada ajuste: a tabela de valores, o título da caixa e como o valor atual sai do estado.
-const ASK: Record<Setting, { table: Record<string, string>; question: string; header: string; current: (s: State) => string }> = {
-  power: { table: POWER, question: 'A voz fica ligada ou desligada?', header: 'Voz', current: s => (s.on ? 'on' : 'off') },
-  mode: { table: MODES, question: 'O que a voz lê?', header: 'Leitura', current: s => s.mode },
-  size: { table: SIZES, question: 'Qual o tamanho do resumo falado?', header: 'Tamanho', current: s => s.size },
-  voice: { table: VOICES, question: 'Qual voz lê as respostas?', header: 'Voz leitura', current: s => s.voice },
-}
+const STATE = { plugin: 'speak', key: 'where' } as const
+const NOTE = { plugin: 'speak', key: 'note' } as const
+const FOCUS = { plugin: 'speak', key: 'focus' } as const
+const PANE = 'speak'
+const ENTER_ALL = 'Todas as sessões'
+const WHERES: Record<string, string> = { all: ENTER_ALL, session: 'Só nesta sessão' }
 
-const stripCurrent = (answer: string) => (answer.endsWith(CURRENT) ? answer.slice(0, -CURRENT.length) : answer)
-const keyOf = (table: Record<string, string>, answer: string) => {
-  const label = stripCurrent(answer)
-  return Object.keys(table).find(k => table[k] === label)
-}
+type Key = 'where' | 'power' | 'mode' | 'size' | 'voice'
+const ROWS: { key: Key; label: string; table: Record<string, string>; current: (s: State) => string; own: (s: State) => boolean }[] = [
+  { key: 'where', label: 'Mudar em', table: WHERES, current: () => '', own: () => false },
+  { key: 'power', label: 'Voz', table: POWER, current: s => (s.on ? 'on' : 'off'), own: s => s.scope?.on === 'session' },
+  { key: 'mode', label: 'Leitura', table: MODES, current: s => s.mode, own: s => s.scope?.mode === 'session' },
+  { key: 'size', label: 'Tamanho do resumo', table: SIZES, current: s => s.size, own: s => s.scope?.size === 'session' },
+  { key: 'voice', label: 'Voz de leitura', table: READERS, current: s => s.voice, own: () => false },
+]
 
-class Stop extends Error {}
-
-// Pergunta numa caixa. Esc (ou execução sem tela) vira Stop; texto livre que não bate com nenhum rótulo, undefined.
-async function ask($: Engine, question: string, header: string, labels: string[]): Promise<string> {
-  try {
-    return await $.ui.ask(question, { header, options: labels })
-  } catch {
-    throw new Stop()
-  }
-}
-
-// Sem escolha escrita: pergunta o ajuste (se não veio), o valor e o alcance, e então roda o speak uma vez.
-async function asked($: Engine, first: string | undefined, wantsAll: boolean): Promise<Reply> {
-  let setting = first as Setting | undefined
-  if (!setting) {
-    const answer = await ask($, 'O que quer ajustar?', 'Voz', Object.values(SETTINGS))
-    setting = (Object.keys(SETTINGS) as Setting[]).find(k => SETTINGS[k] === answer)
-    if (!setting) return { text: USAGE }
-  }
-  const { table, question, header, current } = ASK[setting]
+// As props do Client: as linhas com o valor em vigor lido do speak, o foco e a nota do rodapé.
+async function menuProps($: Engine): Promise<unknown> {
   const now = await state($)
-  const labels = Object.keys(table).map(k => table[k]! + (now && current(now) === k ? CURRENT : ''))
-  const value = keyOf(table, await ask($, question, header, labels))
-  if (!value) return { text: USAGE }
-  let all = wantsAll
-  if (setting !== 'voice' && !wantsAll) {
-    const scope = await ask($, 'Vale para quais sessões?', 'Alcance', [SESSION, ALL])
-    if (scope !== SESSION && scope !== ALL) return { text: USAGE }
-    all = scope === ALL
+  const where = (await $.state.get(STATE)).value ?? 'all'
+  const note = (await $.state.get(NOTE)).value ?? ''
+  const focus = (await $.state.get(FOCUS)).value ?? 'where'
+  return {
+    focus,
+    note,
+    rows: ROWS.map(r => ({
+      key: r.key,
+      label: r.label,
+      values: Object.keys(r.table).map(value => ({ value, label: r.table[value]! })),
+      value: r.key === 'where' ? where : now ? r.current(now) : '',
+      own: now ? r.own(now) : false,
+    })),
   }
-  const tail = all ? ['all'] : []
-  const args = setting === 'power' ? [value, ...tail] : setting === 'voice' ? ['voice', value] : [setting, value, ...tail]
-  return { text: (await change($, args)).text }
+}
+
+// Uma troca vinda do menu: "Mudar em" só guarda o alcance; o resto roda o speak (com `all` quando o alcance é todas
+// as sessões, menos a voz de leitura, que é sempre geral) e guarda a frase, ou o erro, para o rodapé.
+async function menuChange($: Engine, data: unknown): Promise<void> {
+  const { key, value } = (data ?? {}) as { key?: unknown; value?: unknown }
+  const row = ROWS.find(r => r.key === key)
+  if (!row || typeof value !== 'string' || !(value in row.table)) return
+  if (row.key === 'where') {
+    await $.state.set(STATE, value as 'all' | 'session')
+    await $.state.set(NOTE, '')
+    return
+  }
+  const all = ((await $.state.get(STATE)).value ?? 'all') === 'all'
+  const tail = all && row.key !== 'voice' ? ['all'] : []
+  const args = row.key === 'power' ? [value, ...tail] : [row.key, value, ...tail]
+  await $.state.set(NOTE, (await change($, args)).text)
+}
+
+// Abre o menu com o foco na linha pedida; devolve falso quando ele não abre (então a resposta é em texto).
+async function openMenu($: Engine, focus: Key): Promise<boolean> {
+  if (!(await $.session.surfaces()).includes('terminal')) return false
+  await $.state.set(STATE, 'all')
+  await $.state.set(NOTE, '')
+  await $.state.set(FOCUS, focus)
+  return (await $.ui.open({ id: PANE, title: 'Voz', focus: true, closeOnEscape: true })).isPlaced
 }
 
 export const register: Register = on => {
@@ -171,10 +180,21 @@ export const register: Register = on => {
         const done = await direct($, body, wantsAll)
         if (done) return done
       }
-      return await asked($, body[0], wantsAll)
+      const focus = (body[0] ?? 'where') as Key
+      return (await openMenu($, focus)) ? {} : { text: USAGE }
     } catch (error) {
-      if (error instanceof Stop) return { text: `Nada mudou. ${USAGE}` }
       return { text: `O speak falhou: ${String((error as { message?: unknown })?.message ?? error)}` }
     }
+  })
+
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+    const { Client } = $.ui.resolve(e) as any
+    return <Client key="menu" module="./menu.tsx" props={await menuProps($)} />
+  })
+
+  on('ui.message', async ($, e) => {
+    if (e.requestId !== PANE) return {}
+    await menuChange($, e.data)
+    return { props: await menuProps($) }
   })
 }
