@@ -33,7 +33,7 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 - Opção do microfone (espera, toca, toca nesta reunião), no menu, por escrito e em palavras.
 - README reorganizado em tabelas, com os padrões de cada opção.
 - Tamanho do resumo (pequeno, médio, grande) e escolha da voz (dora, alex, santa).
-- Filtro do que se narra: a voz não lê nomes de ramo, códigos de commit, HEAD nem código entre crases com hífen, sublinhado ou número (0.7.4).
+- Filtro do que se narra: a voz não lê nomes de ramo, códigos de commit, HEAD nem código entre crases com hífen, sublinhado ou número (0.7.5).
 - Testes que não tocam a pasta de dados real: um só ajudante de isolamento (`tests/isolation.py`) e um guarda-costas que compara a pasta real antes e depois da bateria.
 
 ## Recusado
