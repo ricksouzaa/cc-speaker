@@ -664,17 +664,29 @@ def mic_busy(recs):
 
 
 def watch_microphone(player):
-    """Ends this speech (the player, then this process) as soon as any recording is going on."""
+    """Ends this speech (the player, then this process) as soon as any recording is going on. Returns (stop, thread):
+    the caller sets `stop` and joins the thread when the speech ends, so no watcher outlives its speech."""
     import threading
-    import time
+
+    stop = threading.Event()
 
     def loop():
-        while True:
-            time.sleep(MIC_POLL)
+        while not stop.wait(MIC_POLL):
             if mic_busy(current_recordings()):
                 cut_by_microphone(player)
+                return
 
-    threading.Thread(target=loop, daemon=True).start()
+    thread = threading.Thread(target=loop, daemon=True)
+    thread.start()
+    return stop, thread
+
+
+def stop_watching(watcher):
+    """Ends the watcher `watch_microphone` returned (None: there is none) and waits a moment for it."""
+    if watcher:
+        stop, thread = watcher
+        stop.set()
+        thread.join(1)
 
 
 class FilePlayer:
@@ -847,15 +859,17 @@ class MacPlayer:
 def play_files(command, chunks, watch):
     """Plays each synthesized piece in order (see MacPlayer); returns the last exit code."""
     player = MacPlayer(command)
+    watcher = None
     try:
         if watch:
-            watch_microphone(player)
+            watcher = watch_microphone(player)
         code = 0
         for samples in chunks:
             code = player.play(samples)
         player.finish()
         return code
     finally:
+        stop_watching(watcher)
         player.drop_stream()
 
 
@@ -881,15 +895,17 @@ def play(text):
         if not speak_os.streams():
             return play_files(player, synthesize_ahead(pieces(text), synth), watch)
         proc = subprocess.Popen(player, stdin=subprocess.PIPE)
-        if watch:
-            watch_microphone(proc)
+        watcher = watch_microphone(proc) if watch else None
         try:
-            for samples in synthesize_ahead(pieces(text), synth):
-                proc.stdin.write(samples.astype('float32').tobytes())
-                proc.stdin.flush()
+            try:
+                for samples in synthesize_ahead(pieces(text), synth):
+                    proc.stdin.write(samples.astype('float32').tobytes())
+                    proc.stdin.flush()
+            finally:
+                proc.stdin.close()
+            return proc.wait()
         finally:
-            proc.stdin.close()
-        return proc.wait()
+            stop_watching(watcher)
     finally:
         drop_own_tickets()
         clear_speech(os.getpid())

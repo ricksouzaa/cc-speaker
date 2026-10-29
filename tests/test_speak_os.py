@@ -74,9 +74,16 @@ class LinuxTest(unittest.TestCase):
 
 class MacTest(unittest.TestCase):
     def setUp(self):
+        self.addCleanup(self.no_leaked_watcher)  # safety net: runs after the patches are undone
         patch = mock.patch.object(speak_os, 'SYSTEM', 'mac')
         patch.start()
         self.addCleanup(patch.stop)
+
+    def no_leaked_watcher(self):
+        import threading
+        alive = [th for th in threading.enumerate()
+                 if th.is_alive() and 'watch_microphone.<locals>.loop' in getattr(th._target, '__qualname__', '')]
+        self.assertEqual(alive, [], 'a microphone watcher outlived its test')
 
     def run_ps(self, table):
         run = fake_ps(table)

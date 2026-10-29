@@ -40,6 +40,17 @@ speak = load('speak', SPEAK)
 speak_stop = load('speak_stop', HOOK)
 
 
+def no_leaked_watcher(case):
+    """Safety net: fails the test (at its cleanup) if a microphone watcher thread is still alive."""
+    import threading
+
+    def check():
+        alive = [th for th in threading.enumerate()
+                 if th.is_alive() and 'watch_microphone.<locals>.loop' in getattr(th._target, '__qualname__', '')]
+        case.assertEqual(alive, [], 'a microphone watcher outlived its test')
+    case.addCleanup(check)
+
+
 def isolate(case, root):
     """Points every path constant of the in-process `speak` module into `root`, and pins HOME (clearing the XDG
     variables, CLAUDE_PLUGIN_DATA, CLAUDE_SPEAK_DATA and CLAUDE_CONFIG_DIR) so that the in-process migrate() can only look inside `root`:
@@ -236,6 +247,9 @@ class Player(unittest.TestCase):
 
 
 class Microphone(unittest.TestCase):
+    def setUp(self):
+        no_leaked_watcher(self)
+
     def test_recordings_are_the_input_streams_only(self):
         dump = json.dumps([
             {'id': 93, 'info': {'props': {'media.class': 'Stream/Input/Audio', 'application.name': 'Discord'}}},
@@ -273,9 +287,21 @@ class Microphone(unittest.TestCase):
         with mock.patch.object(speak, 'MIC_POLL', 0.01), \
                 mock.patch.object(speak, 'current_recordings', return_value={7}), \
                 mock.patch.object(speak, 'cut_by_microphone', side_effect=lambda p: done.set()) as cut:
-            speak.watch_microphone(player)
+            stop, thread = speak.watch_microphone(player)
             self.assertTrue(done.wait(2))
+            stop.set()
+            thread.join(2)
+            self.assertFalse(thread.is_alive())
         cut.assert_called_with(player)
+
+    def test_watch_stops_when_the_speech_ends(self):
+        from unittest import mock
+        with mock.patch.object(speak, 'MIC_POLL', 0.01), \
+                mock.patch.object(speak, 'current_recordings', return_value=set()):
+            stop, thread = speak.watch_microphone(object())
+            self.assertTrue(thread.is_alive())
+            speak.stop_watching((stop, thread))
+        self.assertFalse(thread.is_alive())
 
 
 class Migration(unittest.TestCase):
@@ -2234,7 +2260,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.5.10')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.5.11')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):
