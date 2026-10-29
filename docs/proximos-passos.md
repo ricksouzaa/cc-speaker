@@ -44,7 +44,7 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 
 ## Pendências
 
-- **Mac de verdade**: confirmar som, microfone e achar a sessão (`speak check`). A classe `_CoreAudio` (`lib/speak_os.py`) não tem cobertura de teste e suas constantes foram escritas de memória.
+- **Mac de verdade**: confirmar som, microfone e achar a sessão (`speak check`). A classe `_CoreAudio` (`lib/speak_os.py`) não tem cobertura de teste e suas constantes foram escritas de memória. Em 29/10/2026 o testador deixou de ter o Mac: o teste fica aberto para quem aparecer pelas issues (https://github.com/ricksouzaa/cc-speaker/issues), e o README avisa que o macOS nunca foi testado num Mac de verdade.
 - **Microfone embutido sempre ligado no Mac**: se a escuta da Siri (ou outro programa) deixar a entrada embutida em uso o tempo todo, a fila pode achar que alguém grava e a voz esperar para sempre. A ver no teste do Mac.
 - **Ramo do `.part` sem teste**: o caminho em que o arquivo temporário (`<arquivo>.part-<pid>`, no download em `bin/speak` e na cópia entre discos em `lib/speak_paths.py`) é removido depois de um erro no meio não tem teste próprio para cada falha possível.
 - **Arquivo de ambiente binário sem teste**: `share_root` (`hooks/speak-start.py`) não é testado com um `CLAUDE_ENV_FILE` que tenha bytes que não são texto.

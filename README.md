@@ -7,7 +7,7 @@ Um plugin do Claude Code, chamado `speak`, que lê as respostas em voz alta em p
 - **Respeita o microfone.** Enquanto você dita ou está numa reunião, a voz espera; se começar uma gravação no meio da fala, ela para. Dá para mudar isso quando você quer que a reunião ouça.
 - **Se ajusta sem gastar resposta.** O comando `/speak` abre um painel com as opções, ou você pede em palavras ("fala só o resumo", "troca para a voz do Alex").
 
-Funciona no Linux e no macOS. O Windows fica de fora por enquanto.
+Funciona no Linux e no macOS, mas o macOS **nunca foi testado num Mac de verdade**: tem suporte no código e passa nos testes automáticos do GitHub, e só. Se você usar no Mac e tiver problema, [abra uma issue](https://github.com/ricksouzaa/cc-speaker/issues). O Windows fica de fora por enquanto.
 
 ## Requisitos
 
@@ -17,8 +17,9 @@ Funciona no Linux e no macOS. O Windows fica de fora por enquanto.
 | Instalador do motor | [`uv`](https://docs.astral.sh/uv/) | [`uv`](https://docs.astral.sh/uv/) |
 | Tocador de áudio | `pw-play` (PipeWire 1.1 ou mais novo), `paplay` ou `aplay` | já vem no sistema |
 | Espaço | cerca de 350 MB | cerca de 350 MB |
+| Situação | testado no Linux | só nos testes automáticos do GitHub; nunca num Mac de verdade |
 
-No Ubuntu 24.04 o `pw-play` é mais velho, e o speak usa o `paplay` ou o `aplay` no lugar. O código do Mac está pronto e passa nos testes automáticos, mas ainda falta o teste num Mac de verdade.
+No Ubuntu 24.04 o `pw-play` é mais velho, e o speak usa o `paplay` ou o `aplay` no lugar. O código do Mac tem suporte e passa nos testes automáticos do GitHub, mas nunca foi testado num Mac de verdade. Quem usar no Mac e tiver problema pode abrir uma issue em https://github.com/ricksouzaa/cc-speaker/issues.
 
 ## Instalação
 
