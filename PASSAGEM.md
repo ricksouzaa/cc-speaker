@@ -34,6 +34,23 @@ No ai-harness, hoje, o instalador liga `bin/speak` em `~/.local/bin/speak`, e os
 - Modo remoto: num teste no controle remoto, um mp3 de 52 quilobytes gerado pelo motor e enviado pela ferramenta de envio de arquivo ao usuário chegou ao celular e tocou no aplicativo. Limites: só o modelo envia arquivo (os ganchos não), custa tokens a cada resposta e não toca sozinho. Estudar um modo remoto e alternativas sem o modelo.
 - Ideia do Ricardo: uma voz no estilo do Jarvis do Homem de Ferro. Combinado: um estilo inspirado (voz masculina grave e calma, tratamento formal, talvez um leve efeito metálico no áudio), não uma cópia da voz do ator.
 
+## Estado em 28/10/2026 (fim da primeira etapa, à espera da revisão do Ricardo)
+
+- Ramo `feat/plugin`, sem push e sem merge. Desenho em `docs/superpowers/specs/2026-10-28-plugin-design.md`.
+- Plugin `speak` instalado no escopo do usuário a partir do catálogo local `cc-speaker` (esta pasta), ligado.
+- Tamanho do resumo e escolha da voz entraram já nesta etapa, por pedido do Ricardo.
+- Enquanto existirem `~/.claude/hooks/speak-stop.py` ou `~/.claude/hooks/speak-cut.sh`, os ganchos do plugin ficam mudos (guarda temporária).
+- Neste repositório toda sessão começa muda (`.claude/settings.local.json`, fora do git).
+
+### Troca, pela sessão do ai-harness (depois do sim do Ricardo)
+
+1. Tirar do ai-harness o comando (`~/.local/bin/speak`), os ganchos `speak-stop.py` e `speak-cut.sh` (arquivos em `~/.claude/hooks/` e linhas no `settings.json`), a regra `~/.claude/rules/speak.md` e o `/speak`.
+2. Nada mais: na sessão seguinte, a guarda não vê mais a voz antiga e o plugin assume. Motor, escolhas e estado continuam nas mesmas pastas.
+3. Conferir: sessão nova, `/speak:status`, uma resposta falada.
+4. Volta, se falhar: reinstalar a voz antiga pelo ai-harness; o plugin volta a ficar mudo sozinho.
+
+Depois da troca: tirar a guarda, mudar o catálogo para o GitHub (`ricksouzaa/cc-speaker`) depois do push.
+
 ## Pendente de decidir
 
 - Licença do repositório (sem licença, ninguém pode reusar legalmente).
