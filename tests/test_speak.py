@@ -299,6 +299,184 @@ class Microphone(unittest.TestCase):
         self.assertFalse(thread.is_alive())
 
 
+class MicChoice(unittest.TestCase):
+    """`speak mic wait|play|auto`: wait (default) holds and cuts, play does neither, auto is play and goes back to wait
+    when the microphone turns from busy to free, in the scope where it was written."""
+
+    def setUp(self):
+        no_leaked_watcher(self)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.paths = isolate(self, self.tmp.name)
+        self.sleep = subprocess.Popen(['sleep', '60'])
+        self.addCleanup(self.sleep.wait)
+        self.addCleanup(self.sleep.kill)
+        self.me = speak.session_key(os.getpid())
+        self.other = speak.session_key(self.sleep.pid)
+        self.folder = data_dir(self.tmp.name, 'state', 'sessions')
+        fake = os.path.join(self.tmp.name, 'fakebin')  # a pw-dump that always says nothing records
+        os.makedirs(fake)
+        with open(os.path.join(fake, 'pw-dump'), 'w') as fh:
+            fh.write('#!/bin/sh\necho "[]"\n')
+        os.chmod(os.path.join(fake, 'pw-dump'), 0o755)
+        self.env = {'HOME': self.tmp.name, 'PATH': fake + ':/usr/bin:/bin'}
+
+    def run_speak(self, *args, session=None, **env):
+        return subprocess.run([sys.executable, '-I', SPEAK, *args], capture_output=True, text=True,
+                              stdin=subprocess.DEVNULL, env={**self.env, 'CLAUDE_SPEAK_SESSION': session or '-', **env})
+
+    def general(self):
+        try:
+            with open(speak.MIC_FILE) as fh:
+                return fh.read().strip()
+        except OSError:
+            return None
+
+    def session_file(self, key):
+        return speak_read(self.folder, key) if os.path.exists(os.path.join(self.folder, key)) else {}
+
+    def test_default_is_wait_and_the_value_is_validated(self):
+        self.assertEqual(speak.mic(None), 'wait')
+        for args in (('mic',), ('mic', 'toca'), ('mic', 'play', 'tudo')):
+            r = self.run_speak(*args)
+            self.assertEqual(r.returncode, 2, args)
+            self.assertIn('voz:', r.stderr)
+
+    def test_status_and_json_say_it_with_the_scope(self):
+        self.assertIn('microfone em uso: espera\n', self.run_speak('status', session=self.me).stdout)
+        self.run_speak('mic', 'play', session=self.me)
+        out = self.run_speak('status', session=self.me).stdout
+        self.assertIn('microfone em uso: toca \u00b7 s\u00f3 nesta sess\u00e3o', out)
+        data = json.loads(self.run_speak('status', '--json', session=self.me).stdout)
+        self.assertEqual((data['mic'], data['scope']['mic']), ('play', 'session'))
+        other = json.loads(self.run_speak('status', '--json', session=self.other).stdout)
+        self.assertEqual((other['mic'], other['scope']['mic']), ('wait', 'all'))
+        self.run_speak('mic', 'auto', 'all', session=self.me)
+        both = [json.loads(self.run_speak('status', '--json', session=k).stdout) for k in (self.me, self.other)]
+        self.assertEqual([(d['mic'], d['scope']['mic']) for d in both], [('auto', 'all')] * 2)
+        self.assertIn('toca nesta reuni\u00e3o', self.run_speak('status', session=self.me).stdout)
+
+    def test_session_choice_stays_and_all_removes_it_from_the_sessions(self):
+        self.run_speak('mic', 'play', session=self.me)
+        self.assertEqual(self.session_file(self.me), {'mic': 'play'})
+        self.assertIsNone(self.general())
+        self.run_speak('mic', 'auto', 'all', session=self.me)
+        self.assertEqual(self.session_file(self.me), {})
+        self.assertEqual(self.general(), 'auto')
+
+    def test_variable_beats_everything(self):
+        self.run_speak('mic', 'play')
+        data = json.loads(self.run_speak('status', '--json', CLAUDE_SPEAK_MIC='wait').stdout)
+        self.assertEqual(data['mic'], 'wait')
+
+    def test_wait_holds_the_turn_play_and_auto_do_not(self):
+        from unittest import mock
+        for choice, waits in (('wait', True), ('play', False), ('auto', False)):
+            speak.set_session(self.me, mic=choice)
+            with mock.patch.object(speak, 'current_recordings', return_value={7}):
+                self.assertEqual(speak.holds_for_microphone(self.me), waits, choice)
+        speak.set_session(self.me, mic='wait')
+        with mock.patch.object(speak, 'current_recordings', return_value=set()):
+            self.assertFalse(speak.holds_for_microphone(self.me))
+
+    def test_play_does_not_even_look_at_the_microphone(self):
+        from unittest import mock
+        speak.set_session(self.me, mic='play')
+        with mock.patch.object(speak, 'current_recordings', side_effect=AssertionError('looked')):
+            self.assertFalse(speak.holds_for_microphone(self.me))
+
+    def test_turn_comes_at_once_with_play_while_recording(self):
+        from unittest import mock
+        speak.set_session(self.me, mic='play')
+        with mock.patch.object(speak, 'QUEUE_POLL', 0.01), mock.patch.object(speak, 'current_recordings', return_value={7}):
+            self.assertTrue(speak.wait_turn(self.me, True))
+        speak.drop_own_tickets()
+
+    def test_watcher_cuts_only_on_wait(self):
+        import threading
+        from unittest import mock
+        for choice, cuts in (('wait', True), ('play', False), ('auto', False)):
+            speak.set_session(self.me, mic=choice)
+            done = threading.Event()
+            with mock.patch.object(speak, 'MIC_POLL', 0.01), \
+                    mock.patch.object(speak, 'current_recordings', return_value={7}), \
+                    mock.patch.object(speak, 'cut_by_microphone', side_effect=lambda p: done.set()):
+                watcher = speak.watch_microphone(object(), self.me)
+                self.assertEqual(done.wait(0.5), cuts, choice)
+                speak.stop_watching(watcher)
+
+    def test_the_watcher_follows_a_change_made_while_it_speaks(self):
+        import threading
+        from unittest import mock
+        speak.set_session(self.me, mic='play')
+        done = threading.Event()
+        with mock.patch.object(speak, 'MIC_POLL', 0.01), \
+                mock.patch.object(speak, 'current_recordings', return_value={7}), \
+                mock.patch.object(speak, 'cut_by_microphone', side_effect=lambda p: done.set()):
+            watcher = speak.watch_microphone(object(), self.me)
+            self.assertFalse(done.wait(0.1))
+            speak.set_session(self.me, mic='wait')
+            self.assertTrue(done.wait(2))
+            speak.stop_watching(watcher)
+
+    def test_auto_of_a_session_goes_back_to_wait_in_the_session_when_the_meeting_ends(self):
+        speak.set_session(self.me, mic='auto', mode='full')
+        speak.track_mic(self.me, set())  # free and never seen busy: stays
+        self.assertEqual(speak.mic(self.me), 'auto')
+        speak.track_mic(self.me, None)  # could not be read: nothing changes
+        speak.track_mic(self.me, {7})
+        self.assertEqual(self.session_file(self.me), {'mic': 'auto', 'mode': 'full', 'micseen': True})
+        speak.track_mic(self.me, {7})
+        self.assertEqual(speak.mic(self.me), 'auto')
+        speak.track_mic(self.me, set())
+        self.assertEqual(self.session_file(self.me), {'mic': 'wait', 'mode': 'full'})
+        self.assertIsNone(self.general())  # the general setting was never touched
+        self.assertFalse(os.path.exists(speak.MIC_SEEN))
+
+    def test_auto_of_all_goes_back_to_wait_for_all_and_the_other_session_is_not_touched(self):
+        speak.set_session(self.other, mic='play')
+        os.makedirs(os.path.dirname(speak.MIC_FILE), exist_ok=True)
+        with open(speak.MIC_FILE, 'w') as fh:
+            fh.write('auto\n')
+        speak.track_mic(self.me, {7})
+        self.assertTrue(os.path.exists(speak.MIC_SEEN))
+        self.assertEqual(self.session_file(self.me), {})
+        speak.track_mic(self.me, set())
+        self.assertEqual(self.general(), 'wait')
+        self.assertFalse(os.path.exists(speak.MIC_SEEN))
+        self.assertEqual(self.session_file(self.other), {'mic': 'play'})
+
+    def test_auto_chosen_with_the_microphone_free_waits_for_the_next_meeting(self):
+        r = self.run_speak('mic', 'auto', 'all')  # the fake pw-dump says free
+        self.assertEqual(r.returncode, 0)
+        self.assertFalse(os.path.exists(speak.MIC_SEEN))
+        speak.track_mic(None, set())
+        self.assertEqual(self.general(), 'auto')
+        speak.track_mic(None, {7})  # the next meeting begins ...
+        speak.track_mic(None, set())  # ... and ends
+        self.assertEqual(self.general(), 'wait')
+
+    def test_auto_chosen_in_the_middle_of_the_meeting_counts_as_seen(self):
+        with open(os.path.join(self.tmp.name, 'fakebin', 'pw-dump'), 'w') as fh:
+            fh.write('#!/bin/sh\necho \'[{"id":9,"info":{"props":{"media.class":"Stream/Input/Audio"}}}]\'\n')
+        self.run_speak('mic', 'auto', 'all')
+        self.assertTrue(os.path.exists(speak.MIC_SEEN))
+        self.run_speak('mic', 'play', 'all')  # a new choice forgets what was seen
+        self.assertFalse(os.path.exists(speak.MIC_SEEN))
+
+    def test_the_message_hook_tick_ends_the_meeting(self):
+        speak.set_session(self.me, mic='auto', micseen=True)
+        r = self.run_speak('_mictick', session=self.me)  # the fake pw-dump says free
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual(self.session_file(self.me), {'mic': 'wait'})
+
+    def test_tick_leaves_other_choices_alone(self):
+        for choice in ('wait', 'play'):
+            speak.set_session(self.me, mic=choice, micseen=True)
+            self.run_speak('_mictick', session=self.me)
+            self.assertEqual(speak.mic(self.me), choice)
+
+
 class Migration(unittest.TestCase):
     """The folders of the former name (`claude-voz`) move to `claude-speak` on the first call."""
 
@@ -1526,7 +1704,7 @@ class Rule(unittest.TestCase):
 
     def test_rule_names_the_commands(self):
         text = self.rule()
-        for name in ('on', 'off', 'mode', 'size', 'voice', 'status', 'stop', 'install'):
+        for name in ('on', 'off', 'mode', 'size', 'mic', 'voice', 'status', 'stop', 'install'):
             self.assertIn('`speak %s' % name, text)
         self.assertIn('`/speak`', text)
         self.assertNotIn('/speak:', text)
@@ -2240,7 +2418,7 @@ class Scope(unittest.TestCase):
     def test_status_json_scope(self):
         self.put(self.me, {'size': 'large'})
         data = json.loads(self.speak('status', '--json', session=self.me).stdout)
-        self.assertEqual(data['scope'], {'on': 'all', 'mode': 'all', 'size': 'session'})
+        self.assertEqual(data['scope'], {'on': 'all', 'mode': 'all', 'size': 'session', 'mic': 'all'})
         self.assertEqual(data['size'], 'large')
 
     def test_limpa_copias_antigas(self):
@@ -2333,7 +2511,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.6.2')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.7.0')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

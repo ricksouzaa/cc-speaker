@@ -8,19 +8,20 @@ import type { EngineInterface, Register, Timer } from 'claude-code'
 type Engine = EngineInterface
 type Reply = { text?: string }
 type State = {
-  on: boolean; mode: string; size: string; voice: string; engine: boolean
-  scope?: { on?: string; mode?: string; size?: string }
+  on: boolean; mode: string; size: string; mic?: string; voice: string; engine: boolean
+  scope?: { on?: string; mode?: string; size?: string; mic?: string }
   installing?: boolean
   install?: { fase?: string; arquivo?: string; feito?: number; total?: number } | null
 }
 
 const MODES: Record<string, string> = { full: 'Resposta inteira', summary: 'Só o resumo' }
 const SIZES: Record<string, string> = { small: 'Pequeno', medium: 'Médio', large: 'Grande' }
+const MICS: Record<string, string> = { wait: 'Espera', play: 'Toca', auto: 'Toca nesta reunião' }
 const VOICES: Record<string, string> = { dora: 'Dora (feminina)', alex: 'Alex (masculina)', santa: 'Santa (masculina)' }
 const READERS: Record<string, string> = { dora: 'Dora', alex: 'Alex', santa: 'Santa' }
 const POWER: Record<string, string> = { on: 'Ligada', off: 'Desligada' }
 const USAGE =
-  'Escreva a ação: /speak on, /speak off, /speak mode full|summary, /speak size small|medium|large, ' +
+  'Escreva a ação: /speak on, /speak off, /speak mode full|summary, /speak size small|medium|large, /speak mic wait|play|auto, ' +
   '/speak voice dora|alex|santa, /speak status, /speak stop, /speak install ' +
   '(com "all" no fim, vale para todas as sessões).'
 const where = (all: boolean) => (all ? 'em todas as sessões' : 'nesta sessão')
@@ -183,6 +184,12 @@ function said(args: string[], after: State | undefined): string {
         ? `A voz passa a ler a resposta inteira ${where(all)}.`
         : `A voz passa a ler só o resumo ${where(all)}.`
     case 'size': return `O resumo falado passa a ser ${(SIZES[value ?? ''] ?? '').toLowerCase()}, ${where(all)}.`
+    case 'mic':
+      return value === 'wait'
+        ? `A voz passa a esperar o microfone ficar livre ${where(all)}.`
+        : value === 'play'
+          ? `A voz passa a tocar mesmo com o microfone em uso ${where(all)}, até você mudar.`
+          : `A voz passa a tocar mesmo com o microfone em uso ${where(all)}, e volta a esperar quando o microfone ficar livre.`
     case 'voice': return `A voz agora é a ${cap(after?.voice ?? value ?? '')}, em todas as sessões.`
     default: return 'Pronto.'
   }
@@ -210,6 +217,8 @@ async function direct($: Engine, body: string[], all: boolean): Promise<Reply | 
       return value ? runChoice($, 'mode', value, MODES, tail) : undefined
     case 'size':
       return value ? runChoice($, 'size', value, SIZES, tail) : undefined
+    case 'mic':
+      return value ? runChoice($, 'mic', value, MICS, tail) : undefined
     case 'voice':
       if (all) return { text: USAGE }
       return value ? runChoice($, 'voice', value, VOICES, []) : undefined
@@ -243,14 +252,16 @@ const OWN = '· só nesta sessão'
 const HELP = 'Tab troca de linha · Enter escolhe o valor · Esc fecha'
 const UNREAD = 'Não deu para ler o estado da voz.'
 
-type Key = 'where' | 'power' | 'mode' | 'size' | 'voice'
+type Key = 'where' | 'power' | 'mode' | 'size' | 'voice' | 'mic'
 const ROWS: { key: Key; label: string; table: Record<string, string>; current: (s: State) => string; own: (s: State) => boolean }[] = [
   { key: 'where', label: 'Mudar em', table: WHERES, current: () => '', own: () => false },
   { key: 'power', label: 'Voz', table: POWER, current: s => (s.on ? 'on' : 'off'), own: s => s.scope?.on === 'session' },
   { key: 'mode', label: 'Leitura', table: MODES, current: s => s.mode, own: s => s.scope?.mode === 'session' },
   { key: 'size', label: 'Tamanho do resumo', table: SIZES, current: s => s.size, own: s => s.scope?.size === 'session' },
   { key: 'voice', label: 'Voz de leitura', table: READERS, current: s => s.voice, own: () => false },
+  { key: 'mic', label: 'Com o microfone em uso', table: MICS, current: s => s.mic ?? 'wait', own: s => s.scope?.mic === 'session' },
 ]
+const MIC_WARNING = 'Com o microfone em uso, a voz toca: ele pode captar a voz e quem está na reunião ouve.'
 
 // O estado da voz lido para o desenho: vazio ao abrir (o desenho lê), e trocado a cada mudança pela leitura que a
 // própria mudança já fez, para não ler duas vezes. `now` indefinido é "não deu para ler".
@@ -306,6 +317,7 @@ function drawMenu(el: any, m: Menu) {
         )
       })}
       <Button key="fechar" label="Fechar" onPress={m.close} />
+      {m.now && (m.now.mic === 'play' || m.now.mic === 'auto') ? <Text dimColor>{MIC_WARNING}</Text> : null}
       <Text dimColor>{m.note || (isInstalling(m.install) ? installLine(m.install) : m.now ? HELP : UNREAD)}</Text>
     </Box>
   )
@@ -341,8 +353,8 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'speak',
-      description: 'Ajusta a voz que lê as respostas: ligar, modo, tamanho, voz',
-      argumentHint: '[on|off|mode|size|voice|status|stop|install] [all]',
+      description: 'Ajusta a voz que lê as respostas: ligar, modo, tamanho, microfone, voz',
+      argumentHint: '[on|off|mode|size|mic|voice|status|stop|install] [all]',
       immediate: true,
     })
     void kick($) // em segundo plano: não atrasa o registro da sessão

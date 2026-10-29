@@ -16,8 +16,8 @@ async function setup($: any, on: any, opts: Opts = {}) {
   on('ui.log', (_: unknown, e: any) => { logs.push(e.text); return { value: undefined } })
   on('ui.toast', (_: unknown, e: any) => { toasts.push(e.text); return { value: undefined } })
   const st: any = {
-    on: true, mode: 'full', size: 'medium', engine: true, voice: 'dora',
-    scope: { on: 'all', mode: 'all', size: 'all', ...(opts.scope ?? {}) },
+    on: true, mode: 'full', size: 'medium', mic: 'wait', engine: true, voice: 'dora',
+    scope: { on: 'all', mode: 'all', size: 'all', mic: 'all', ...(opts.scope ?? {}) },
     ...(opts.init ?? {}),
   }
   on('command.register', () => ({ value: { command: 'speak' } }))
@@ -37,6 +37,7 @@ async function setup($: any, on: any, opts: Opts = {}) {
     if (opts.fail) return done(1, '', 'voz: deu errado\n')
     if (args[0] === 'mode') st.mode = args[1]!
     if (args[0] === 'size') st.size = args[1]!
+    if (args[0] === 'mic') st.mic = args[1]!
     if (args[0] === 'voice') st.voice = args[1]!
     if (args[0] === 'on' || args[0] === 'off') st.on = args[0] === 'on'
     return done(0, 'ok\n')
@@ -82,10 +83,10 @@ test('o comando /speak é registrado, imediato', async ($, on) => {
 test('escolha completa roda o speak certo, sem menu', async ($, on) => {
   const { ran } = await setup($, on)
   const args = ['on', 'off all', 'mode summary', 'mode full all', 'size large', 'size small all',
-    'voice alex', 'stop']
+    'mic play', 'mic auto all', 'voice alex', 'stop']
   for (const a of args) await $.command.run({ command: 'speak', args: a })
   expect(changes(ran)).toEqual(['on', 'off all', 'mode summary', 'mode full all', 'size large', 'size small all',
-    'voice alex', 'stop'])
+    'mic play', 'mic auto all', 'voice alex', 'stop'])
 })
 
 test('status mostra o estado do speak e install roda direto', async ($, on) => {
@@ -110,16 +111,19 @@ test('/speak sozinho abre o painel com o foco, uma lista por linha e o botão Fe
   expect(opened[0].focus).toBe(true)
   expect(opened[0].closeOnEscape).toBe(true)
   const s = await selects(ui)
-  expect(Object.keys(s)).toEqual(['where', 'power', 'mode', 'size', 'voice'])
+  expect(Object.keys(s)).toEqual(['where', 'power', 'mode', 'size', 'voice', 'mic'])
   expect(s.where.value).toBe('all')
   expect(s.power.value).toBe('on')
   expect(s.mode.value).toBe('full')
   expect(s.size.value).toBe('medium')
   expect(s.voice.value).toBe('dora')
+  expect(s.mic.value).toBe('wait')
+  expect(s.mic.label).toMatch(/^Com o microfone em uso\s*$/)
+  expect(s.mic.options.map((o: any) => o.label)).toEqual(['Espera', 'Toca', 'Toca nesta reunião'])
   expect(s.where.label).toMatch(/^Mudar em\s*$/)
   expect(s.where.options.map((o: any) => o.label)).toEqual(['Todas as sessões', 'Só nesta sessão'])
   expect(s.where.autoFocus).toBe(true)
-  for (const k of ['power', 'mode', 'size', 'voice']) expect(s[k].autoFocus).toBeUndefined()
+  for (const k of ['power', 'mode', 'size', 'voice', 'mic']) expect(s[k].autoFocus).toBeUndefined()
   expect((await texts(ui, 'Button')).length).toBe(1)
   expect(await footer(ui)).toBe(HELP)
   expect(changes(ran)).toEqual([])
@@ -173,6 +177,32 @@ test('"Mudar em" não roda nada; depois a troca vale só nesta sessão, sem "all
   await ui.unmount()
 })
 
+test('/speak mic escolhe pela forma escrita e diz o que passou a valer', async ($, on) => {
+  const { ran } = await setup($, on)
+  const say = async (args: string) => (await $.command.run({ command: 'speak', args })).text
+  expect(await say('mic wait')).toBe('A voz passa a esperar o microfone ficar livre nesta sessão.')
+  expect(await say('mic play')).toBe('A voz passa a tocar mesmo com o microfone em uso nesta sessão, até você mudar.')
+  expect(await say('mic auto all')).toBe(
+    'A voz passa a tocar mesmo com o microfone em uso em todas as sessões, e volta a esperar quando o microfone ficar livre.')
+  expect(await say('mic bobo')).toContain('/speak mic wait|play|auto')
+  expect(changes(ran)).toEqual(['mic wait', 'mic play', 'mic auto all'])
+})
+
+test('a linha do microfone troca com "all" e avisa quando a voz toca na reunião', async ($, on) => {
+  const { ran } = await setup($, on)
+  const { ui } = await openMenu($, 'mic')
+  expect((await selects(ui)).mic.autoFocus).toBe(true)
+  const warning = 'Com o microfone em uso, a voz toca: ele pode captar a voz e quem está na reunião ouve.'
+  expect((await texts(ui, 'Text')).map((t: any) => t.text)).not.toContain(warning)
+  await ui.select({ key: 'mic', value: 'auto' })
+  expect(changes(ran)).toEqual(['mic auto all'])
+  expect((await selects(ui)).mic.value).toBe('auto')
+  expect((await texts(ui, 'Text')).map((t: any) => t.text)).toContain(warning)
+  await ui.select({ key: 'mic', value: 'wait' })
+  expect((await texts(ui, 'Text')).map((t: any) => t.text)).not.toContain(warning)
+  await ui.unmount()
+})
+
 test('a voz de leitura nunca leva "all"', async ($, on) => {
   const { ran } = await setup($, on)
   const { ui } = await openMenu($, 'voice')
@@ -187,7 +217,7 @@ test('a linha com campo próprio da sessão leva a marca "só nesta sessão"', a
   const { ui } = await openMenu($)
   const s = await selects(ui)
   expect(s.mode.label).toContain('só nesta sessão')
-  for (const k of ['where', 'power', 'size', 'voice']) expect(s[k].label).not.toContain('só nesta sessão')
+  for (const k of ['where', 'power', 'size', 'voice', 'mic']) expect(s[k].label).not.toContain('só nesta sessão')
   await ui.unmount()
 })
 
@@ -232,7 +262,7 @@ test('quando o estado não pode ser lido, as linhas ficam vazias e o rodapé avi
   await setup($, on, { statusFails: true })
   const { ui } = await openMenu($)
   const s = await selects(ui)
-  for (const k of ['power', 'mode', 'size', 'voice']) expect(s[k].value).toBeUndefined()
+  for (const k of ['power', 'mode', 'size', 'voice', 'mic']) expect(s[k].value).toBeUndefined()
   expect(await footer(ui)).toBe('Não deu para ler o estado da voz.')
   await ui.unmount()
 })

@@ -36,25 +36,32 @@ A voz começa sozinha quando termina. Se algo der errado, `/speak install` é o 
 
 ## O comando /speak
 
-Um comando só, para você digitar. Sem nada depois, abre um painel de voz já com o foco (funciona no terminal e no VS Code): uma lista por linha, e cada escolha vale na hora. Tab troca de linha, Enter escolhe o valor; Esc ou o botão Fechar fecham o painel. As linhas: **Mudar em** (todas as sessões ou só esta; só diz onde as próximas trocas são gravadas, abre sempre em "Todas as sessões" e não roda nada), **Voz** (ligada ou desligada), **Leitura** (resposta inteira ou só o resumo), **Tamanho do resumo** e **Voz de leitura** (vale sempre para todas as sessões). Uma linha que é exceção só desta sessão leva a marca "· só nesta sessão". Pendência conhecida: as sessões que ficaram com o campo `voice` copiado continuam marcadas "· só nesta sessão" até o próximo `speak on all` ou `speak off all`. O rodapé mostra o que passou a valer, ou o erro. Ele responde na hora, sem gastar uma resposta do Claude, e funciona mesmo durante uma resposta (assim `/speak stop` corta a fala já).
+Um comando só, para você digitar. Sem nada depois, abre um painel de voz já com o foco (funciona no terminal e no VS Code): uma lista por linha, e cada escolha vale na hora. Tab troca de linha, Enter escolhe o valor; Esc ou o botão Fechar fecham o painel. As linhas: **Mudar em** (todas as sessões ou só esta; só diz onde as próximas trocas são gravadas, abre sempre em "Todas as sessões" e não roda nada), **Voz** (ligada ou desligada), **Leitura** (resposta inteira ou só o resumo), **Tamanho do resumo**, **Voz de leitura** (vale sempre para todas as sessões) e **Com o microfone em uso** (Espera, Toca ou Toca nesta reunião; quando toca, o rodapé avisa que o microfone pode captar a voz). Uma linha que é exceção só desta sessão leva a marca "· só nesta sessão". Pendência conhecida: as sessões que ficaram com o campo `voice` copiado continuam marcadas "· só nesta sessão" até o próximo `speak on all` ou `speak off all`. O rodapé mostra o que passou a valer, ou o erro. Ele responde na hora, sem gastar uma resposta do Claude, e funciona mesmo durante uma resposta (assim `/speak stop` corta a fala já).
 
 Também dá para escrever a ação inteira e pular o menu. Com `all` no fim, vale para todas as sessões; sem ele, só para a sessão atual:
 
 - `/speak on` e `/speak off`: ligam e desligam a voz.
 - `/speak mode [full|summary]`: lê a resposta inteira (sem código, caminhos e links) ou só o resumo da linha 🔊 (padrão: o resumo; na resposta inteira o Claude não escreve a linha; quem nunca tinha escolhido o modo passa ao resumo ao atualizar). Sem a escolha, abre o menu com o foco nessa linha.
 - `/speak size [small|medium|large]`: tamanho do resumo falado: uma frase curta, duas a três frases (padrão) ou um parágrafo.
+- `/speak mic [wait|play|auto]`: o que a voz faz enquanto o microfone está gravando (ditado, reunião). `wait` (padrão): a fala espera o microfone ficar livre e uma gravação que começa corta a fala. `play`: a fala toca mesmo com o microfone em uso e nada a corta, até você mudar. `auto`: como `play`, e quando o microfone passa de ocupado para livre (a reunião acabou) a escolha volta sozinha a `wait`, no mesmo alcance em que foi gravada. Sem a escolha, abre o menu nessa linha. Veja "Microfone" abaixo.
 - `/speak voice [dora|alex|santa]`: sem nome, abre o menu na linha da voz; com nome, escolhe (dora é feminina; alex e santa são masculinas). Vale para todas as sessões.
-- `/speak status`: mostra o estado atual (voz, modo, tamanho, motor).
+- `/speak status`: mostra o estado atual (voz, modo, tamanho, microfone, motor).
 - `/speak stop`: corta a fala que está tocando e esvazia a fila.
 - Sair da sessão corta a fala dela (a que toca e as que esperam); as falas de outras sessões continuam.
 - `/speak install`: instala o motor (ou tenta de novo), em primeiro plano; pode levar minutos.
 
 Se o menu não puder abrir (por exemplo, numa execução sem tela), o comando responde com a forma escrita. Também dá para pedir em palavras ("fala só o resumo", "resumo maior", "troca para a voz do Alex"); o Claude roda o comando por você.
 
+## Microfone
+
+Por padrão (`speak mic wait`) a voz respeita o microfone: enquanto um programa grava (ditar segurando a barra de espaço no Claude Code, uma reunião do Google Meet), as falas esperam na fila e, se uma gravação começa durante a fala, ela é cortada. A detecção usa o `pw-dump` no Linux e o CoreAudio no Mac.
+
+Para tocar de propósito durante a reunião, de modo que as pessoas ouçam, use `speak mic play` (vale até mudar) ou `speak mic auto` (vale só nesta reunião: quando o microfone ficar livre, volta sozinho a `wait`). O `auto` anota que viu o microfone ocupado e volta a `wait` na primeira vez que o vê livre depois disso, olhando a cada fala e a cada mensagem nova; escolhido com o microfone livre, espera a próxima reunião. Atenção: com a voz tocando, o microfone pode captar a voz e quem está na reunião ouve. Como os outros ajustes, vale só para a sessão, ou para todas com `all` no fim. Também dá para pedir em palavras ("toca durante a reunião", "pode falar na reunião").
+
 ## Variáveis de ambiente
 
 - `CLAUDE_SPEAK=0`: começa a sessão muda.
-- `CLAUDE_SPEAK_MODE`, `CLAUDE_SPEAK_SIZE`, `CLAUDE_SPEAK_VOICE`: mandam mais que as escolhas gravadas.
+- `CLAUDE_SPEAK_MODE`, `CLAUDE_SPEAK_SIZE`, `CLAUDE_SPEAK_MIC`, `CLAUDE_SPEAK_VOICE`: mandam mais que as escolhas gravadas.
 - `CLAUDE_SPEAK_SPEED`: velocidade da fala (padrão 1.1).
 
 ## Pastas

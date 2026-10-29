@@ -9,6 +9,12 @@
                            summary (default): only its last line starting with 🔊 (rules/speak.md)
   speak size small|medium|large [all]  how long the spoken summary is (one short sentence; two or three sentences;
                            a paragraph); same scopes as `mode`; default medium
+  speak mic wait|play|auto [all]  what the speech does while a program records from the microphone (dictation,
+                           video call); same scopes as `mode`; wait (default): the speech waits and a recording that
+                           starts cuts it; play: it plays anyway and nothing cuts it, until changed (the microphone
+                           may pick up the voice and the people in the meeting hear it); auto: as play, and when the
+                           microphone goes from busy to free (the meeting ends) the choice goes back to wait by itself,
+                           in the scope where it was written
   speak status --json      the same state as one JSON line (used by the /speak pane)
   speak voice [name]       without a name: list the Portuguese voices (dora, alex, santa) and mark the current one;
                            with a name (short or full, e.g. dora or pf_dora): choose it for every session
@@ -38,12 +44,12 @@
 
 The speech starts after its first short piece is ready and goes on while the rest is synthesized. A new speech, from
 any session, never cuts the one playing: it waits its turn in a queue (arrival order, one at a time, and only while no
-program is recording from the microphone). Only a recording that starts meanwhile cuts the speech playing (holding
+program is recording from the microphone, unless `speak mic play|auto`). Only a recording that starts meanwhile cuts the speech playing (holding
 the space bar to dictate in Claude Code does), seen through pw-dump on Linux and through CoreAudio on the Mac; the
 speeches waiting are kept and go on when the microphone is free. `speak off` in a session also drops that session's speeches (playing or waiting).
 Env: CLAUDE_SPEAK=0 silences one session (a first choice that a later `speak on` beats);
 CLAUDE_SPEAK_SESSION forces the session key ('-' means none; for tests and to force a key);
-CLAUDE_SPEAK_MODE overrides the mode; CLAUDE_SPEAK_SIZE the size; CLAUDE_SPEAK_VOICE the voice (default pf_dora);
+CLAUDE_SPEAK_MODE overrides the mode; CLAUDE_SPEAK_SIZE the size; CLAUDE_SPEAK_MIC the microphone choice; CLAUDE_SPEAK_VOICE the voice (default pf_dora);
 CLAUDE_SPEAK_SPEED (default 1.1).
 Files live in the plugin's data folder (CLAUDE_PLUGIN_DATA or CLAUDE_SPEAK_DATA; see lib/speak_paths.py): engine/, config/, state/.
 Errors of a background speech go to state/error.log there.
@@ -73,6 +79,10 @@ MODE_FILE = os.path.join(CONF, 'mode')
 MODES = ('full', 'summary')
 SIZE_FILE = os.path.join(CONF, 'size')
 SIZES = ('small', 'medium', 'large')
+MIC_FILE = os.path.join(CONF, 'mic')
+MICS = ('wait', 'play', 'auto')
+MIC_TEXT = {'wait': 'espera', 'play': 'toca', 'auto': 'toca nesta reunião'}
+MIC_SEEN = os.path.join(STATE, 'mic-seen')  # `auto` in the general setting: a busy microphone was seen under it
 RULE_LINE = {  # the first bullet of rules/speak.md, by the mode in force
     'summary': 'While the voice is on, every reply to the human ends with that `\U0001f50a` line, in plain Brazilian '
                'Portuguese: {size}. The full reading skips it.',
@@ -153,6 +163,18 @@ def summary_size(session=None):
         except OSError:
             pass
     return wanted if wanted in SIZES else 'medium'
+
+
+def mic(session=None):
+    """CLAUDE_SPEAK_MIC, then the session's own choice, then the general file, then 'wait'."""
+    wanted = os.environ.get('CLAUDE_SPEAK_MIC') or read_session(session).get('mic')
+    if not wanted:
+        try:
+            with open(MIC_FILE) as fh:
+                wanted = fh.read().strip()
+        except OSError:
+            pass
+    return wanted if wanted in MICS else 'wait'
 
 
 def session_key(pid):
@@ -252,7 +274,7 @@ def read_session(key):
         return {}
     return {k: v for k, v in data.items() if (k == 'voice' and v in ('muted', 'speaking'))
             or (k == 'mode' and v in MODES) or (k == 'size' and v in SIZES)
-            or (k == 'told' and v in MODES)}
+            or (k == 'told' and v in MODES) or (k == 'mic' and v in MICS) or (k == 'micseen' and v is True)}
 
 
 def session_mode(key):
@@ -287,14 +309,16 @@ def asked_after_start(key):
 
 
 def set_session(key, **fields):
-    """Updates only the given fields (voice=, mode=, size=) of a session file, keeping the others."""
+    """Updates only the given fields (voice=, mode=, size=, mic=) of a session file, keeping the others; a field
+    given as None is removed."""
     os.makedirs(SESSIONS, exist_ok=True)
     prune_sessions()
-    write_atomic(os.path.join(SESSIONS, key), json.dumps({**read_session(key), **fields}))
+    merged = {**read_session(key), **fields}
+    write_atomic(os.path.join(SESSIONS, key), json.dumps({k: v for k, v in merged.items() if v is not None}))
 
 
 def clear_all_sessions(*fields):
-    """Removes the given fields (voice, mode, size) from every session file, keeping the file (even empty):
+    """Removes the given fields (voice, mode, size, mic) from every session file, keeping the file (even empty):
     an empty file means the session follows the general setting in everything."""
     prune_sessions()
     for key in os.listdir(SESSIONS) if os.path.isdir(SESSIONS) else ():
@@ -623,7 +647,7 @@ def wait_turn(session, watch):
         ticket = os.path.join(QUEUE, '%d-%d' % (time.time_ns(), os.getpid()))
         write_atomic(ticket, session or '-')
     while True:
-        if not (watch and mic_busy(current_recordings())):
+        if not (watch and holds_for_microphone(session)):
             with queue_lock():
                 line = tickets()
                 if not any(path == ticket for path, _, _ in line):
@@ -668,16 +692,52 @@ def mic_busy(recs):
     return bool(recs)
 
 
-def watch_microphone(player):
-    """Ends this speech (the player, then this process) as soon as any recording is going on. Returns (stop, thread):
-    the caller sets `stop` and joins the thread when the speech ends, so no watcher outlives its speech."""
+def track_mic(session, recs):
+    """The `auto` choice: seeing the microphone busy is written down (in the session file when the choice is the
+    session's own, else in STATE/mic-seen); seeing it free after that sends the choice back to `wait`, in that same
+    scope. Nothing happens for another choice, when the microphone could not be read (`recs` is None) or when
+    CLAUDE_SPEAK_MIC decides. Never raises: it also runs in the watcher thread."""
+    try:
+        if recs is None or os.environ.get('CLAUDE_SPEAK_MIC') or mic(session) != 'auto':
+            return
+        own = own_field(session, 'mic')
+        seen = read_session(session).get('micseen', False) if own else os.path.exists(MIC_SEEN)
+        if mic_busy(recs) and not seen:
+            if own:
+                set_session(session, micseen=True)
+            else:
+                write_atomic(MIC_SEEN, '')
+        elif not mic_busy(recs) and seen:
+            if own:
+                set_session(session, mic='wait', micseen=None)
+            else:
+                write_atomic(MIC_FILE, 'wait\n')
+                os.remove(MIC_SEEN)
+    except OSError:
+        pass
+
+
+def holds_for_microphone(session):
+    """True when a speech must wait (or be cut): the microphone is busy and the choice is `wait`. With `play` the
+    microphone is not even looked at; with `auto` it is looked at to see when the meeting ends."""
+    if mic(session) == 'play':
+        return False
+    recs = current_recordings()
+    track_mic(session, recs)
+    return mic_busy(recs) and mic(session) == 'wait'
+
+
+def watch_microphone(player, session=None):
+    """Ends this speech (the player, then this process) as soon as any recording is going on, unless the microphone
+    choice of the session lets the speech play. Returns (stop, thread): the caller sets `stop` and joins the thread
+    when the speech ends, so no watcher outlives its speech."""
     import threading
 
     stop = threading.Event()
 
     def loop():
         while not stop.wait(MIC_POLL):
-            if mic_busy(current_recordings()):
+            if holds_for_microphone(session):
                 cut_by_microphone(player)
                 return
 
@@ -899,13 +959,13 @@ class MacPlayer:
         self.files.kill()
 
 
-def play_files(command, chunks, watch):
+def play_files(command, chunks, watch, session=None):
     """Plays each synthesized piece in order (see MacPlayer); returns the last exit code."""
     player = MacPlayer(command)
     watcher = None
     try:
         if watch:
-            watcher = watch_microphone(player)
+            watcher = watch_microphone(player, session)
         code = 0
         for samples in chunks:
             code = player.play(samples)
@@ -936,9 +996,9 @@ def play(text):
             return kokoro.create(piece, voice=voice(), speed=speed(), lang='pt-br')[0]
 
         if not speak_os.streams():
-            return play_files(player, synthesize_ahead(pieces(text), synth), watch)
+            return play_files(player, synthesize_ahead(pieces(text), synth), watch, session)
         proc = subprocess.Popen(player, stdin=subprocess.PIPE)
-        watcher = watch_microphone(proc) if watch else None
+        watcher = watch_microphone(proc, session) if watch else None
         try:
             try:
                 for samples in synthesize_ahead(pieces(text), synth):
@@ -1278,6 +1338,7 @@ def status():
         print('  desligada só nesta sessão (CLAUDE_SPEAK=0)')
     print('  modo: %s%s' % (mode(session), here if own_field(session, 'mode') else ''))
     print('  tamanho do resumo: %s%s' % (summary_size(session), here if own_field(session, 'size') else ''))
+    print('  microfone em uso: %s%s' % (MIC_TEXT[mic(session)], here if own_field(session, 'mic') else ''))
     print('  motor: %s' % engine_text())
     print('  voz: %s, velocidade %s' % (voice(), speed()))
     return 0
@@ -1376,9 +1437,9 @@ def status_json():
     """The state in force here as one JSON line, for the /speak pane (hooks/register.tsx) to mark what is current."""
     session = current_session()
     now = voice()
-    print(json.dumps({'on': is_on(session), 'mode': mode(session), 'size': summary_size(session),
+    print(json.dumps({'on': is_on(session), 'mode': mode(session), 'size': summary_size(session), 'mic': mic(session),
                       'scope': {f: 'session' if own_field(session, g) else 'all'
-                                for f, g in (('on', 'voice'), ('mode', 'mode'), ('size', 'size'))},
+                                for f, g in (('on', 'voice'), ('mode', 'mode'), ('size', 'size'), ('mic', 'mic'))},
                       'engine': engine_ready(), 'installing': not engine_ready() and installing(),
                       'install': None if engine_ready() else install_progress(),
                       'voice': next((short for short, (full, _) in PT_VOICES.items() if full == now), now)}))
@@ -1454,6 +1515,31 @@ def main(argv):
                 fh.write(wanted + '\n')
             clear_all_sessions('size')
         return status()
+    if cmd == 'mic':
+        wanted, _, scope = text.partition(' ')
+        if wanted not in MICS or scope not in ('', 'all'):
+            print('voz: use "speak mic wait", "speak mic play" ou "speak mic auto" (com "all" no fim, vale para '
+                  'todas as sessões)', file=sys.stderr)
+            return 2
+        session = current_session()
+        if session and not scope:
+            set_session(session, mic=wanted, micseen=None)
+        else:
+            os.makedirs(CONF, exist_ok=True)
+            with open(MIC_FILE, 'w') as fh:
+                fh.write(wanted + '\n')
+            clear_all_sessions('mic', 'micseen')
+            try:
+                os.remove(MIC_SEEN)
+            except OSError:
+                pass
+        if wanted == 'auto':
+            track_mic(session, current_recordings())  # chosen in the middle of the meeting: it counts as seen
+        return status()
+    if cmd == '_mictick':  # used by hooks/speak-cut.py at each new message: the meeting may have ended
+        if mic(current_session()) == 'auto':
+            track_mic(current_session(), current_recordings())
+        return 0
     if cmd == 'voice':
         if not text:
             for short, (full, kind) in PT_VOICES.items():

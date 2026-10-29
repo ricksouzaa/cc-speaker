@@ -3,7 +3,9 @@
 waits its turn in the queue (only dictation cuts the one playing). When this session will not speak (`speak silent`,
 or `speak` missing), or reads the whole reply (`mode full`), it prints a note that Claude reads with the message:
 leave out the 🔊 line. The rule is injected once, at the start, so the hook remembers (`speak told`) which mode the
-model was last told; when the mode goes back to summary it says once to write the line again. The note says why the
+model was last told; when the mode goes back to summary it says once to write the line again. Each message also
+runs `speak _mictick`: with the microphone choice on `auto`, that is where the end of the meeting (microphone busy,
+now free) sends the choice back to `wait` when no speech is playing to see it. The note says why the
 session is silent (`speak silent` prints it): voice off, engine being installed, or engine missing. Fail-open: exits 0."""
 import json
 import os
@@ -53,6 +55,10 @@ def main():
     if not os.path.exists(SPEAK):
         print(NOTE)
         return
+    try:
+        speak('_mictick')
+    except Exception:
+        pass  # fail-open: the note below does not depend on it
     r = subprocess.run([sys.executable, '-I', SPEAK, 'silent'], capture_output=True, text=True, timeout=10)
     if r.returncode == 0:
         print(silent_note(r.stdout.strip()))
