@@ -58,7 +58,7 @@ Env: CLAUDE_SPEAK=0 silences one session (a first choice that a later `speak on`
 CLAUDE_SPEAK_SESSION forces the session key ('-' means none; for tests and to force a key);
 CLAUDE_SPEAK_MODE overrides the mode; CLAUDE_SPEAK_SIZE the size; CLAUDE_SPEAK_MIC the microphone choice; CLAUDE_SPEAK_VOICE the voice (default pf_dora);
 CLAUDE_SPEAK_SPEED (default 1.1).
-Files live in the plugin's data folder (CLAUDE_PLUGIN_DATA or CLAUDE_SPEAK_DATA; see lib/speak_paths.py): engine/, config/, state/.
+Files live in the plugin's data folder (CLAUDE_SPEAK_DATA or CLAUDE_PLUGIN_DATA; see lib/speak_paths.py): engine/, config/, state/.
 Errors of a background speech go to state/error.log there.
 """
 import fcntl
@@ -121,6 +121,7 @@ SUMMARY_LIMIT = {'small': 300, 'medium': 600, 'large': 1200}  # the same, for th
 PIECES = (120, 160, 220, 300, 400)  # characters per piece: short first, then growing, so each is ready while the last plays
 MIC_POLL = 0.15  # seconds between looks at the microphone while speaking
 QUEUE_POLL = 0.15  # seconds between looks at the queue while waiting a turn
+MIC_WAIT_POLL = 1.0  # seconds between looks at the microphone while waiting a turn (each look runs pw-dump)
 
 
 def voice():
@@ -713,14 +714,24 @@ def wait_turn(session, watch):
     """Joins the queue and waits to be the first that can play, with no speech playing; then takes the turn (writes
     speech.pid and speech.owner, drops the ticket). A speech whose session waits for a busy microphone does not
     count as first: the ones behind it may go. False if the ticket was dropped meanwhile (stopped).
-    The ticket's name is taken and written, and the turn checked and taken, each under the queue lock."""
+    The ticket's name is taken and written, and the turn checked and taken, each under the queue lock. The queue is
+    looked at every QUEUE_POLL, the microphone only every MIC_WAIT_POLL (the last reading is reused between looks);
+    but before taking the turn it is read again, so a recording that began meanwhile does not let the speech start
+    only to be cut."""
     import time
     with queue_lock():
         ticket = os.path.join(QUEUE, '%d-%d' % (time.time_ns(), os.getpid()))
         write_atomic(ticket, session or '-')
+    recs = None
+    read_at = None  # monotonic time of the last reading of the microphone
+    reread = False  # the turn is about to be taken on an old reading: read again first
     while True:
-        recs = current_recordings() if watch else None  # the microphone is read once per lap, for every ticket
-        if watch:
+        fresh = False
+        if watch and (reread or read_at is None or time.monotonic() - read_at >= MIC_WAIT_POLL):
+            recs = current_recordings()  # one reading serves every ticket of the lap
+            read_at = time.monotonic()
+            fresh = True
+            reread = False
             track_mic(session, recs)
         if not (watch and holds_with(session, recs)):
             with queue_lock():
@@ -731,6 +742,9 @@ def wait_turn(session, watch):
                 # keeps its place but does not stop those behind it.
                 head = next((path for path, _, key in line
                              if not (watch and ticket_holds(key, recs))), None)
+                if head == ticket and playing() is None and watch and not fresh:
+                    reread = True  # read outside the lock, then look again at once
+                    continue
                 if head == ticket and playing() is None:
                     write_atomic(PID, str(os.getpid()))
                     write_atomic(OWNER, session or '')

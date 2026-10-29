@@ -52,7 +52,7 @@ class Root(Base):
         os.environ['CLAUDE_SPEAK_DATA'] = '/s'
         self.assertEqual(speak_paths.root(self.path('qualquer', 'bin', 'speak')), '/s')
         os.environ['CLAUDE_PLUGIN_DATA'] = '/x'
-        self.assertEqual(speak_paths.root(self.path('qualquer', 'bin', 'speak')), '/x')
+        self.assertEqual(speak_paths.root(self.path('qualquer', 'bin', 'speak')), '/s')  # the speak's own wins
 
     def test_raiz_pelo_lugar_do_script(self):
         script = self.path('.claude', 'plugins', 'cache', 'cat', 'plug', '1.0', 'bin', 'speak')
@@ -186,6 +186,20 @@ class EnvFile(Base):
         with open(target) as fh:
             lines = fh.read().splitlines()
         self.assertEqual(lines, ['export CLAUDE_SPEAK_DATA=%s' % self.path('dados')])
+
+    def test_so_com_a_variavel_do_claude_code_ela_e_exportada(self):
+        target = self.path('env.sh')
+        open(target, 'w').close()
+        self.run_hook(target, CLAUDE_PLUGIN_DATA=self.path('dados'))
+        with open(target) as fh:
+            self.assertEqual(fh.read().splitlines(), ['export CLAUDE_SPEAK_DATA=%s' % self.path('dados')])
+
+    def test_a_variavel_herdada_do_speak_vence_a_de_outro_plugin(self):
+        target = self.path('env.sh')
+        open(target, 'w').close()
+        self.run_hook(target, CLAUDE_SPEAK_DATA=self.path('dados'), CLAUDE_PLUGIN_DATA=self.path('outro'))
+        with open(target) as fh:
+            self.assertEqual(fh.read().splitlines(), ['export CLAUDE_SPEAK_DATA=%s' % self.path('dados')])
 
     def test_sem_a_variavel_do_arquivo_nada_e_escrito(self):
         r = subprocess.run([sys.executable, '-I', START], input='{}', capture_output=True, text=True,

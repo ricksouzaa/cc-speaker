@@ -331,13 +331,70 @@ class Microphone(unittest.TestCase):
         self.addCleanup(shutil.rmtree, root, True)
         isolate(self, root)
         seen = [{7}, {7}, set()]
-        with mock.patch.object(speak, 'QUEUE_POLL', 0.01), \
+        with mock.patch.object(speak, 'QUEUE_POLL', 0.01), mock.patch.object(speak, 'MIC_WAIT_POLL', 0), \
                 mock.patch.object(speak, 'current_recordings', side_effect=lambda: seen.pop(0)):
             self.assertTrue(speak.wait_turn(None, True))
         self.assertEqual(seen, [])  # looked three times: two busy, then free
         with open(speak.PID) as fh:
             self.assertEqual(fh.read(), str(os.getpid()))
         self.assertEqual(os.listdir(speak.QUEUE), [])
+
+    def wait_in_thread(self, session):
+        """Runs wait_turn(session, True) in a thread; returns (thread, result list)."""
+        import threading
+        result = []
+        thread = threading.Thread(target=lambda: result.append(speak.wait_turn(session, True)), daemon=True)
+        thread.start()
+        return thread, result
+
+    def test_the_wait_reads_the_microphone_once_per_interval(self):
+        import time
+        from unittest import mock
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, True)
+        isolate(self, root)
+        held = [True]
+        reads = []
+        with mock.patch.object(speak, 'QUEUE_POLL', 0.01), mock.patch.object(speak, 'MIC_WAIT_POLL', 0.3), \
+                mock.patch.object(speak, 'playing', side_effect=lambda: 123 if held[0] else None), \
+                mock.patch.object(speak, 'current_recordings', side_effect=lambda: reads.append(time.monotonic()) or set()):
+            thread, result = self.wait_in_thread(None)
+            time.sleep(0.7)  # about seventy laps of the queue, held by another speech
+            held[0] = False
+            thread.join(5)
+        self.assertEqual(result, [True])
+        # readings at 0, 0.3 and 0.6 s, plus the fresh one before taking the turn: never one per lap
+        self.assertLessEqual(len(reads), 5)
+        self.assertGreaterEqual(len(reads), 3)
+        speak.clear_speech(os.getpid())
+
+    def test_the_turn_is_not_taken_on_an_old_reading_of_the_microphone(self):
+        import time
+        from unittest import mock
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, True)
+        isolate(self, root)
+        me = speak.session_key(os.getpid())
+        speak.set_session(me, mic='wait')
+        held = [True]
+        busy = [False]
+        reads = []
+        with mock.patch.object(speak, 'QUEUE_POLL', 0.01), mock.patch.object(speak, 'MIC_WAIT_POLL', 0.4), \
+                mock.patch.object(speak, 'playing', side_effect=lambda: 123 if held[0] else None), \
+                mock.patch.object(speak, 'current_recordings',
+                                  side_effect=lambda: reads.append(1) or ({7} if busy[0] else set())):
+            thread, result = self.wait_in_thread(me)
+            time.sleep(0.1)  # the stored reading says free
+            busy[0] = True  # a recording begins; the stored reading does not know
+            held[0] = False  # the other speech ends: this one would be the head
+            time.sleep(0.15)
+            self.assertEqual(result, [])  # the fresh reading found it busy: no turn
+            self.assertFalse(os.path.exists(speak.PID))
+            self.assertEqual(len(reads), 2)  # the first one and the fresh one
+            busy[0] = False
+            thread.join(5)  # the next scheduled reading finds it free
+        self.assertEqual(result, [True])
+        speak.clear_speech(os.getpid())
 
     def test_watch_cuts_on_any_recording(self):
         import threading
@@ -485,7 +542,7 @@ class Dictation(unittest.TestCase):
             self.assertTrue(speak.wait_turn(self.me, True))
         speak.clear_speech(os.getpid())
         seen = [self.read(discord=True, dictation=True), self.read(discord=True, dictation=True), self.read(discord=True)]
-        with mock.patch.object(speak, 'QUEUE_POLL', 0.01), \
+        with mock.patch.object(speak, 'QUEUE_POLL', 0.01), mock.patch.object(speak, 'MIC_WAIT_POLL', 0), \
                 mock.patch.object(speak, 'current_recordings', side_effect=lambda: seen.pop(0)):
             self.assertTrue(speak.wait_turn(self.me, True))
         self.assertEqual(seen, [])  # two laps held by the dictation, then it let go (the meeting went on)
@@ -657,7 +714,7 @@ class MicChoice(unittest.TestCase):
             if speak.wait_turn(key, True):
                 order.append(key)
 
-        with mock.patch.object(speak, 'QUEUE_POLL', 0.01), \
+        with mock.patch.object(speak, 'QUEUE_POLL', 0.01), mock.patch.object(speak, 'MIC_WAIT_POLL', 0), \
                 mock.patch.object(speak, 'current_recordings', side_effect=lambda: {7} if busy[0] else set()):
             for key in sessions:
                 before = queued() + len(order)
@@ -2950,7 +3007,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.11.0')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.11.1')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

@@ -18,6 +18,7 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 - **Microfone no Mac:** a conta ignora a saída padrão e a saída do sistema, para o próprio som não parecer gravação. Limite: ditar no microfone do mesmo aparelho em que a voz toca não corta a fala.
 - **Opção do microfone:** `wait`, `play` e `auto`. O `auto` volta a `wait` quando o microfone passa de ocupado para livre, visto na espera pela vez, na vigia da fala e no gancho de mensagem nova (`speak _mictick`), sem processo novo em segundo plano. Limite: sem fala e sem mensagem nova, a volta espera a próxima. A vez vai para a fala mais antiga que pode tocar agora (0.8.1): a fala de uma sessão em `wait` com o microfone ocupado guarda o seu lugar, mas não segura as de trás (`play`, `auto`); quando o microfone fica livre ela toca antes das que chegaram depois. Bilhete sem sessão (versão antiga) conta como `wait`. O microfone é lido uma vez por volta. **Ditado (0.9.1):** em `play` e `auto` no Linux só o ditado do Claude Code (`application.name` terminando em `[<nome>]` ou `node.name` `alsa_capture.<nome>`, com `<nome>` o `comm` ou o nome do executável de um processo `claude` vivo da pessoa, lido do `/proc` só quando há uma gravação com esse jeito) segura e corta a fala; `wait` segue igual (qualquer gravação). Ditar sozinho não conta como reunião vista no `auto`. Mac: o CoreAudio não diz quem grava, então em `play`/`auto` nada segura (como antes).
 - **Versão e envio:** todo ajuste sobe a versão e é enviado na hora (`.claude/rules/git-workflow.md`).
+- **Versões publicadas (29/10/2026):** Versionamento Semântico completo, `CHANGELOG.md` no formato Keep a Changelog, marca anotada `vX.Y.Z` e página de versão no GitHub com as notas da seção; as 34 versões anteriores foram marcadas no commit de cada uma. Marca enviada não se move nem se apaga. A passagem para 1.0.0 é decisão do Ricardo.
 
 ## Feito
 
@@ -51,8 +52,8 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 - **Limpeza única sem trava**: `_drop_copied_fields_once` (`bin/speak`) não toma trava; duas sessões que comecem juntas podem rodá-la ao mesmo tempo (o efeito é o mesmo, mas não há garantia).
 - **Aviso de instalação repetido**: numa corrida rara em que o módulo e o gancho de começo chamam o `speak autoinstall` no mesmo instante, a linha "Instalando a voz" pode aparecer duas vezes.
 - **Módulo e ganchos com pastas diferentes**: com `--plugin-dir` (cópia de desenvolvimento) o módulo do painel e os ganchos podem derivar pastas de dados diferentes.
-- **`CLAUDE_PLUGIN_DATA` vence `CLAUDE_SPEAK_DATA`** em `lib/speak_paths.py:25`: se um outro plugin exportar a sua `CLAUDE_PLUGIN_DATA` no mesmo shell, o `speak` usaria a pasta errada; o gancho exporta só a `CLAUDE_SPEAK_DATA` (veja o plano) para não vazar.
 - **Folga curta do `test_fim_rapido`** (1,5 s para o gancho de fim de sessão): pode falhar numa máquina muito carregada.
+- **Guarda da pasta real e fala curta de outra sessão**: o `test_zz_guarda_raiz_real` só ignora a fila mexida por uma fala real viva no começo ou no fim da bateria; uma fala de outra sessão que começa e acaba no meio faz o teste falhar (visto em 29/10/2026, passou ao repetir).
 - **Vazamento de threads nos testes**: `synthesize_ahead.<locals>.work` e `StreamPlayer.bounded.<locals>.work` ficam vivas depois de alguns testes.
 
 ## Pedidos para depois
