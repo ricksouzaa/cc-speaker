@@ -6,7 +6,7 @@ Respostas do Claude Code lidas em voz alta, em português do Brasil, com um moto
 
 - Linux com `python3`.
 - `uv` (https://docs.astral.sh/uv/), que instala o motor.
-- Um tocador de áudio: `pw-play`, `paplay` ou `aplay`.
+- Um tocador de áudio: `pw-play` (PipeWire 1.1 ou mais novo, que tem `--raw`), `paplay` ou `aplay`. Com um `pw-play` mais velho (Ubuntu 24.04), o speak usa o `paplay` ou o `aplay`.
 - Cerca de 350 MB livres para o motor e o modelo de voz.
 
 ## Instalação

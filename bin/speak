@@ -677,7 +677,7 @@ def play(text):
         if not wait_turn(session, watch) or not (is_on(session) or os.environ.get('CLAUDE_SPEAK_TEST')):
             return 0
         from kokoro_onnx import Kokoro
-        player = next((p for p in PLAYERS if shutil.which(p[0])), None)
+        player = player_command()
         if player is None:
             print('voz: nenhum tocador de áudio (pw-play, paplay ou aplay)', file=sys.stderr)
             return 1
@@ -741,8 +741,27 @@ def install_marked():
     return code
 
 
+def player_usable(command):
+    """True when the player is on PATH and takes raw samples: `pw-play --raw` came with PipeWire 1.1, so an older
+    pw-play (1.0.x, Ubuntu 24.04) says 'unrecognized option' and is skipped in favour of paplay or aplay."""
+    if not shutil.which(command[0]):
+        return False
+    if command[0] != 'pw-play':
+        return True
+    try:
+        r = subprocess.run([command[0], '--help'], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return '--raw' in r.stdout + r.stderr
+
+
+def player_command():
+    """The first usable player's command line, or None."""
+    return next((p for p in PLAYERS if player_usable(p)), None)
+
+
 def player_found():
-    return any(shutil.which(p[0]) for p in PLAYERS)
+    return player_command() is not None
 
 
 def missing():

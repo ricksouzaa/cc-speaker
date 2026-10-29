@@ -175,6 +175,48 @@ class Ahead(unittest.TestCase):
         gen.close()  # the player was cut: the background synthesis must not keep the program alive
 
 
+class Player(unittest.TestCase):
+    """The player is the first one on PATH that takes raw samples: `pw-play --raw` came with PipeWire 1.1, so an
+    older pw-play (1.0.x, Ubuntu 24.04) is skipped in favour of paplay or aplay."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp)
+        self.bin = os.path.join(self.tmp, 'bin')
+        os.makedirs(self.bin)
+        self.old_path = os.environ.get('PATH')
+        os.environ['PATH'] = self.bin
+        self.addCleanup(os.environ.__setitem__, 'PATH', self.old_path or '')
+
+    def fake(self, name, help_text=''):
+        """A program on PATH whose `--help` prints `help_text` (pw-play prints its usage on stderr)."""
+        path = os.path.join(self.bin, name)
+        with open(path, 'w') as f:  # only shell builtins: the test PATH holds nothing else
+            f.write('#!/bin/sh\nwhile read -r line; do echo "$line" >&2; done <<"HELP"\n%sHELP\n' % help_text)
+        os.chmod(path, 0o755)
+        return path
+
+    def test_old_pw_play_without_raw_is_skipped(self):
+        self.fake('pw-play', 'pw-play [options] [<file>|-]\n  -h, --help\n')
+        self.fake('aplay')
+        self.assertEqual(speak.player_command()[0], 'aplay')
+        self.assertTrue(speak.player_found())
+
+    def test_new_pw_play_with_raw_is_chosen(self):
+        self.fake('pw-play', 'pw-play [options] [<file>|-]\n  -h, --help\n      --raw  RAW mode\n')
+        self.fake('aplay')
+        self.assertEqual(speak.player_command()[0], 'pw-play')
+
+    def test_only_an_old_pw_play_means_no_player(self):
+        self.fake('pw-play', 'pw-play [options]\n  -h, --help\n')
+        self.assertIsNone(speak.player_command())
+        self.assertFalse(speak.player_found())
+
+    def test_paplay_and_aplay_need_no_check(self):
+        self.fake('aplay')
+        self.assertEqual(speak.player_command()[0], 'aplay')
+
+
 class Microphone(unittest.TestCase):
     def test_recordings_are_the_input_streams_only(self):
         dump = json.dumps([
@@ -1484,7 +1526,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.5.0')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.5.1')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):
