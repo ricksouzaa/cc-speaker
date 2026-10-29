@@ -7,6 +7,15 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.14.2] - 2026-10-29
+
+### Adicionado
+- `speak check` mostra também a linha `microfone:` (livre, em uso ou não deu para saber), para ajudar a achar por que a voz espera, principalmente no Mac.
+- Arquivos `CONTRIBUTING.md` e `SECURITY.md` no repositório.
+
+### Alterado
+- O README explica o que fazer no Mac quando o microfone embutido parece sempre em uso: `/speak mic play`.
+
 ## [0.14.1] - 2026-10-29
 
 ### Alterado
@@ -242,7 +251,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.14.1...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.14.2...HEAD
+[0.14.2]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.14.2
 [0.14.1]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.14.1
 [0.14.0]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.14.0
 [0.13.1]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.13.1

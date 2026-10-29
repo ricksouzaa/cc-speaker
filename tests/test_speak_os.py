@@ -289,6 +289,52 @@ class MacTest(unittest.TestCase):
                 return (running or {}).get(dev, False)
         return Core()
 
+    def fake_coreaudio(self, props):
+        """A `_CoreAudio` whose library answers from `props`: {(object, selector, scope): raw bytes}."""
+        import ctypes
+
+        class Lib:
+            def AudioObjectGetPropertyDataSize(lib, obj, addr, qs, q, size):
+                a = addr._obj
+                raw = props.get((obj, a.selector, a.scope))
+                if raw is None or a.element != 0:
+                    return -1
+                size._obj.value = len(raw)
+                return 0
+
+            def AudioObjectGetPropertyData(lib, obj, addr, qs, q, size, buf):
+                a = addr._obj
+                raw = props[(obj, a.selector, a.scope)]
+                ctypes.memmove(buf, raw, len(raw))
+                return 0
+        return speak_os._CoreAudio(Lib())
+
+    def test_coreaudio_constants_and_layouts(self):
+        """The four-character codes are Apple's; the AudioBufferList is a UInt32 count, 4 bytes of padding and
+        16-byte buffers (channels, size, pointer)."""
+        core = speak_os._CoreAudio
+        self.assertEqual((core.DEVICES, core.STREAM_CONFIG, core.RUNNING_SOMEWHERE),
+                         (0x64657623, 0x736c6179, 0x676f6e65))  # 'dev#', 'slay', 'gone'
+        self.assertEqual(core.DEFAULT_OUTPUTS, (0x644f7574, 0x734f7574))  # 'dOut', 'sOut'
+        self.assertEqual((core.GLOBAL, core.INPUT), (0x676c6f62, 0x696e7074))  # 'glob', 'inpt'
+        le = sys.byteorder
+        u32 = lambda *values: b''.join(v.to_bytes(4, le) for v in values)  # noqa: E731
+        two_buffers = u32(2, 0) + u32(1, 8) + bytes(8) + u32(2, 16) + bytes(8)
+        ca = self.fake_coreaudio({
+            (1, core.DEVICES, core.GLOBAL): u32(40, 41),
+            (1, core.DEFAULT_OUTPUTS[0], core.GLOBAL): u32(41),
+            (1, core.DEFAULT_OUTPUTS[1], core.GLOBAL): u32(40),
+            (40, core.STREAM_CONFIG, core.INPUT): two_buffers,
+            (41, core.STREAM_CONFIG, core.INPUT): u32(0, 0),
+            (40, core.RUNNING_SOMEWHERE, core.GLOBAL): u32(1),
+            (41, core.RUNNING_SOMEWHERE, core.GLOBAL): u32(0)})
+        self.assertEqual(ca.devices(), [40, 41])
+        self.assertEqual(ca.default_outputs(), [41, 40])
+        self.assertEqual((ca.input_channels(40), ca.input_channels(41)), (3, 0))
+        self.assertEqual((ca.running(40), ca.running(41)), (True, False))
+        with self.assertRaises(OSError):
+            ca.running(99)  # CoreAudio answers with an error status
+
     def test_mac_mic_ctypes(self):
         self.as_mac_everywhere()
         cases = [  # (fake CoreAudio, expected)

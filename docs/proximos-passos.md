@@ -39,6 +39,7 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 - Filtro do que se narra: a voz não lê nomes de ramo, códigos de commit, HEAD nem código entre crases com hífen, sublinhado ou número (0.7.5).
 - Ouvir de novo (0.8.0): `speak again [summary|full]` repete a última fala da sessão (guardada em `state/last/`, podada com as sessões mortas), mesmo com a voz desligada; no `/speak again` e numa linha do painel; sem 🔊, o resumo lê a resposta inteira e avisa.
 - Versão no `status` (linha própria `versão:`, campo `version` no `--json` e no rodapé do painel) e `speak update` (0.9.0): roda `claude plugin marketplace update` e `claude plugin update`, 120 s cada, e diz de que versão para qual; a nova só vale depois do `/reload-plugins` (o módulo não consegue dispará-lo). `plugin_version` agora vive em `lib/speak_paths.py`.
+- Pausa e continuação da fala (0.13.0), aviso de quem está falando, espera adaptativa e tocador em tempo real (0.12.0) e a voz Alice (0.14.0): detalhes no `CHANGELOG.md`.
 - Testes que não tocam a pasta de dados real: um só ajudante de isolamento (`tests/isolation.py`) e um guarda-costas que compara a pasta real antes e depois da bateria.
 
 ## Recusado
@@ -49,8 +50,8 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 
 ## Pendências
 
-- **Mac de verdade**: confirmar som, microfone e achar a sessão (`speak check`). A classe `_CoreAudio` (`lib/speak_os.py`) não tem cobertura de teste e suas constantes foram escritas de memória. Em 29/10/2026 o testador deixou de ter o Mac: o teste fica aberto para quem aparecer pelas issues (https://github.com/ricksouzaa/cc-speaker/issues), e o README avisa que o macOS nunca foi testado num Mac de verdade.
-- **Microfone embutido sempre ligado no Mac**: se a escuta da Siri (ou outro programa) deixar a entrada embutida em uso o tempo todo, a fila pode achar que alguém grava e a voz esperar para sempre. A ver no teste do Mac.
+- **Mac de verdade**: confirmar som, microfone e achar a sessão (`speak check`, que desde a 0.14.2 também mostra a linha `microfone:`). Ninguém tem um Mac para testar por ora; o teste fica aberto para quem aparecer pelas issues (https://github.com/ricksouzaa/cc-speaker/issues), e o README avisa que o macOS nunca foi testado num Mac de verdade. As constantes e o formato da lista de áudio do CoreAudio ganharam teste em 29/10/2026 (`test_coreaudio_constants_and_layouts`), conferidos contra os nomes dos cabeçalhos da Apple.
+- **Microfone embutido sempre ligado no Mac**: se a escuta da Siri (ou outro programa) deixar a entrada embutida em uso o tempo todo, a fila pode achar que alguém grava e a voz esperar para sempre. Sem como testar, o preparo é: `speak check` mostra o que ele enxerga e o README manda usar `/speak mic play` nesse caso. A ver no teste do Mac.
 
 ## Pedidos para depois
 

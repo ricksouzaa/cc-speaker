@@ -2090,6 +2090,8 @@ def main(argv):
         # On stderr: hooks/speak-start.py reads the stdout of `check` as a list of words.
         print('processos acima: %s' % ', '.join('%d %s' % item for item in speak_os.ancestors(os.getppid())),
               file=sys.stderr)
+        busy = speak_os.mic_busy()  # for whoever tests on a Mac: "em uso" with nobody recording is the Siri case
+        print('microfone: %s' % {True: 'em uso', False: 'livre'}.get(busy, 'não deu para saber'), file=sys.stderr)
         return 1 if gone else 0
     if cmd == 'silent':
         why = silent_reason()

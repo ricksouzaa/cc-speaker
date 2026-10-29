@@ -101,6 +101,8 @@ O `play` e o `auto` servem para quando você quer que as pessoas da reunião ou�
 
 No Linux, o `pw-dump` mostra o nome do programa que grava, e o ditado do Claude Code aparece como `PipeWire ALSA [<nome do processo>]`, com o nome de um processo `claude` seu: é assim que ele é reconhecido e separado da reunião. No Mac, o CoreAudio não diz quem grava: em `play` e `auto` nada segura nem corta a fala, nem o ditado.
 
+No Mac, se a voz nunca tocar porque o `speak` acha que o microfone está sempre em uso (a escuta da Siri, por exemplo, pode manter a entrada embutida ligada), rode `speak check`: a linha `microfone:` mostra o que ele enxerga. Se disser "em uso" sem ninguém gravando, use `/speak mic play`, que fala mesmo assim.
+
 ## Quando a voz não instala
 
 - **Falta o `uv`:** nada é instalado, e o Claude diz como instalá-lo. Embaixo do campo fica o aviso "Voz não instalada". Depois de instalar o `uv`, rode `/speak install`.
