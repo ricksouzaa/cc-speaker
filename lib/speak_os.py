@@ -1,4 +1,5 @@
-"""The part of `speak` that differs by operating system: processes and sessions (Linux reads /proc, macOS runs `ps`).
+"""The part of `speak` that differs by operating system: processes and sessions (Linux reads /proc, macOS runs `ps`),
+the audio player and the microphone check (Linux: pw-play/paplay/aplay and pw-dump; macOS: afplay and CoreAudio).
 The rest of the plugin never asks which system it runs on. Stdlib only. Every function returns None, False or []
 when the system cannot answer; none raises.
 
@@ -6,12 +7,19 @@ A process start time is kept as text (`started`) so it can sit inside a session 
 [A-Za-z0-9_-]+: Linux gives clock ticks since boot, macOS gives integer epoch seconds. `start_epoch` turns that text
 back into epoch seconds from the text alone, without asking the live process (a reused pid does not change it).
 """
+import json
 import os
+import shutil
 import subprocess
 import sys
 import time
 
 SYSTEM = 'mac' if sys.platform == 'darwin' else 'linux'
+
+RATE = 24000  # Kokoro's output, mono float32
+PLAYERS = (['pw-play', '--raw', '--format', 'f32', '--rate', str(RATE), '--channels', '1', '-'],
+           ['paplay', '--raw', '--format=float32le', '--rate=%d' % RATE, '--channels=1'],
+           ['aplay', '-q', '-f', 'FLOAT_LE', '-r', str(RATE), '-c', '1'])
 
 
 def _ps(pid, fields):
@@ -152,3 +160,136 @@ def ancestors(pid):
             break
         pid = up
     return chain
+
+
+# --- sound and microphone ---------------------------------------------------------------------------------------
+
+def _player_usable(command):
+    """True when the player is on PATH and takes raw samples: `pw-play --raw` came with PipeWire 1.1, so an older
+    pw-play (1.0.x, Ubuntu 24.04) says 'unrecognized option' and is skipped in favour of paplay or aplay."""
+    if not shutil.which(command[0]):
+        return False
+    if command[0] != 'pw-play':
+        return True
+    try:
+        r = subprocess.run([command[0], '--help'], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return '--raw' in r.stdout + r.stderr
+
+
+def player():
+    """Command line of the audio player to use, or None. Linux: the first of pw-play, paplay, aplay that is usable
+    (they read raw samples from stdin). Mac: `['afplay']` (it plays a file, which the caller appends)."""
+    if SYSTEM == 'mac':
+        return ['afplay'] if shutil.which('afplay') else None
+    return next((p for p in PLAYERS if _player_usable(p)), None)
+
+
+def streams():
+    """True when the player reads samples from its stdin (Linux); False when it plays one file at a time (Mac)."""
+    return SYSTEM != 'mac'
+
+
+def recordings(dump):
+    """Ids of the audio streams recording from a microphone, in pw-dump's JSON; None when it cannot be read."""
+    try:
+        nodes = json.loads(dump)
+    except ValueError:
+        return None
+    return {n.get('id') for n in nodes if isinstance(n, dict)
+            and ((n.get('info') or {}).get('props') or {}).get('media.class') == 'Stream/Input/Audio'}
+
+
+def _fourcc(text):
+    return int.from_bytes(text.encode('ascii'), 'big')
+
+
+class _CoreAudio:
+    """The few CoreAudio calls needed, through ctypes (the one place that touches the framework). Every method
+    raises OSError when CoreAudio answers with an error status."""
+
+    SYSTEM_OBJECT = 1  # kAudioObjectSystemObject
+    DEVICES = _fourcc('dev#')  # kAudioHardwarePropertyDevices
+    STREAM_CONFIG = _fourcc('slay')  # kAudioDevicePropertyStreamConfiguration
+    RUNNING_SOMEWHERE = _fourcc('gone')  # kAudioDevicePropertyDeviceIsRunningSomewhere
+    GLOBAL, INPUT = _fourcc('glob'), _fourcc('inpt')  # kAudioObjectPropertyScopeGlobal, ...ScopeInput
+    MAIN = 0  # kAudioObjectPropertyElementMain (Master on older systems: the same value)
+
+    def __init__(self, lib):
+        import ctypes
+        self.ctypes = ctypes
+        self.lib = lib
+
+        class Address(ctypes.Structure):
+            _fields_ = [('selector', ctypes.c_uint32), ('scope', ctypes.c_uint32), ('element', ctypes.c_uint32)]
+        self.Address = Address
+
+    def _read(self, obj, selector, scope):
+        """Raw bytes of a property of an audio object."""
+        c = self.ctypes
+        addr = self.Address(selector, scope, self.MAIN)
+        size = c.c_uint32(0)
+        if self.lib.AudioObjectGetPropertyDataSize(obj, c.byref(addr), 0, None, c.byref(size)) != 0:
+            raise OSError('AudioObjectGetPropertyDataSize')
+        buf = c.create_string_buffer(size.value)
+        if self.lib.AudioObjectGetPropertyData(obj, c.byref(addr), 0, None, c.byref(size), buf) != 0:
+            raise OSError('AudioObjectGetPropertyData')
+        return buf.raw[:size.value]
+
+    def devices(self):
+        raw = self._read(self.SYSTEM_OBJECT, self.DEVICES, self.GLOBAL)
+        return [int.from_bytes(raw[i:i + 4], sys.byteorder) for i in range(0, len(raw) - 3, 4)]
+
+    def input_channels(self, dev):
+        """Channels of the input scope, summed over the AudioBufferList (a UInt32 count, padded to 8 bytes, then
+        16-byte AudioBuffers whose first field is the channel count)."""
+        raw = self._read(dev, self.STREAM_CONFIG, self.INPUT)
+        count = int.from_bytes(raw[:4], sys.byteorder)
+        return sum(int.from_bytes(raw[8 + 16 * i:12 + 16 * i], sys.byteorder) for i in range(count))
+
+    def running(self, dev):
+        return int.from_bytes(self._read(dev, self.RUNNING_SOMEWHERE, self.GLOBAL)[:4], sys.byteorder) != 0
+
+
+def _coreaudio():
+    """The CoreAudio wrapper, or None when this is not a Mac or the framework does not load. Never attempted on
+    another system."""
+    if sys.platform != 'darwin':
+        return None
+    try:
+        import ctypes
+        lib = ctypes.CDLL('/System/Library/Frameworks/CoreAudio.framework/CoreAudio')
+        for fn in (lib.AudioObjectGetPropertyDataSize, lib.AudioObjectGetPropertyData):
+            fn.restype = ctypes.c_int32  # OSStatus
+        return _CoreAudio(lib)
+    except (OSError, AttributeError, ImportError):
+        return None
+
+
+def _mac_mic_busy():
+    try:
+        core = _coreaudio()
+        if core is None:
+            return None
+        return any(core.input_channels(dev) > 0 and core.running(dev) for dev in core.devices())
+    except Exception:  # whatever CoreAudio or the wrapper does, the answer is "cannot tell"
+        return None
+
+
+def recordings_now():
+    """Linux: ids of the streams recording right now (from `pw-dump`), or None when it cannot be read. Mac: the set
+    {'input'} when an input device is running, an empty set when none is, None when it cannot be read."""
+    if SYSTEM == 'mac':
+        busy = _mac_mic_busy()
+        return None if busy is None else ({'input'} if busy else set())
+    try:
+        return recordings(subprocess.run(['pw-dump'], capture_output=True, timeout=2).stdout)
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def mic_busy():
+    """True when something is recording from a microphone, False when nothing is, None when it cannot be told."""
+    found = recordings_now()
+    return None if found is None else bool(found)

@@ -114,7 +114,7 @@ class MacTest(unittest.TestCase):
 
     def as_mac_everywhere(self):
         """Mac also for the speak_os module that bin/speak imported (a separate instance); no CLAUDE_SPEAK_SESSION."""
-        for patch in (mock.patch.object(speak.speak_os, 'SYSTEM', 'mac'),
+        for patch in (mock.patch.object(speak.speak_os, 'SYSTEM', 'mac'), mock.patch.object(speak_os, 'SYSTEM', 'mac'),
                       mock.patch.dict(os.environ, {}),
                       mock.patch.object(speak.os, 'getppid', return_value=60)):
             patch.start()
@@ -167,6 +167,127 @@ class MacTest(unittest.TestCase):
         with mock.patch.object(speak.speak_os, 'SYSTEM', 'mac'), \
                 mock.patch.object(speak.speak_os.subprocess, 'run', side_effect=AssertionError('asked ps')):
             self.assertEqual(speak.session_started('50-1793354400'), 1793354400.0)
+
+
+    # --- sound and microphone on the Mac, with everything the Mac would provide replaced by fakes ----------------
+
+    def test_mac_player_afplay(self):
+        self.as_mac_everywhere()
+        with mock.patch.object(speak_os.shutil, 'which', lambda n: '/usr/bin/afplay' if n == 'afplay' else None):
+            self.assertEqual(speak_os.player(), ['afplay'])
+            self.assertEqual(speak.player_command(), ['afplay'])
+            self.assertTrue(speak.player_found())
+        with mock.patch.object(speak_os.shutil, 'which', lambda n: None):
+            self.assertIsNone(speak_os.player())
+            self.assertFalse(speak.player_found())
+
+    def test_streams_by_system(self):
+        with mock.patch.object(speak_os, 'SYSTEM', 'linux'):
+            self.assertTrue(speak_os.streams())
+        with mock.patch.object(speak_os, 'SYSTEM', 'mac'):
+            self.assertFalse(speak_os.streams())
+
+    def core(self, devices, channels=None, running=None, fail=None):
+        class Core:
+            def devices(self):
+                if fail:
+                    raise OSError('coreaudio')
+                return devices
+
+            def input_channels(self, dev):
+                return (channels or {}).get(dev, 0)
+
+            def running(self, dev):
+                return (running or {}).get(dev, False)
+        return Core()
+
+    def test_mac_mic_ctypes(self):
+        self.as_mac_everywhere()
+        cases = [  # (fake CoreAudio, expected)
+            (self.core([1, 2], {2: 1}, {2: True}), True),  # an input device is running
+            (self.core([1, 2], {2: 1}, {1: True}), False),  # only an output device is running
+            (self.core([1, 2], {2: 1}, {}), False),  # input device idle
+            (self.core([]), False),  # no devices
+            (self.core([1], fail=True), None)]  # CoreAudio fails
+        for core, expected in cases:
+            with mock.patch.object(speak_os, '_coreaudio', return_value=core):
+                self.assertIs(speak_os.mic_busy(), expected)
+        with mock.patch.object(speak_os, '_coreaudio', return_value=None):
+            self.assertIsNone(speak_os.mic_busy())
+        with mock.patch.object(speak_os, '_coreaudio', side_effect=OSError('no framework')):
+            self.assertIsNone(speak_os.mic_busy())
+
+    def test_coreaudio_is_never_loaded_on_linux(self):
+        with mock.patch.object(speak_os, 'SYSTEM', 'mac'), mock.patch.object(speak_os.sys, 'platform', 'linux'), \
+                mock.patch('ctypes.CDLL', side_effect=AssertionError('loaded')):
+            self.assertIsNone(speak_os._coreaudio())
+            self.assertIsNone(speak_os.mic_busy())
+
+    def test_linux_mic_reads_pw_dump(self):
+        dump = b'[{"id": 9, "info": {"props": {"media.class": "Stream/Input/Audio"}}}]'
+        with mock.patch.object(speak_os, 'SYSTEM', 'linux'), \
+                mock.patch.object(speak_os.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, dump, b'')):
+            self.assertTrue(speak_os.mic_busy())
+            self.assertEqual(speak_os.recordings_now(), {9})
+        with mock.patch.object(speak_os, 'SYSTEM', 'linux'), mock.patch.object(speak_os.subprocess, 'run', side_effect=OSError):
+            self.assertIsNone(speak_os.mic_busy())
+
+    def test_play_mac_arquivo_por_pedaco(self):
+        import tempfile
+        import types
+        self.as_mac_everywhere()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        state = os.path.join(tmp.name, 'state')
+        os.makedirs(os.path.join(state, 'queue'))
+        wavs, launched = [], []
+
+        class Kokoro:
+            def __init__(self, *a):
+                pass
+
+            def create(self, piece, **kw):
+                return ([0.0, 0.1], 24000)
+
+        kokoro = types.ModuleType('kokoro_onnx')
+        kokoro.Kokoro = Kokoro
+        sound = types.ModuleType('soundfile')
+
+        def write(path, samples, rate):
+            with open(path, 'wb') as fh:
+                fh.write(b'RIFF')
+            wavs.append(path)
+        sound.write = write
+
+        class Proc:
+            def __init__(self, cmd, **kw):
+                launched.append(cmd)
+                self.exists = os.path.exists(cmd[1])
+
+            def wait(self):
+                return 0
+
+            def kill(self):
+                pass
+        seen = []
+        with mock.patch.dict(sys.modules, {'kokoro_onnx': kokoro, 'soundfile': sound}), \
+                mock.patch.dict(os.environ, {'CLAUDE_SPEAK_TEST': '1', 'CLAUDE_SPEAK_SESSION': '-'}), \
+                mock.patch.object(speak, 'STATE', state), mock.patch.object(speak, 'QUEUE', os.path.join(state, 'queue')), \
+                mock.patch.object(speak, 'PID', os.path.join(state, 'speech.pid')), \
+                mock.patch.object(speak, 'OWNER', os.path.join(state, 'speech.owner')), \
+                mock.patch.object(speak, 'LOCK', os.path.join(state, 'queue.lock')), \
+                mock.patch.object(speak, 'QUEUE_POLL', 0.01), mock.patch.object(speak, 'MIC_POLL', 0.01), \
+                mock.patch.object(speak, 'pieces', lambda text: ['um', 'dois']), \
+                mock.patch.object(speak.speak_os, '_coreaudio', return_value=self.core([1], {1: 1}, {})), \
+                mock.patch.object(speak.shutil, 'which', lambda n: '/usr/bin/afplay' if n == 'afplay' else None), \
+                mock.patch.object(speak.subprocess, 'Popen', lambda cmd, **kw: seen.append(os.path.exists(cmd[1])) or Proc(cmd)):
+            self.assertEqual(speak.play('um dois'), 0)
+        self.assertEqual([c[0] for c in launched], ['afplay', 'afplay'])
+        self.assertEqual([c[1] for c in launched], wavs)
+        self.assertEqual(len(set(wavs)), 2)
+        self.assertEqual(seen, [True, True])  # each file existed when afplay started
+        self.assertTrue(all(os.path.dirname(w) == state for w in wavs))
+        self.assertEqual([n for n in os.listdir(state) if n.endswith('.wav')], [])
 
 
 class CheckTest(unittest.TestCase):

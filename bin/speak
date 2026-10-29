@@ -45,6 +45,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 
@@ -77,10 +78,7 @@ OWNER = os.path.join(STATE, 'speech.owner')  # key of the session that owns the 
 LOCK = os.path.join(STATE, 'queue.lock')  # flock'ed while a speech joins the queue or takes its turn
 QUEUE = os.path.join(STATE, 'queue')  # one ticket per speech waiting: name '<time_ns>-<pid>', content = session key
 LOG = os.path.join(STATE, 'error.log')
-RATE = 24000  # Kokoro's output, mono float32
-PLAYERS = (['pw-play', '--raw', '--format', 'f32', '--rate', str(RATE), '--channels', '1', '-'],
-           ['paplay', '--raw', '--format=float32le', '--rate=%d' % RATE, '--channels=1'],
-           ['aplay', '-q', '-f', 'FLOAT_LE', '-r', str(RATE), '-c', '1'])
+RATE = speak_os.RATE  # Kokoro's output, mono float32
 MARK = '🔊'
 LIMIT = {'full': 6000}  # characters; a longer reply is cut at a sentence end
 SUMMARY_LIMIT = {'small': 300, 'medium': 600, 'large': 1200}  # the same, for the 🔊 line, by size
@@ -627,22 +625,12 @@ def drop_own_tickets():
             drop(os.path.join(QUEUE, name))
 
 
-def recordings(dump):
-    """Ids of the audio streams recording from a microphone, in pw-dump's JSON; None when it cannot be read."""
-    import json
-    try:
-        nodes = json.loads(dump)
-    except ValueError:
-        return None
-    return {n.get('id') for n in nodes if isinstance(n, dict)
-            and ((n.get('info') or {}).get('props') or {}).get('media.class') == 'Stream/Input/Audio'}
+recordings = speak_os.recordings
 
 
 def current_recordings():
-    try:
-        return recordings(subprocess.run(['pw-dump'], capture_output=True, timeout=2).stdout)
-    except (OSError, subprocess.SubprocessError):
-        return None
+    """What is recording from a microphone now (a set, empty when nothing); None when it cannot be read."""
+    return speak_os.recordings_now()
 
 
 def cut_by_microphone(player):
@@ -671,28 +659,85 @@ def watch_microphone(player):
     threading.Thread(target=loop, daemon=True).start()
 
 
+class FilePlayer:
+    """The player of a system that plays files (Mac): one `afplay <wav>` per piece. `kill()` stops the one in
+    progress and removes its file, so the microphone cut leaves nothing behind."""
+
+    def __init__(self, command):
+        self.command = command
+        self.proc = None
+        self.path = None
+        self.lock = threading.Lock()
+
+    def play(self, samples):
+        import soundfile
+        path = os.path.join(STATE, '.tmp-%d-%s.wav' % (os.getpid(), os.urandom(4).hex()))  # prune_tmp sweeps strays
+        try:
+            soundfile.write(path, samples, RATE)
+            with self.lock:
+                self.path = path
+                self.proc = subprocess.Popen(self.command + [path])
+            return self.proc.wait()
+        finally:
+            self.discard()
+
+    def discard(self):
+        with self.lock:
+            path, self.path = self.path, None
+        if path:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+    def kill(self):
+        with self.lock:
+            proc = self.proc
+        if proc is not None:
+            proc.kill()
+        self.discard()
+
+
+def play_files(command, chunks, watch):
+    """Plays each synthesized piece as a WAV file in the state folder, in order; returns the last exit code."""
+    player = FilePlayer(command)
+    if watch:
+        watch_microphone(player)
+    code = 0
+    for samples in chunks:
+        code = player.play(samples)
+    return code
+
+
+def player_names():
+    return 'afplay' if speak_os.SYSTEM == 'mac' else 'pw-play, paplay ou aplay'
+
+
 def play(text):
     """Runs inside the engine's Python: waits its turn in the queue, then synthesizes piece by piece into the
     player's stdin. The turn comes only while the microphone is free (no dictation in progress)."""
     session = current_session()
     try:
-        watch = bool(shutil.which('pw-dump'))
+        watch = speak_os.SYSTEM == 'mac' or bool(shutil.which('pw-dump'))
         # `speak test` (CLAUDE_SPEAK_TEST) is a diagnostic the human asked for: it speaks even with the voice off
         if not wait_turn(session, watch) or not (is_on(session) or os.environ.get('CLAUDE_SPEAK_TEST')):
             return 0
         from kokoro_onnx import Kokoro
         player = player_command()
         if player is None:
-            print('voz: nenhum tocador de áudio (pw-play, paplay ou aplay)', file=sys.stderr)
+            print('voz: nenhum tocador de áudio (%s)' % player_names(), file=sys.stderr)
             return 1
         kokoro = Kokoro(MODEL, VOICES)
+
+        def synth(piece):
+            return kokoro.create(piece, voice=voice(), speed=speed(), lang='pt-br')[0]
+
+        if not speak_os.streams():
+            return play_files(player, synthesize_ahead(pieces(text), synth), watch)
         proc = subprocess.Popen(player, stdin=subprocess.PIPE)
         if watch:
             watch_microphone(proc)
         try:
-            def synth(piece):
-                return kokoro.create(piece, voice=voice(), speed=speed(), lang='pt-br')[0]
-
             for samples in synthesize_ahead(pieces(text), synth):
                 proc.stdin.write(samples.astype('float32').tobytes())
                 proc.stdin.flush()
@@ -718,7 +763,9 @@ def venv_works():
 def install():
     uv = shutil.which('uv') or os.path.join(HOME, '.local', 'bin', 'uv')
     if not os.path.exists(uv):
-        print('voz: o uv não foi encontrado; instale-o (https://docs.astral.sh/uv/) e rode de novo', file=sys.stderr)
+        how = ('com `brew install uv` ou o instalador de https://docs.astral.sh/uv/' if speak_os.SYSTEM == 'mac'
+               else 'https://docs.astral.sh/uv/')
+        print('voz: o uv não foi encontrado; instale-o (%s) e rode de novo' % how, file=sys.stderr)
         return 1
     os.makedirs(DATA, exist_ok=True)
     if not venv_works():
@@ -817,23 +864,9 @@ def install_unlocked():
     return code
 
 
-def player_usable(command):
-    """True when the player is on PATH and takes raw samples: `pw-play --raw` came with PipeWire 1.1, so an older
-    pw-play (1.0.x, Ubuntu 24.04) says 'unrecognized option' and is skipped in favour of paplay or aplay."""
-    if not shutil.which(command[0]):
-        return False
-    if command[0] != 'pw-play':
-        return True
-    try:
-        r = subprocess.run([command[0], '--help'], capture_output=True, text=True, timeout=5)
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return '--raw' in r.stdout + r.stderr
-
-
 def player_command():
-    """The first usable player's command line, or None."""
-    return next((p for p in PLAYERS if player_usable(p)), None)
+    """The audio player's command line (see speak_os.player), or None."""
+    return speak_os.player()
 
 
 def player_found():
