@@ -38,8 +38,8 @@ No ai-harness, hoje, o instalador liga `bin/speak` em `~/.local/bin/speak`, e os
 
 ## Estado em 28/10/2026 (fim da primeira etapa, à espera da revisão do Ricardo)
 
-- Ramo `feat/plugin`, sem push e sem merge. Desenho em `docs/superpowers/specs/2026-10-28-plugin-design.md`.
-- Plugin `speak` instalado no escopo do usuário a partir do catálogo local `cc-speaker` (esta pasta), ligado.
+- Integrado na `main` e enviado ao GitHub; plugin instalado do catálogo `ricksouzaa/cc-speaker`. Desenho em `docs/superpowers/specs/2026-10-28-plugin-design.md`.
+- Plugin `speak` instalado no escopo do usuário, ligado.
 - Tamanho do resumo e escolha da voz entraram já nesta etapa, por pedido do Ricardo.
 - Troca feita em 28/10/2026 (ai-harness commit eebe90f, merge 14246b5); o plugin assumiu, conferido numa sessão nova; guarda retirada na versão 0.1.2.
 - Neste repositório toda sessão começa muda (`.claude/settings.local.json`, fora do git).
