@@ -2049,6 +2049,7 @@ class Pause(unittest.TestCase):
         time.sleep(0.4)
         self.assertEqual(len(self.tickets()), 1)
 
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'the microphone is faked through a pw-dump in the PATH')
     def test_resume_waits_for_the_microphone_like_any_speech(self):
         first = self.waiter('a', self.me)
         self.assertTrue(self.until(lambda: self.started() == ['a']))
@@ -3677,7 +3678,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.14.2')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.14.3')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

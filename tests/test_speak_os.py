@@ -83,6 +83,7 @@ class LinuxTest(unittest.TestCase):
         self.assertEqual(speak_os.ancestors(me)[0][0], me)
 
 
+@unittest.skipUnless(sys.platform.startswith('linux'), 'rtkit and RLIMIT_RTTIME exist only on Linux')
 class RealtimeTest(unittest.TestCase):
     """The stdin player asks rtkit for real time, so a busy machine does not make the sound stutter."""
 

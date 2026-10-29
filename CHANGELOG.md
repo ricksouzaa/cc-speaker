@@ -7,6 +7,11 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.14.3] - 2026-10-29
+
+### Corrigido
+- Os testes automáticos do macOS no GitHub voltam a poder passar: cinco testes que só valem no Linux (tocador em tempo real e espera do microfone na retomada da fala) agora são pulados no Mac. O programa não mudou.
+
 ## [0.14.2] - 2026-10-29
 
 ### Adicionado
@@ -251,7 +256,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.14.2...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.14.3...HEAD
+[0.14.3]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.14.3
 [0.14.2]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.14.2
 [0.14.1]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.14.1
 [0.14.0]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.14.0
