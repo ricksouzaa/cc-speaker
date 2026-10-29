@@ -1,0 +1,11 @@
+{
+  "name": "cc-speaker",
+  "owner": {"name": "Ricardo Souza"},
+  "plugins": [
+    {
+      "name": "speak",
+      "source": "./",
+      "description": "Respostas do Claude Code lidas em voz alta, em português do Brasil, com motor local."
+    }
+  ]
+}

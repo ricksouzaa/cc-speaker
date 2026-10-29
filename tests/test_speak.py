@@ -15,6 +15,8 @@ import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOOK = os.path.join(ROOT, 'hooks', 'speak-stop.py')
+START = os.path.join(ROOT, 'hooks', 'speak-start.py')
+CUT = os.path.join(ROOT, 'hooks', 'speak-cut.py')
 SPEAK = os.path.join(ROOT, 'bin', 'speak')
 
 
@@ -39,6 +41,7 @@ def isolate(case, root):
     state = os.path.join(root, '.local', 'state', 'claude-speak')
     paths = {'DATA': data, 'CONF': conf, 'STATE': state,
              'OFF_FLAG': os.path.join(conf, 'off'), 'MODE_FILE': os.path.join(conf, 'mode'),
+             'SIZE_FILE': os.path.join(conf, 'size'), 'VOICE_FILE': os.path.join(conf, 'voice'),
              'ALL_MARK': os.path.join(state, 'all'), 'SESSIONS': os.path.join(state, 'sessions'),
              'PID': os.path.join(state, 'speech.pid'), 'OWNER': os.path.join(state, 'speech.owner'),
              'QUEUE': os.path.join(state, 'queue'), 'LOCK': os.path.join(state, 'queue.lock'),
@@ -81,7 +84,14 @@ class Summary(unittest.TestCase):
         self.assertEqual(speak.to_speak(msg, 'summary'), 'Veja o painel e o arquivo.')
 
     def test_long_line_is_cut(self):
-        self.assertLessEqual(len(speak.to_speak('🔊 ' + 'a' * 1000, 'summary')), speak.LIMIT['summary'])
+        self.assertLessEqual(len(speak.to_speak('🔊 ' + 'a' * 1000, 'summary', 'medium')), 600)
+
+    def test_limit_follows_the_size(self):
+        text = '🔊 ' + 'Uma frase curta aqui. ' * 100
+        for size, limit in (('small', 300), ('medium', 600), ('large', 1200)):
+            said = speak.to_speak(text, 'summary', size)
+            self.assertLessEqual(len(said), limit)
+            self.assertGreater(len(said), limit - 40)
 
 
 class Full(unittest.TestCase):
@@ -310,6 +320,10 @@ class Toggle(unittest.TestCase):
         self.assertIn('speak install', r.stderr)
 
 
+def speak_stat_start():
+    return speak._stat_fields(os.getpid())[19]
+
+
 def speak_read(folder, key):
     from unittest import mock
     with mock.patch.object(speak, 'SESSIONS', folder):
@@ -522,10 +536,13 @@ class Session(unittest.TestCase):
 
     def test_real_hook_reaches_speak_inside_the_session(self):
         """Through the real hook, `speak say -` still finds the session (the hook must outlive it)."""
-        bindir = os.path.join(self.tmp.name, '.local', 'bin')
-        os.makedirs(bindir)
+        plugin = os.path.join(self.tmp.name, 'plugin')
+        os.makedirs(os.path.join(plugin, 'bin'))
+        os.makedirs(os.path.join(plugin, 'hooks'))
+        hook = os.path.join(plugin, 'hooks', 'speak-stop.py')
+        shutil.copy(HOOK, hook)
         recorded = os.path.join(self.tmp.name, 'sessao.txt')
-        with open(os.path.join(bindir, 'speak'), 'w') as fh:
+        with open(os.path.join(plugin, 'bin', 'speak'), 'w') as fh:
             fh.write('import importlib.machinery, importlib.util\n'
                      'l = importlib.machinery.SourceFileLoader("speak_real", %r)\n'
                      's = importlib.util.spec_from_loader("speak_real", l)\n'
@@ -535,7 +552,7 @@ class Session(unittest.TestCase):
         os.symlink(sys.executable, fake)
         code = ('import subprocess,sys,os,json; print(os.getpid()); sys.stdout.flush();'
                 'subprocess.run(["sh","-c",sys.argv[1]],input=sys.argv[2].encode(),capture_output=True)')
-        hook_cmd = '%s -I %s' % (sys.executable, HOOK)
+        hook_cmd = '%s -I %s' % (sys.executable, hook)
         event = json.dumps({'last_assistant_message': 'Olá, tudo bem.'})
         out = subprocess.run([fake, '-I', '-c', code, hook_cmd, event], capture_output=True, text=True,
                              env=self.env, timeout=30).stdout
@@ -1018,24 +1035,34 @@ class Hook(unittest.TestCase):
         self.addCleanup(os.remove, fh.name)
         self.assertEqual(speak_stop.last_message({'transcript_path': fh.name}), 'segunda')
 
-    def hand_over(self, **env):
-        """Runs the hook with a fake `speak` first on PATH and returns what the fake received (arguments, `|`, stdin)."""
+    def plugin(self, home, hook='speak-stop.py', fake=True):
+        """A copy of the hook in a fake plugin folder, with (or without) a fake bin/speak that records its call."""
+        root = os.path.join(home, 'plugin')
+        os.makedirs(os.path.join(root, 'hooks'))
+        os.makedirs(os.path.join(root, 'bin'))
+        shutil.copy(os.path.join(ROOT, 'hooks', hook), os.path.join(root, 'hooks', hook))
+        if fake:
+            with open(os.path.join(root, 'bin', 'speak'), 'w') as fh:
+                fh.write('import sys\nopen(%r, "w").write(" ".join(sys.argv[1:]) + "|" + sys.stdin.read())\n'
+                         % os.path.join(home, 'seen'))
+        return os.path.join(root, 'hooks', hook)
+
+    def hand_over(self, legacy=False, **env):
+        """Runs the hook with a fake `speak` beside it and returns what the fake received (arguments, `|`, stdin)."""
         with tempfile.TemporaryDirectory() as home:
-            fake = os.path.join(home, 'speak')
+            hook = self.plugin(home)
             seen = os.path.join(home, 'seen')
-            with open(fake, 'w') as fh:
-                fh.write('import sys\nopen(%r, "w").write(" ".join(sys.argv[1:]) + "|" + sys.stdin.read())\n' % seen)
-            os.chmod(fake, 0o755)
-            r = subprocess.run([sys.executable, '-I', HOOK], input=json.dumps({'last_assistant_message': REPLY}),
-                               capture_output=True, text=True,
-                               env={'HOME': home, 'PATH': home + ':/usr/bin:/bin', **env})
+            if legacy:
+                os.makedirs(os.path.join(home, '.claude', 'hooks'))
+                open(os.path.join(home, '.claude', 'hooks', 'speak-stop.py'), 'w').close()
+            r = subprocess.run([sys.executable, '-I', hook], input=json.dumps({'last_assistant_message': REPLY}),
+                               capture_output=True, text=True, env={'HOME': home, 'PATH': '/usr/bin:/bin', **env})
             self.assertEqual((r.returncode, r.stdout, r.stderr), (0, '', ''))
             for _ in range(50):
                 if os.path.exists(seen) and os.path.getsize(seen):
                     break
                 time.sleep(0.05)
-            with open(seen) as fh:
-                return fh.read()
+            return open(seen).read() if os.path.exists(seen) else None
 
     def test_hook_hands_the_reply_to_speak(self):
         self.assertEqual(self.hand_over(), 'say -|' + REPLY)
@@ -1043,26 +1070,36 @@ class Hook(unittest.TestCase):
     def test_hook_hands_over_even_with_env_mute(self):
         self.assertEqual(self.hand_over(CLAUDE_SPEAK='0'), 'say -|' + REPLY)
 
+    def test_hook_is_mute_while_the_former_voice_is_installed(self):
+        self.assertIsNone(self.hand_over(legacy=True))
+
+    def test_hook_is_forced_by_the_variable(self):
+        self.assertEqual(self.hand_over(legacy=True, CLAUDE_SPEAK_PLUGIN_FORCE='1'), 'say -|' + REPLY)
+
     def test_hook_is_silent_and_exits_zero_without_speak(self):
         with tempfile.TemporaryDirectory() as home:
-            r = subprocess.run([sys.executable, '-I', HOOK], input='{"last_assistant_message": "oi"}',
+            hook = self.plugin(home, fake=False)
+            r = subprocess.run([sys.executable, '-I', hook], input='{"last_assistant_message": "oi"}',
                                capture_output=True, text=True, env={'HOME': home, 'PATH': '/usr/bin:/bin'})
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (0, '', ''))
+
+    def test_hook_survives_garbage_input(self):
+        with tempfile.TemporaryDirectory() as home:
+            r = subprocess.run([sys.executable, '-I', self.plugin(home)], input='not json', capture_output=True,
+                               text=True, env={'HOME': home, 'PATH': '/usr/bin:/bin'})
         self.assertEqual((r.returncode, r.stdout, r.stderr), (0, '', ''))
 
 
 class Silent(unittest.TestCase):
     """`speak silent` answers whether this session will stay silent, and the new-message hook turns that into a note
     that tells Claude to leave out the 🔊 line."""
-    CUT = os.path.join(ROOT, 'hooks', 'speak-cut.sh')
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.home = self.tmp.name
         self.bin = os.path.join(self.home, '.local', 'bin')
-        os.makedirs(self.bin)
-        os.symlink(SPEAK, os.path.join(self.bin, 'speak'))
-        self.env = {'HOME': self.home, 'PATH': self.bin + ':/usr/bin:/bin', 'CLAUDE_SPEAK_SESSION': 'sessao-1'}
+        self.env = {'HOME': self.home, 'PATH': '/usr/bin:/bin', 'CLAUDE_SPEAK_SESSION': 'sessao-1'}
 
     def engine(self):
         data = os.path.join(self.home, '.local', 'share', 'claude-speak')
@@ -1075,7 +1112,8 @@ class Silent(unittest.TestCase):
                               env={**self.env, **env})
 
     def cut(self, **env):
-        r = subprocess.run(['bash', self.CUT], input='{}', capture_output=True, text=True, env={**self.env, **env})
+        r = subprocess.run([sys.executable, '-I', CUT], input='{}', capture_output=True, text=True,
+                           env={**self.env, **env})
         self.assertEqual((r.returncode, r.stderr), (0, ''))
         return r.stdout
 
@@ -1126,8 +1164,218 @@ class Silent(unittest.TestCase):
         self.assertIn('desligada', self.cut())
 
     def test_without_speak_the_hook_still_notes(self):
-        os.remove(os.path.join(self.bin, 'speak'))
-        self.assertIn('🔊', self.cut())
+        hook = Hook().plugin(self.home, 'speak-cut.py', fake=False)
+        r = subprocess.run([sys.executable, '-I', hook], input='{}', capture_output=True, text=True, env=self.env)
+        self.assertEqual((r.returncode, r.stderr), (0, ''))
+        self.assertIn('🔊', r.stdout)
+
+    def test_cut_hook_is_mute_with_the_former_voice_unless_forced(self):
+        os.makedirs(os.path.join(self.home, '.claude', 'hooks'))
+        open(os.path.join(self.home, '.claude', 'hooks', 'speak-cut.sh'), 'w').close()
+        self.assertEqual(self.cut(), '')  # no engine would note; the guard keeps it mute
+        self.assertIn('🔊', self.cut(CLAUDE_SPEAK_PLUGIN_FORCE='1'))
+
+
+class Size(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.env = {'HOME': self.tmp.name, 'PATH': '/usr/bin:/bin', 'CLAUDE_SPEAK_SESSION': '-'}
+
+    def speak(self, *args, key='-', **env):
+        return subprocess.run([sys.executable, '-I', SPEAK, *args], capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                              env={**self.env, 'CLAUDE_SPEAK_SESSION': key, **env})
+
+    def test_default_is_medium_and_general_is_kept(self):
+        self.assertIn('tamanho do resumo: medium', self.speak('status').stdout)
+        self.assertIn('tamanho do resumo: large', self.speak('size', 'large').stdout)
+        self.assertTrue(os.path.exists(os.path.join(self.tmp.name, '.config', 'claude-speak', 'size')))
+        self.assertIn('tamanho do resumo: large', self.speak('status').stdout)
+
+    def test_variable_beats_everything(self):
+        self.speak('size', 'large')
+        self.assertIn('tamanho do resumo: small', self.speak('status', CLAUDE_SPEAK_SIZE='small').stdout)
+
+    def test_bad_size_is_refused(self):
+        for args in (('size',), ('size', 'huge'), ('size', 'small', 'tudo')):
+            r = self.speak(*args)
+            self.assertEqual(r.returncode, 2, args)
+            self.assertIn('voz:', r.stderr)
+
+    def test_session_size_stays_in_the_session_and_all_sets_every_one(self):
+        key = '%d-%s' % (os.getpid(), speak_stat_start())
+        other = '99999999-1'
+        folder = os.path.join(self.tmp.name, '.local', 'state', 'claude-speak', 'sessions')
+        self.speak('size', 'small', key=key)
+        self.assertEqual(speak_read(folder, key)['size'], 'small')
+        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, '.config', 'claude-speak', 'size')))
+        self.speak('size', 'large', 'all', key=key)
+        self.assertEqual(speak_read(folder, key)['size'], 'large')
+        self.assertEqual(open(os.path.join(self.tmp.name, '.config', 'claude-speak', 'size')).read().strip(), 'large')
+        self.assertNotIn('size', speak_read(folder, other) if os.path.exists(os.path.join(folder, other)) else {})
+
+    def test_say_uses_the_size_limit(self):
+        # no engine: nothing is played, but the size reaches to_speak
+        self.assertEqual(self.speak('say', '-', CLAUDE_SPEAK_MODE='summary').returncode, 0)
+
+
+class Voice(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.env = {'HOME': self.tmp.name, 'PATH': '/usr/bin:/bin', 'CLAUDE_SPEAK_SESSION': '-'}
+
+    def speak(self, *args, **env):
+        return subprocess.run([sys.executable, '-I', SPEAK, *args], capture_output=True, text=True,
+                              env={**self.env, **env})
+
+    def test_list_marks_the_current_one(self):
+        out = self.speak('voice').stdout
+        for part in ('dora', 'pf_dora', 'alex', 'pm_alex', 'santa', 'pm_santa', 'feminina', 'masculina'):
+            self.assertIn(part, out)
+        self.assertRegex(out, r'(?m)^\* dora')
+        self.assertRegex(self.speak('voice', CLAUDE_SPEAK_VOICE='pm_santa').stdout, r'(?m)^\* santa')
+
+    def test_short_and_full_names_are_saved(self):
+        self.assertIn('voz: pm_alex', self.speak('voice', 'alex').stdout)
+        self.assertEqual(open(os.path.join(self.tmp.name, '.config', 'claude-speak', 'voice')).read().strip(), 'pm_alex')
+        self.speak('voice', 'pm_santa')
+        self.assertIn('voz: pm_santa', self.speak('status').stdout)
+
+    def test_unknown_name_is_refused_and_nothing_is_saved(self):
+        r = self.speak('voice', 'bob')
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('voz:', r.stderr)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, '.config', 'claude-speak', 'voice')))
+
+    def test_order_is_variable_then_file_then_default(self):
+        self.assertIn('voz: pf_dora', self.speak('status').stdout)
+        self.speak('voice', 'alex')
+        self.assertIn('voz: pm_alex', self.speak('status').stdout)
+        self.assertIn('voz: pm_santa', self.speak('status', CLAUDE_SPEAK_VOICE='pm_santa').stdout)
+
+
+class Rule(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.env = {'HOME': self.tmp.name, 'PATH': '/usr/bin:/bin', 'CLAUDE_SPEAK_SESSION': '-'}
+
+    def rule(self, **env):
+        r = subprocess.run([sys.executable, '-I', SPEAK, 'rule'], capture_output=True, text=True,
+                           env={**self.env, **env})
+        self.assertEqual((r.returncode, r.stderr), (0, ''))
+        return r.stdout
+
+    def test_marker_is_replaced_by_the_size_in_force(self):
+        self.assertIn('two or three sentences', self.rule())
+        self.assertIn('one short sentence', self.rule(CLAUDE_SPEAK_SIZE='small'))
+        self.assertIn('four to six sentences', self.rule(CLAUDE_SPEAK_SIZE='large'))
+        self.assertNotIn('{size}', self.rule())
+
+    def test_rule_names_the_commands(self):
+        text = self.rule()
+        for name in ('on', 'off', 'mode', 'size', 'voice', 'status', 'stop', 'install'):
+            self.assertIn('/speak:' + name, text)
+        self.assertIn('speak size', text)
+        self.assertIn('speak voice', text)
+
+
+class StartHook(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.home = self.tmp.name
+        self.env = {'HOME': self.home, 'PATH': '/usr/bin:/bin', 'CLAUDE_SPEAK_SESSION': '-'}
+
+    def run_hook(self, **env):
+        r = subprocess.run([sys.executable, '-I', START], input='{}', capture_output=True, text=True,
+                           env={**self.env, **env})
+        self.assertEqual((r.returncode, r.stderr), (0, ''))
+        return r.stdout
+
+    def engine(self):
+        data = os.path.join(self.home, '.local', 'share', 'claude-speak')
+        os.makedirs(os.path.join(data, '.venv', 'bin'))
+        for rel in ('.venv/bin/python', 'kokoro-v1.0.onnx', 'voices-v1.0.bin'):
+            open(os.path.join(data, rel), 'w').close()
+
+    def player(self):
+        os.makedirs(os.path.join(self.home, 'bin'))
+        path = os.path.join(self.home, 'bin', 'aplay')
+        open(path, 'w').close()
+        os.chmod(path, 0o755)
+        return {'PATH': os.path.join(self.home, 'bin') + ':/usr/bin:/bin'}
+
+    def test_prints_the_rule(self):
+        out = self.run_hook()
+        self.assertIn('🔊', out)
+        self.assertNotIn('{size}', out)
+
+    def test_without_engine_it_asks_claude_to_offer_the_install(self):
+        out = self.run_hook()
+        self.assertIn('speak install', out)
+        self.assertIn('350 MB', out)
+
+    def test_with_engine_and_player_there_is_no_notice(self):
+        self.engine()
+        out = self.run_hook(**self.player())
+        self.assertNotIn('speak install', out)
+        self.assertNotIn('tocador', out)
+
+    def test_without_player_it_says_so(self):
+        self.engine()
+        out = self.run_hook(PATH='/nonexistent')
+        self.assertIn('tocador', out)
+        self.assertNotIn('speak install', out)
+
+    def test_mute_with_the_former_voice_unless_forced(self):
+        os.makedirs(os.path.join(self.home, '.claude', 'hooks'))
+        open(os.path.join(self.home, '.claude', 'hooks', 'speak-stop.py'), 'w').close()
+        self.assertEqual(self.run_hook(), '')
+        self.assertIn('🔊', self.run_hook(CLAUDE_SPEAK_PLUGIN_FORCE='1'))
+
+
+class Plugin(unittest.TestCase):
+    """The manifests, hooks.json and the slash commands are valid and point to files that exist."""
+
+    def load(self, *parts):
+        with open(os.path.join(ROOT, *parts), encoding='utf-8') as fh:
+            return json.load(fh)
+
+    def test_manifests(self):
+        plugin = self.load('.claude-plugin', 'plugin.json')
+        self.assertEqual((plugin['name'], plugin['version']), ('speak', '0.1.0'))
+        market = self.load('.claude-plugin', 'marketplace.json')
+        self.assertEqual(market['name'], 'cc-speaker')
+        self.assertEqual([p['name'] for p in market['plugins']], ['speak'])
+        self.assertTrue(os.path.isdir(os.path.join(ROOT, market['plugins'][0]['source'])))
+
+    def test_hooks_point_to_files_that_exist(self):
+        hooks = self.load('hooks', 'hooks.json')['hooks']
+        self.assertEqual(set(hooks), {'SessionStart', 'UserPromptSubmit', 'Stop'})
+        self.assertEqual(hooks['SessionStart'][0]['matcher'], 'startup|resume|clear|compact')
+        for entries in hooks.values():
+            for entry in entries:
+                for hook in entry['hooks']:
+                    match = re.fullmatch(r'python3 -I "\$\{CLAUDE_PLUGIN_ROOT\}/(hooks/[\w.-]+)"', hook['command'])
+                    self.assertTrue(match, hook['command'])
+                    self.assertTrue(os.path.exists(os.path.join(ROOT, match.group(1))))
+
+    def test_slash_commands_are_for_the_human_only(self):
+        names = ('on', 'off', 'mode', 'size', 'voice', 'status', 'stop', 'install')
+        self.assertEqual(sorted(os.listdir(os.path.join(ROOT, 'skills'))), sorted(names))
+        for name in names:
+            with open(os.path.join(ROOT, 'skills', name, 'SKILL.md'), encoding='utf-8') as fh:
+                front = fh.read().split('---')[1]
+            self.assertRegex(front, r'(?m)^disable-model-invocation: true$', name)
+            self.assertRegex(front, r'(?m)^name: %s$' % name)
+        with open(os.path.join(ROOT, 'skills', 'stop', 'SKILL.md'), encoding='utf-8') as fh:
+            self.assertNotIn('$ARGUMENTS', fh.read())
+
+    def test_removed_pieces_are_gone(self):
+        for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills/speak'):
+            self.assertFalse(os.path.exists(os.path.join(ROOT, rel)), rel)
 
 
 class Isolation(unittest.TestCase):
@@ -1152,16 +1400,6 @@ class Isolation(unittest.TestCase):
                 self.assertEqual(os.listdir(folder), names, folder)
             for rel in ('.local/share', '.config', '.local/state'):
                 self.assertEqual(os.listdir(os.path.join(home, rel)), ['claude-voz'], rel)
-
-
-class SkillTest(unittest.TestCase):
-    def test_skill_is_for_the_human_only(self):
-        with open(os.path.join(ROOT, 'skills', 'speak', 'SKILL.md'), encoding='utf-8') as fh:
-            text = fh.read()
-        front = text.split('---')[1]
-        self.assertRegex(front, r'(?m)^disable-model-invocation: true$')
-        self.assertRegex(front, r'(?m)^name: speak$')
-        self.assertNotRegex(front, r'stop[^\n]*\ball\b')
 
 
 if __name__ == '__main__':

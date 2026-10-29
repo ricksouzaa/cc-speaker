@@ -7,6 +7,13 @@
   speak mode full|summary [all]  for this session (with `all`, or outside a session: the general mode and every
                            session); full (default): the whole reply without code, paths, links and file names;
                            summary: only its last line starting with 🔊 (rules/speak.md)
+  speak size small|medium|large [all]  how long the spoken summary is (one short sentence; two or three sentences;
+                           a paragraph); same scopes as `mode`; default medium
+  speak voice [name]       without a name: list the Portuguese voices (dora, alex, santa) and mark the current one;
+                           with a name (short or full, e.g. dora or pf_dora): choose it for every session
+  speak rule               print rules/speak.md with {size} replaced by the size in force (the SessionStart hook
+                           hands it to Claude)
+  speak check              print `engine` and/or `player` for what is missing; exit 0 when nothing is
   speak test [text]        speak a test sentence, in the foreground (errors show)
   speak install            install the engine: Python 3.12 via uv, kokoro-onnx, model files (~350 MB); no sudo
   speak say [text | -]     speak in the background and return at once; `-` reads the reply from stdin and applies
@@ -14,7 +21,7 @@
   speak stop               cut the speech playing now, whoever's it is, and drop every speech waiting its turn; the
                            voice stays on
   speak silent             exit 0 when this session will not speak (voice off here, or no engine), else 1; prints
-                           nothing; used by hooks/speak-cut.sh to tell Claude to leave out the 🔊 line
+                           nothing; used by hooks/speak-cut.py to tell Claude to leave out the 🔊 line
 
 The speech starts after its first short piece is ready and goes on while the rest is synthesized. A new speech, from
 any session, never cuts the one playing: it waits its turn in a queue (arrival order, one at a time, and only while no
@@ -23,7 +30,8 @@ the space bar to dictate in Claude Code does), seen through pw-dump; the speeche
 microphone is free. `speak off` in a session also drops that session's speeches (playing or waiting).
 Env: CLAUDE_SPEAK=0 silences one session (a first choice that a later `speak on` beats);
 CLAUDE_SPEAK_SESSION forces the session key ('-' means none; for tests and to force a key);
-CLAUDE_SPEAK_MODE overrides the mode; CLAUDE_SPEAK_VOICE (default pf_dora); CLAUDE_SPEAK_SPEED (default 1.1).
+CLAUDE_SPEAK_MODE overrides the mode; CLAUDE_SPEAK_SIZE the size; CLAUDE_SPEAK_VOICE the voice (default pf_dora);
+CLAUDE_SPEAK_SPEED (default 1.1).
 Errors of a background speech go to ~/.local/state/claude-speak/error.log.
 """
 import json
@@ -44,6 +52,15 @@ ALL_MARK = os.path.join(STATE, 'all')  # its modification time: when the last re
 SESSIONS = os.path.join(STATE, 'sessions')  # one file per session: name = key, content = JSON
 MODE_FILE = os.path.join(CONF, 'mode')
 MODES = ('full', 'summary')
+SIZE_FILE = os.path.join(CONF, 'size')
+SIZES = ('small', 'medium', 'large')
+SIZE_TEXT = {'small': 'one short sentence',
+             'medium': 'two or three sentences: what was done, the result and what the human must decide',
+             'large': 'a spoken paragraph of four to six sentences: what was done, what was found, the result and '
+                      'what the human must decide'}
+VOICE_FILE = os.path.join(CONF, 'voice')
+PT_VOICES = {'dora': ('pf_dora', 'feminina'), 'alex': ('pm_alex', 'masculina'), 'santa': ('pm_santa', 'masculina')}
+RULE = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'rules', 'speak.md')
 VENV_PY = os.path.join(DATA, '.venv', 'bin', 'python')
 MODEL = os.path.join(DATA, 'kokoro-v1.0.onnx')
 VOICES = os.path.join(DATA, 'voices-v1.0.bin')
@@ -58,14 +75,32 @@ PLAYERS = (['pw-play', '--raw', '--format', 'f32', '--rate', str(RATE), '--chann
            ['paplay', '--raw', '--format=float32le', '--rate=%d' % RATE, '--channels=1'],
            ['aplay', '-q', '-f', 'FLOAT_LE', '-r', str(RATE), '-c', '1'])
 MARK = '🔊'
-LIMIT = {'summary': 400, 'full': 6000}  # characters; a longer reply is cut at a sentence end
+LIMIT = {'full': 6000}  # characters; a longer reply is cut at a sentence end
+SUMMARY_LIMIT = {'small': 300, 'medium': 600, 'large': 1200}  # the same, for the 🔊 line, by size
 PIECES = (120, 160, 220, 300, 400)  # characters per piece: short first, then growing, so each is ready while the last plays
 MIC_POLL = 0.15  # seconds between looks at the microphone while speaking
 QUEUE_POLL = 0.15  # seconds between looks at the queue while waiting a turn
 
 
 def voice():
-    return os.environ.get('CLAUDE_SPEAK_VOICE') or 'pf_dora'
+    """CLAUDE_SPEAK_VOICE, then the general file, then pf_dora."""
+    wanted = os.environ.get('CLAUDE_SPEAK_VOICE')
+    if not wanted:
+        try:
+            with open(VOICE_FILE) as fh:
+                wanted = fh.read().strip()
+        except OSError:
+            pass
+    return wanted or 'pf_dora'
+
+
+def voice_name(wanted):
+    """Full name of a Portuguese voice from its short or full name; None if unknown."""
+    wanted = wanted.strip().lower()
+    for short, (full, _) in PT_VOICES.items():
+        if wanted in (short, full):
+            return full
+    return None
 
 
 def speed():
@@ -85,6 +120,18 @@ def mode(session=None):
         except OSError:
             pass
     return wanted if wanted in MODES else 'full'
+
+
+def summary_size(session=None):
+    """CLAUDE_SPEAK_SIZE, then the session's own size, then the general file, then 'medium'."""
+    wanted = os.environ.get('CLAUDE_SPEAK_SIZE') or read_session(session).get('size')
+    if not wanted:
+        try:
+            with open(SIZE_FILE) as fh:
+                wanted = fh.read().strip()
+        except OSError:
+            pass
+    return wanted if wanted in SIZES else 'medium'
 
 
 def _stat_fields(pid):
@@ -175,7 +222,7 @@ def session_alive(key):
 
 
 def read_session(key):
-    """The fields of a session file: {'voice': 'muted'|'speaking', 'mode': 'full'|'summary'}, each optional.
+    """The fields of a session file: {'voice': 'muted'|'speaking', 'mode': 'full'|'summary', 'size': 'small'|'medium'|'large'}, each optional.
     A bare `muted` or `speaking` (a file of the first format) counts as the voice."""
     if not key:
         return {}
@@ -191,7 +238,7 @@ def read_session(key):
     if not isinstance(data, dict):
         return {}
     return {k: v for k, v in data.items() if (k == 'voice' and v in ('muted', 'speaking'))
-            or (k == 'mode' and v in MODES)}
+            or (k == 'mode' and v in MODES) or (k == 'size' and v in SIZES)}
 
 
 def session_mode(key):
@@ -226,7 +273,7 @@ def asked_after_start(key):
 
 
 def set_session(key, **fields):
-    """Updates only the given fields (voice=, mode=) of a session file, keeping the others."""
+    """Updates only the given fields (voice=, mode=, size=) of a session file, keeping the others."""
     os.makedirs(SESSIONS, exist_ok=True)
     prune_sessions()
     write_atomic(os.path.join(SESSIONS, key), json.dumps({**read_session(key), **fields}))
@@ -318,10 +365,10 @@ def full_text(message):
     return ' '.join(out)
 
 
-def to_speak(message, how=None):
+def to_speak(message, how=None, size=None):
     how = how or mode()
     text = spoken_line(message) if how == 'summary' else full_text(message)
-    limit = LIMIT[how]
+    limit = SUMMARY_LIMIT[size or summary_size()] if how == 'summary' else LIMIT['full']
     if len(text) > limit:
         cut = max(text.rfind(p, 0, limit) for p in '.!?')
         text = text[:cut + 1 if cut > 0 else limit]
@@ -669,6 +716,21 @@ def install():
     return 0
 
 
+def player_found():
+    return any(shutil.which(p[0]) for p in PLAYERS)
+
+
+def missing():
+    """What stops speech on this machine: 'engine' (not installed) and/or 'player' (no audio player)."""
+    return [name for name, ok in (('engine', engine_ready()), ('player', player_found())) if not ok]
+
+
+def rule():
+    with open(RULE, encoding='utf-8') as fh:
+        text = fh.read()
+    return text.replace('{size}', SIZE_TEXT[summary_size(current_session())])
+
+
 def status():
     session = current_session()
     print('voz: %s' % ('ligada' if is_on(session) else 'desligada'))
@@ -682,6 +744,7 @@ def status():
     if os.environ.get('CLAUDE_SPEAK') == '0' and (not session or choice == 'muted'):
         print('  desligada só nesta sessão (CLAUDE_SPEAK=0)')
     print('  modo: %s' % mode())  # the general one (or CLAUDE_SPEAK_MODE)
+    print('  tamanho do resumo: %s' % summary_size())
     print('  motor: %s' % ('instalado em %s' % DATA if engine_ready() else 'não instalado (rode: speak install)'))
     print('  voz: %s, velocidade %s' % (voice(), speed()))
     return 0
@@ -785,13 +848,52 @@ def main(argv):
                 fh.write(wanted + '\n')
             set_all_sessions(mode=wanted)
         return status()
+    if cmd == 'size':
+        wanted, _, scope = text.partition(' ')
+        if wanted not in SIZES or scope not in ('', 'all'):
+            print('voz: use "speak size small", "speak size medium" ou "speak size large" (com "all" no fim, vale para '
+                  'todas as sessões)', file=sys.stderr)
+            return 2
+        session = current_session()
+        if session and not scope:
+            set_session(session, size=wanted)
+        else:
+            os.makedirs(CONF, exist_ok=True)
+            with open(SIZE_FILE, 'w') as fh:
+                fh.write(wanted + '\n')
+            set_all_sessions(size=wanted)
+        return status()
+    if cmd == 'voice':
+        if not text:
+            for short, (full, kind) in PT_VOICES.items():
+                print('%s %s (%s, %s)' % ('*' if full == voice() else ' ', short, full, kind))
+            return 0
+        full = voice_name(text)
+        if not full:
+            print('voz: voz desconhecida; use uma de: %s' % ', '.join(PT_VOICES), file=sys.stderr)
+            return 2
+        os.makedirs(CONF, exist_ok=True)
+        with open(VOICE_FILE, 'w') as fh:
+            fh.write(full + '\n')
+        return status()
+    if cmd == 'rule':
+        try:
+            sys.stdout.write(rule())
+        except OSError:
+            return 1
+        return 0
+    if cmd == 'check':
+        gone = missing()
+        if gone:
+            print(' '.join(gone))
+        return 1 if gone else 0
     if cmd == 'silent':
         return 1 if is_on(current_session()) and engine_ready() else 0
     if cmd == 'install':
         return install()
     if cmd == 'say':
         session = current_session()
-        return speak_background(to_speak(sys.stdin.read(), mode(session)) if text == '-' else text, session)
+        return speak_background(to_speak(sys.stdin.read(), mode(session), summary_size(session)) if text == '-' else text, session)
     if cmd == 'test':
         if not engine_ready():
             print('voz: motor não instalado (rode: speak install)', file=sys.stderr)
