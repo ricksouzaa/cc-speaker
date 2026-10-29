@@ -1,5 +1,5 @@
-// Módulo de ganchos do plugin: o comando /speak. Sem escolha escrita, abre o menu de setas (painel `speak`, desenhado
-// por `menu.tsx`): cima e baixo mudam de linha, esquerda e direita o valor, e cada troca roda o `bin/speak` na hora.
+// Módulo de ganchos do plugin: o comando /speak. Sem escolha escrita, abre o menu (painel `speak`, que já abre com o
+// foco): uma lista nativa (`Select`) por linha e um botão Fechar; cada escolha roda o `bin/speak` na hora.
 // A primeira linha, "Mudar em", só diz onde as próximas trocas são gravadas (todas as sessões ou só esta); abre sempre
 // em "Todas as sessões" e trocá-la não roda nada. Responde sozinho, sem o modelo. Com a escolha escrita
 // (/speak voice alex), roda direto, sem menu, e responde uma linha.
@@ -58,10 +58,12 @@ function said(args: string[], after: State | undefined): string {
 }
 
 // Roda uma mudança (on, off, mode, size, voice) e devolve a frase, ou a mensagem de erro do speak.
-async function change($: Engine, args: string[]): Promise<{ ok: boolean; text: string }> {
+// Lê o estado uma vez, depois da mudança, e o devolve para quem quiser redesenhar.
+async function change($: Engine, args: string[]): Promise<{ ok: boolean; text: string; after: State | undefined }> {
   const r = await run($, args)
-  if (!r.ok) return { ok: false, text: r.out || 'O speak falhou.' }
-  return { ok: true, text: said(args, await state($)) }
+  const after = await state($)
+  if (!r.ok) return { ok: false, text: r.out || 'O speak falhou.', after }
+  return { ok: true, text: said(args, after), after }
 }
 
 // Escrita completa: roda direto, sem menu. Devolve undefined quando falta a escolha (então abre o menu).
@@ -103,8 +105,11 @@ const STATE = { plugin: 'speak', key: 'where' } as const
 const NOTE = { plugin: 'speak', key: 'note' } as const
 const FOCUS = { plugin: 'speak', key: 'focus' } as const
 const PANE = 'speak'
-const ENTER_ALL = 'Todas as sessões'
-const WHERES: Record<string, string> = { all: ENTER_ALL, session: 'Só nesta sessão' }
+const ALL_LABEL = 'Todas as sessões'
+const WHERES: Record<string, string> = { all: ALL_LABEL, session: 'Só nesta sessão' }
+const OWN = '· só nesta sessão'
+const HELP = 'Tab troca de linha · Enter escolhe o valor · Esc fecha'
+const UNREAD = 'Não deu para ler o estado da voz.'
 
 type Key = 'where' | 'power' | 'mode' | 'size' | 'voice'
 const ROWS: { key: Key; label: string; table: Record<string, string>; current: (s: State) => string; own: (s: State) => boolean }[] = [
@@ -115,45 +120,81 @@ const ROWS: { key: Key; label: string; table: Record<string, string>; current: (
   { key: 'voice', label: 'Voz de leitura', table: READERS, current: s => s.voice, own: () => false },
 ]
 
-// As props do Client: as linhas com o valor em vigor lido do speak, o foco e a nota do rodapé.
-async function menuProps($: Engine): Promise<unknown> {
-  const now = await state($)
-  const where = (await $.state.get(STATE)).value ?? 'all'
-  const note = (await $.state.get(NOTE)).value ?? ''
-  const focus = (await $.state.get(FOCUS)).value ?? 'where'
-  return {
-    focus,
-    note,
-    rows: ROWS.map(r => ({
-      key: r.key,
-      label: r.label,
-      values: Object.keys(r.table).map(value => ({ value, label: r.table[value]! })),
-      value: r.key === 'where' ? where : now ? r.current(now) : '',
-      own: now ? r.own(now) : false,
-    })),
-  }
-}
+// O estado da voz lido para o desenho: vazio ao abrir (o desenho lê), e trocado a cada mudança pela leitura que a
+// própria mudança já fez, para não ler duas vezes. `now` indefinido é "não deu para ler".
+let view: { now: State | undefined } | undefined
+
+// As trocas rodam em fila: duas escolhas seguidas rodam o speak uma depois da outra, nunca juntas.
+let queue: Promise<unknown> = Promise.resolve()
+const enqueue = (job: () => Promise<void>): Promise<unknown> => (queue = queue.then(job).catch(() => undefined))
 
 // Uma troca vinda do menu: "Mudar em" só guarda o alcance; o resto roda o speak (com `all` quando o alcance é todas
 // as sessões, menos a voz de leitura, que é sempre geral) e guarda a frase, ou o erro, para o rodapé.
-async function menuChange($: Engine, data: unknown): Promise<void> {
-  const { key, value } = (data ?? {}) as { key?: unknown; value?: unknown }
+async function menuChange($: Engine, key: Key, value: string): Promise<void> {
   const row = ROWS.find(r => r.key === key)
-  if (!row || typeof value !== 'string' || !(value in row.table)) return
+  if (!row || !(value in row.table)) return
   if (row.key === 'where') {
     await $.state.set(STATE, value as 'all' | 'session')
     await $.state.set(NOTE, '')
-    return
+  } else {
+    const all = ((await $.state.get(STATE)).value ?? 'all') === 'all'
+    const tail = all && row.key !== 'voice' ? ['all'] : []
+    const args = row.key === 'power' ? [value, ...tail] : [row.key, value, ...tail]
+    const done = await change($, args)
+    view = { now: done.after }
+    await $.state.set(NOTE, done.text)
   }
-  const all = ((await $.state.get(STATE)).value ?? 'all') === 'all'
-  const tail = all && row.key !== 'voice' ? ['all'] : []
-  const args = row.key === 'power' ? [value, ...tail] : [row.key, value, ...tail]
-  await $.state.set(NOTE, (await change($, args)).text)
+  $.ui.invalidate('ui.render')
+}
+
+// Tudo o que o desenho precisa, já lido: quem desenha não fala com o speak nem com o estado.
+type Menu = {
+  now: State | undefined; where: string; note: string; first: Key
+  choose: (key: Key, value: string) => unknown; close: () => unknown
+}
+
+// O desenho do painel, isolado: trocar o formato do menu é trocar só esta função.
+function drawMenu(el: any, m: Menu) {
+  const { Box, Text, Select, Button } = el
+  const width = Math.max(...ROWS.map(r => r.label.length)) + 2
+  return (
+    <Box flexDirection="column">
+      {ROWS.map(r => {
+        const value = r.key === 'where' ? m.where : m.now ? r.current(m.now) : ''
+        const own = m.now ? r.own(m.now) : false
+        return (
+          <Select
+            key={r.key}
+            label={r.label.padEnd(width) + (own ? OWN + ' ' : '')}
+            options={Object.keys(r.table).map(v => ({ value: v, label: r.table[v]! }))}
+            value={value || undefined}
+            autoFocus={r.key === m.first ? true : undefined}
+            onSelect={(v: string) => m.choose(r.key, v)}
+          />
+        )
+      })}
+      <Button key="fechar" label="Fechar" onPress={m.close} />
+      <Text dimColor>{m.note || (m.now ? HELP : UNREAD)}</Text>
+    </Box>
+  )
+}
+
+async function menuTree($: Engine, e: any): Promise<unknown> {
+  if (!view) view = { now: await state($) }
+  const focus = (await $.state.get(FOCUS)).value ?? 'where'
+  return drawMenu($.ui.resolve(e), {
+    now: view.now,
+    where: (await $.state.get(STATE)).value ?? 'all',
+    note: (await $.state.get(NOTE)).value ?? '',
+    first: (ROWS.some(r => r.key === focus) ? focus : 'where') as Key,
+    choose: (key, value) => enqueue(() => menuChange($, key, value)),
+    close: () => $.ui.close({ id: PANE }),
+  })
 }
 
 // Abre o menu com o foco na linha pedida; devolve falso quando ele não abre (então a resposta é em texto).
 async function openMenu($: Engine, focus: Key): Promise<boolean> {
-  if (!(await $.session.surfaces()).includes('terminal')) return false
+  view = undefined
   await $.state.set(STATE, 'all')
   await $.state.set(NOTE, '')
   await $.state.set(FOCUS, focus)
@@ -187,14 +228,5 @@ export const register: Register = on => {
     }
   })
 
-  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Client } = $.ui.resolve(e) as any
-    return <Client key="menu" module="./menu.tsx" props={await menuProps($)} />
-  })
-
-  on('ui.message', async ($, e) => {
-    if (e.requestId !== PANE) return {}
-    await menuChange($, e.data)
-    return { props: await menuProps($) }
-  })
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => menuTree($, e))
 }

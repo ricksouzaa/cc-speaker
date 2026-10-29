@@ -1,9 +1,9 @@
 import { expect, test } from 'claude-code/testing'
 
 // Nada aqui toca o motor, o áudio nem as pastas reais: `process.run` é respondido pelo teste, que guarda o estado
-// do speak numa variável. O menu é montado no painel `speak` da superfície `terminal` e operado pelas teclas.
+// do speak numa variável. O menu é montado no painel `speak` da superfície `terminal` e operado pela escolha nas listas.
 
-type Opts = { fail?: boolean; scope?: Record<string, string>; placed?: boolean; surface?: string }
+type Opts = { fail?: boolean; statusFails?: boolean; scope?: Record<string, string>; placed?: boolean; surface?: string }
 
 async function setup($: any, on: any, opts: Opts = {}) {
   const ran: string[][] = []
@@ -24,7 +24,7 @@ async function setup($: any, on: any, opts: Opts = {}) {
     ran.push(args)
     const done = (exitCode: number, stdout: string, stderr = '') =>
       ({ value: { exitCode, stdout, stderr, isStdoutTruncated: false, isStderrTruncated: false } })
-    if (args[0] === 'status' && args[1] === '--json') return done(0, JSON.stringify(st))
+    if (args[0] === 'status' && args[1] === '--json') return opts.statusFails ? done(1, '', 'sem estado') : done(0, JSON.stringify(st))
     if (opts.fail) return done(1, '', 'voz: deu errado\n')
     if (args[0] === 'mode') st.mode = args[1]!
     if (args[0] === 'size') st.size = args[1]!
@@ -47,16 +47,18 @@ const PANE = {
 // Os comandos do speak que rodaram, sem as consultas de estado.
 const changes = (ran: string[][]) => ran.filter(a => !(a[0] === 'status' && a[1] === '--json')).map(a => a.join(' '))
 
-async function lines(ui: any): Promise<string[]> {
-  return (await ui.findAll({ type: 'Text', in: 'menu' })).map((t: any) => t.text as string)
-}
-const HELP = '↑↓ ajuste · ←→ valor · Esc fecha'
+const HELP = 'Tab troca de linha · Enter escolhe o valor · Esc fecha'
 
 async function openMenu($: any, args = '') {
   const r = await $.command.run({ command: 'speak', args })
   const ui = await $.ui.mount(PANE)
   return { r, ui }
 }
+
+const texts = async (ui: any, type: string): Promise<any[]> => ui.findAll({ type })
+const footer = async (ui: any): Promise<string> => ((await texts(ui, 'Text')).at(-1) as any).text
+const selects = async (ui: any): Promise<Record<string, any>> =>
+  Object.fromEntries((await texts(ui, 'Select')).map((x: any) => [x.props.key, x.props]))
 
 test('o comando /speak é registrado, imediato', async ($, on) => {
   let spec: any
@@ -90,21 +92,26 @@ test('escrita completa não abre o menu', async ($, on) => {
   expect(opened).toEqual([])
 })
 
-test('/speak sozinho abre o painel que fica aberto, com o foco em "Mudar em" e Todas as sessões', async ($, on) => {
+test('/speak sozinho abre o painel com o foco, uma lista por linha e o botão Fechar', async ($, on) => {
   const { ran, opened } = await setup($, on)
   const { ui } = await openMenu($)
   expect(opened.length).toBe(1)
   expect(opened[0].id).toBe('speak')
   expect(opened[0].focus).toBe(true)
   expect(opened[0].closeOnEscape).toBe(true)
-  const t = await lines(ui)
-  expect(t.length).toBe(6)
-  expect(t[0]).toMatch(/^❯ Mudar em\s+‹ Todas as sessões ›$/)
-  expect(t[1]).toMatch(/^ {2}Voz\s+‹ Ligada ›$/)
-  expect(t[2]).toMatch(/^ {2}Leitura\s+‹ Resposta inteira ›$/)
-  expect(t[3]).toMatch(/^ {2}Tamanho do resumo\s+‹ Médio ›$/)
-  expect(t[4]).toMatch(/^ {2}Voz de leitura\s+‹ Dora ›$/)
-  expect(t[5]).toBe(HELP)
+  const s = await selects(ui)
+  expect(Object.keys(s)).toEqual(['where', 'power', 'mode', 'size', 'voice'])
+  expect(s.where.value).toBe('all')
+  expect(s.power.value).toBe('on')
+  expect(s.mode.value).toBe('full')
+  expect(s.size.value).toBe('medium')
+  expect(s.voice.value).toBe('dora')
+  expect(s.where.label).toMatch(/^Mudar em\s*$/)
+  expect(s.where.options.map((o: any) => o.label)).toEqual(['Todas as sessões', 'Só nesta sessão'])
+  expect(s.where.autoFocus).toBe(true)
+  for (const k of ['power', 'mode', 'size', 'voice']) expect(s[k].autoFocus).toBeUndefined()
+  expect((await texts(ui, 'Button')).length).toBe(1)
+  expect(await footer(ui)).toBe(HELP)
   expect(changes(ran)).toEqual([])
   await ui.unmount()
 })
@@ -112,109 +119,111 @@ test('/speak sozinho abre o painel que fica aberto, com o foco em "Mudar em" e T
 test('/speak mode abre com o foco em Leitura', async ($, on) => {
   await setup($, on)
   const { ui } = await openMenu($, 'mode')
-  const t = await lines(ui)
-  expect(t[0]).toMatch(/^ {2}Mudar em/)
-  expect(t[2]).toMatch(/^❯ Leitura/)
+  const s = await selects(ui)
+  expect(s.mode.autoFocus).toBe(true)
+  expect(s.where.autoFocus).toBeUndefined()
   await ui.unmount()
 })
 
-test('baixo e direita na Voz mudam com "all" e o rodapé diz o que passou a valer', async ($, on) => {
+test('abre também sem a superfície terminal', async ($, on) => {
+  const { opened } = await setup($, on, { surface: 'vscode' })
+  const r = await $.command.run({ command: 'speak', args: '' })
+  expect(r).toEqual({})
+  expect(opened.length).toBe(1)
+})
+
+test('escolher na Voz roda com "all" e o rodapé diz o que passou a valer', async ($, on) => {
   const { ran } = await setup($, on)
   const { ui } = await openMenu($)
-  await ui.key({ key: 'down' })
-  await ui.key({ key: 'right' })
+  await ui.select({ key: 'power', value: 'off' })
   expect(changes(ran)).toEqual(['off all'])
-  const t = await lines(ui)
-  expect(t[1]).toMatch(/^❯ Voz\s+‹ Desligada ›$/)
-  expect(t[5]).toBe('A voz está desligada em todas as sessões.')
+  expect((await selects(ui)).power.value).toBe('off')
+  expect(await footer(ui)).toBe('A voz está desligada em todas as sessões.')
   await ui.unmount()
 })
 
-test('direita em "Mudar em" não roda nada; depois a troca vale só nesta sessão, sem "all"', async ($, on) => {
+test('uma troca lê o estado uma vez só', async ($, on) => {
   const { ran } = await setup($, on)
   const { ui } = await openMenu($)
-  await ui.key({ key: 'right' })
+  const before = ran.length
+  await ui.select({ key: 'mode', value: 'summary' })
+  expect(ran.slice(before).map(a => a.join(' '))).toEqual(['mode summary all', 'status --json'])
+  await ui.unmount()
+})
+
+test('"Mudar em" não roda nada; depois a troca vale só nesta sessão, sem "all"', async ($, on) => {
+  const { ran } = await setup($, on)
+  const { ui } = await openMenu($)
+  await ui.select({ key: 'where', value: 'session' })
   expect(changes(ran)).toEqual([])
-  expect((await lines(ui))[0]).toMatch(/‹ Só nesta sessão ›$/)
-  await ui.key({ key: 'down' })
-  await ui.key({ key: 'down' })
-  await ui.key({ key: 'right' })
+  expect((await selects(ui)).where.value).toBe('session')
+  await ui.select({ key: 'mode', value: 'summary' })
   expect(changes(ran)).toEqual(['mode summary'])
-  expect((await lines(ui))[5]).toBe('A voz passa a ler só o resumo nesta sessão.')
+  expect(await footer(ui)).toBe('A voz passa a ler só o resumo nesta sessão.')
   await ui.unmount()
 })
 
 test('a voz de leitura nunca leva "all"', async ($, on) => {
   const { ran } = await setup($, on)
   const { ui } = await openMenu($, 'voice')
-  await ui.key({ key: 'right' })
+  await ui.select({ key: 'voice', value: 'alex' })
   expect(changes(ran)).toEqual(['voice alex'])
-  expect((await lines(ui))[4]).toMatch(/‹ Alex ›$/)
+  expect((await selects(ui)).voice.value).toBe('alex')
   await ui.unmount()
 })
 
 test('a linha com campo próprio da sessão leva a marca "só nesta sessão"', async ($, on) => {
   await setup($, on, { scope: { mode: 'session' } })
   const { ui } = await openMenu($)
-  const t = await lines(ui)
-  expect(t[2]).toMatch(/‹ Resposta inteira ›\s+· só nesta sessão$/)
-  for (const i of [0, 1, 3, 4]) expect(t[i]).not.toContain('só nesta sessão')
+  const s = await selects(ui)
+  expect(s.mode.label).toContain('só nesta sessão')
+  for (const k of ['where', 'power', 'size', 'voice']) expect(s[k].label).not.toContain('só nesta sessão')
   await ui.unmount()
 })
 
-test('esquerda no primeiro valor vai ao último, e direita no último volta ao primeiro', async ($, on) => {
+test('duas escolhas seguidas rodam o speak uma depois da outra', async ($, on) => {
   const { ran } = await setup($, on)
-  const { ui } = await openMenu($, 'size')
-  await ui.key({ key: 'left' })
-  await ui.key({ key: 'left' })
-  await ui.key({ key: 'right' })
-  expect(changes(ran)).toEqual(['size small all', 'size large all', 'size small all'])
-  await ui.unmount()
-})
-
-test('cima na primeira linha vai à última', async ($, on) => {
-  await setup($, on)
   const { ui } = await openMenu($)
-  await ui.key({ key: 'up' })
-  expect((await lines(ui))[4]).toMatch(/^❯ Voz de leitura/)
-  await ui.unmount()
-})
-
-test('Enter não faz nada', async ($, on) => {
-  const { ran } = await setup($, on)
-  const { ui } = await openMenu($, 'mode')
-  await ui.key({ key: 'return' })
-  expect(changes(ran)).toEqual([])
-  expect((await lines(ui))[2]).toMatch(/^❯ Leitura\s+‹ Resposta inteira ›$/)
+  await Promise.all([ui.select({ key: 'mode', value: 'summary' }), ui.select({ key: 'size', value: 'large' })])
+  expect(changes(ran)).toEqual(['mode summary all', 'size large all'])
+  const order = ran.map(a => a[0])
+  expect(order.slice(-4)).toEqual(['mode', 'status', 'size', 'status'])
   await ui.unmount()
 })
 
 test('speak com código 1 mostra o erro no rodapé e o valor lido de volta do estado', async ($, on) => {
   await setup($, on, { fail: true })
   const { ui } = await openMenu($, 'mode')
-  await ui.key({ key: 'right' })
-  const t = await lines(ui)
-  expect(t[2]).toMatch(/‹ Resposta inteira ›$/)
-  expect(t[5]).toBe('voz: deu errado')
+  await ui.select({ key: 'mode', value: 'summary' })
+  expect((await selects(ui)).mode.value).toBe('full')
+  expect(await footer(ui)).toBe('voz: deu errado')
   await ui.unmount()
 })
 
 test('"Mudar em" abre sempre em Todas as sessões, mesmo depois de trocada', async ($, on) => {
   await setup($, on)
   const first = await openMenu($)
-  await first.ui.key({ key: 'right' })
+  await first.ui.select({ key: 'where', value: 'session' })
   await first.ui.unmount()
   const { ui } = await openMenu($)
-  expect((await lines(ui))[0]).toMatch(/‹ Todas as sessões ›$/)
+  expect((await selects(ui)).where.value).toBe('all')
   await ui.unmount()
 })
 
-test('mensagem de valor desconhecido não roda nada', async ($, on) => {
+test('valor desconhecido não roda nada', async ($, on) => {
   const { ran } = await setup($, on)
   const { ui } = await openMenu($)
-  await ui.post({ key: 'mode', value: 'x; rm' })
-  await ui.post({ key: 'nada', value: 'on' })
+  await ui.select({ key: 'mode', value: 'x; rm' })
   expect(changes(ran)).toEqual([])
+  await ui.unmount()
+})
+
+test('quando o estado não pode ser lido, as linhas ficam vazias e o rodapé avisa', async ($, on) => {
+  await setup($, on, { statusFails: true })
+  const { ui } = await openMenu($)
+  const s = await selects(ui)
+  for (const k of ['power', 'mode', 'size', 'voice']) expect(s[k].value).toBeUndefined()
+  expect(await footer(ui)).toBe('Não deu para ler o estado da voz.')
   await ui.unmount()
 })
 
@@ -223,13 +232,6 @@ test('painel que não abre responde em texto com a forma escrita', async ($, on)
   const r = await $.command.run({ command: 'speak', args: '' })
   expect(r.text).toContain('/speak voice')
   expect(changes(ran)).toEqual([])
-})
-
-test('superfície sem Client responde em texto com a forma escrita', async ($, on) => {
-  const { opened } = await setup($, on, { surface: 'vscode' })
-  const r = await $.command.run({ command: 'speak', args: '' })
-  expect(r.text).toContain('/speak voice')
-  expect(opened).toEqual([])
 })
 
 test('erro do speak volta como texto', async ($, on) => {

@@ -15,5 +15,5 @@ The `speak` Stop hook reads each reply aloud: by default only its last line `�
   - Change the voice ("troca para a voz do Alex", "quero uma voz feminina"): `speak voice <name>` (dora, alex or santa).
   - How the voice is set ("como está a narração?"): `speak status`, then say it in plain words.
   - Install the engine ("instala a voz"): `speak install`, with a timeout of 600000 ms.
-- The slash command `/speak` exists for the human: alone it opens an arrow-key menu (up and down change the row, left and right the value) in place of the input field; `/speak on`, `off`, `mode`, `size`, `voice`, `status`, `stop` and `install` also work typed (`all` at the end of on, off, mode and size for every session). The module answers it without you; do not run it for the human.
+- The slash command `/speak` exists for the human: alone it opens a side panel that already has the keyboard (terminal and VS Code), one native list per row (Tab changes the row, Enter picks the value; Esc or the Fechar button closes); `/speak on`, `off`, `mode`, `size`, `voice`, `status`, `stop` and `install` also work typed (`all` at the end of on, off, mode and size for every session). The module answers it without you; do not run it for the human.
 - Subagent reports carry no such line; only the session that talks to the human writes it.
