@@ -98,16 +98,16 @@ O Ricardo precisou rodar `speak install` à mão no Ubuntu 24 depois de instalar
 **Interfaces:**
 - Produces: `clear_all_sessions(*fields: str) -> None` (remove os campos de todos os arquivos de sessão, mantendo o arquivo); `status --json` com `scope: {"on": "session"|"all", "mode": ..., "size": ...}`.
 
-- [ ] **Step 1: Testes que falham:**
+- [x] **Step 1: Testes que falham:**
   - `test_all_remove_das_sessoes`: duas sessões com `mode: full`; `speak mode summary all` → arquivo geral `summary`, as duas sessões sem o campo `mode`, `mode(sessão) == 'summary'`.
   - `test_on_all_marca_e_remove`: `speak on all` → `ALL_MARK` atualizado e campo `voice` removido das sessões; uma sessão semeada por `CLAUDE_SPEAK=0` aberta antes fica falando.
   - `test_status_marca`: sessão com `size: large` própria → linha `tamanho do resumo: large · só nesta sessão`; sem campo → sem a marca; voz de leitura nunca marcada.
   - `test_status_json_scope`: o mesmo caso dá `scope.size == 'session'`, `scope.mode == 'all'`.
   - `test_limpa_copias_antigas`: sessão com `mode` igual ao geral antes da mudança → depois de `migrate()`, sem `mode`; `voice` mantido.
-- [ ] **Step 2:** Rodar → FALHA.
-- [ ] **Step 3:** Implementar: os ramos `all` de on/off, mode e size chamam `clear_all_sessions` no lugar de `set_all_sessions`; status e json conforme a seção 2 do desenho.
-- [ ] **Step 4:** `python3 -m unittest discover -s tests` → OK.
-- [ ] **Step 5:** Commit `fix: alcance guardado; todas as sessões apaga as exceções em vez de copiar`.
+- [x] **Step 2:** Rodar → FALHA.
+- [x] **Step 3:** Implementar: os ramos `all` de on/off, mode e size chamam `clear_all_sessions` no lugar de `set_all_sessions`; status e json conforme a seção 2 do desenho.
+- [x] **Step 4:** `python3 -m unittest discover -s tests` → OK.
+- [x] **Step 5:** Commit `fix: alcance guardado; todas as sessões apaga as exceções em vez de copiar`.
 
 ### Task 5: Som e microfone no Mac
 
@@ -188,3 +188,4 @@ Também na Tarefa 2: a mudança única apaga a pasta `state/phone` que sobrou do
 ## Decisões tomadas na execução
 
 - Task 3 (instalação automática): o gancho de começo funciona (testado com `uv` real, com PATH mínimo, no HEAD e no `635ecd3`; Ubuntu 26.04, Claude Code 2.1.312). As causas reais, que levam a rodar `speak install` à mão: (1) enquanto a instalação de fundo roda, `speak status` e `speak test` diziam "não instalado (rode: speak install)", ignorando a trava; (2) um `speak install` manual não esperava o que já rodava (só o gancho tomava `state/install.lock`) e os dois gravavam o mesmo `<arquivo>.part`, dando `[Errno 2] ... .part` e um `install.failed` falso, que depois impedia o gancho de tentar de novo. O registro do Ubuntu 24 segue pendente (o `speak check` agora mostra as três últimas linhas do `install.log` quando falta o motor). Desenho: a trava `fcntl.flock` em `state/install.lock` passou para dentro de `speak install` (`install_marked`), bloqueante, com a mensagem "outra instalação está em andamento; esperando ela terminar"; o gancho só sonda a trava (ocupada: 'installing'; livre: solta e inicia o filho, sem `pass_fds`); dois ganchos em corrida podem iniciar dois filhos, o segundo espera e acha tudo instalado. Download temporário por processo (`.part-<pid>`, removido na falha). `status` (texto e `--json`, campo novo `installing`) e `test` dizem "sendo instalado em segundo plano (registro em ...)". Versão 0.5.3.
+- Task 4 (alcance de verdade): `clear_all_sessions(*fields)` substitui `set_all_sessions` (que foi removida); `speak on/off all` grava o geral, marca `ALL_MARK` e remove só `voice` das sessões; `mode`/`size` `all` removem o campo. O arquivo de sessão que fica vazio é mantido. `status` passou a mostrar o valor em vigor da sessão (antes mostrava o geral) em voz, modo e tamanho, com a marca `· só nesta sessão` quando o campo é próprio da sessão; o rótulo `modo:` foi mantido (o desenho citava `leitura:` só como exemplo do menu). `status --json` ganhou `scope` (`on`, `mode`, `size`). A limpeza única (`_drop_copied_fields`, no fim de `migrate()`) tira `mode`/`size` iguais ao geral das sessões e grava o marcador `state/scope` para não apagar exceções futuras; erro de escrita na pasta de estado é ignorado e tenta de novo na próxima chamada. Dois testes antigos (`test_mode_here_does_not_touch_other_sessions`, `test_mode_all_sets_every_session_and_the_general`) e `test_session_size_stays_in_the_session_and_all_sets_every_one` foram ajustados ao modelo novo (remover, não copiar). Versão 0.5.4.

@@ -278,10 +278,19 @@ def set_session(key, **fields):
     write_atomic(os.path.join(SESSIONS, key), json.dumps({**read_session(key), **fields}))
 
 
-def set_all_sessions(**fields):
+def clear_all_sessions(*fields):
+    """Removes the given fields (voice, mode, size) from every session file, keeping the file (even empty):
+    an empty file means the session follows the general setting in everything."""
     prune_sessions()
     for key in os.listdir(SESSIONS) if os.path.isdir(SESSIONS) else ():
-        write_atomic(os.path.join(SESSIONS, key), json.dumps({**read_session(key), **fields}))
+        data = read_session(key)
+        if any(f in data for f in fields):
+            write_atomic(os.path.join(SESSIONS, key), json.dumps({k: v for k, v in data.items() if k not in fields}))
+
+
+def own_field(session, field):
+    """True when the session's file holds its own value for the field (an exception to the general setting)."""
+    return bool(session) and field in read_session(session)
 
 
 def prune_sessions():
@@ -844,7 +853,8 @@ def rule():
 
 def status():
     session = current_session()
-    print('voz: %s' % ('ligada' if is_on(session) else 'desligada'))
+    here = ' \u00b7 s\u00f3 nesta sess\u00e3o'
+    print('voz: %s%s' % ('ligada' if is_on(session) else 'desligada', here if own_field(session, 'voice') else ''))
     print('  geral: %s' % ('desligada' if os.path.exists(OFF_FLAG) else 'ligada'))
     choice = session_choice(session)
     if session:
@@ -854,8 +864,8 @@ def status():
         print('  fora de uma sessão do Claude Code')
     if os.environ.get('CLAUDE_SPEAK') == '0' and (not session or choice == 'muted'):
         print('  desligada só nesta sessão (CLAUDE_SPEAK=0)')
-    print('  modo: %s' % mode())  # the general one (or CLAUDE_SPEAK_MODE)
-    print('  tamanho do resumo: %s' % summary_size())
+    print('  modo: %s%s' % (mode(session), here if own_field(session, 'mode') else ''))
+    print('  tamanho do resumo: %s%s' % (summary_size(session), here if own_field(session, 'size') else ''))
     print('  motor: %s' % engine_text())
     print('  voz: %s, velocidade %s' % (voice(), speed()))
     return 0
@@ -890,6 +900,37 @@ def migrate():
                         pass
 
 
+    _drop_copied_fields()
+
+
+def _drop_copied_fields():
+    try:
+        _drop_copied_fields_once()
+    except OSError:
+        pass  # unwritable state folder: try again on the next call
+
+
+def _drop_copied_fields_once():
+    """Once: the session files of the old copy-on-all model lose `mode` and `size` equal to the general value
+    (`voice` stays: it may be the CLAUDE_SPEAK=0 seed). Marked by STATE/scope so later exceptions are kept."""
+    done = os.path.join(STATE, 'scope')
+    if os.path.exists(done):
+        return
+    general = {}
+    for field, path, default in (('mode', MODE_FILE, 'full'), ('size', SIZE_FILE, 'medium')):
+        try:
+            with open(path) as fh:
+                general[field] = fh.read().strip() or default
+        except OSError:
+            general[field] = default
+    for key in os.listdir(SESSIONS) if os.path.isdir(SESSIONS) else ():
+        data = read_session(key)
+        kept = {k: v for k, v in data.items() if general.get(k) != v}
+        if kept != data:
+            write_atomic(os.path.join(SESSIONS, key), json.dumps(kept))
+    write_atomic(done, '')
+
+
 def _translate_config():
     try:
         os.rename(os.path.join(CONF, 'desligado'), OFF_FLAG)
@@ -912,6 +953,8 @@ def status_json():
     session = current_session()
     now = voice()
     print(json.dumps({'on': is_on(session), 'mode': mode(session), 'size': summary_size(session),
+                      'scope': {f: 'session' if own_field(session, g) else 'all'
+                                for f, g in (('on', 'voice'), ('mode', 'mode'), ('size', 'size'))},
                       'engine': engine_ready(), 'installing': not engine_ready() and installing(),
                       'voice': next((short for short, (full, _) in PT_VOICES.items() if full == now), now)}))
     return 0
@@ -930,7 +973,7 @@ def main(argv):
             os.makedirs(CONF, exist_ok=True)
             open(OFF_FLAG, 'w').close()
             mark_all()
-            set_all_sessions(voice='muted')
+            clear_all_sessions('voice')
             stop_current()
         elif cmd == 'off':
             set_session(session, voice='muted')
@@ -939,7 +982,7 @@ def main(argv):
             if os.path.exists(OFF_FLAG):
                 os.remove(OFF_FLAG)
             mark_all()
-            set_all_sessions(voice='speaking')
+            clear_all_sessions('voice')
         else:
             set_session(session, voice='speaking')
         return status()
@@ -966,7 +1009,7 @@ def main(argv):
             os.makedirs(CONF, exist_ok=True)
             with open(MODE_FILE, 'w') as fh:
                 fh.write(wanted + '\n')
-            set_all_sessions(mode=wanted)
+            clear_all_sessions('mode')
         return status()
     if cmd == 'size':
         wanted, _, scope = text.partition(' ')
@@ -981,7 +1024,7 @@ def main(argv):
             os.makedirs(CONF, exist_ok=True)
             with open(SIZE_FILE, 'w') as fh:
                 fh.write(wanted + '\n')
-            set_all_sessions(size=wanted)
+            clear_all_sessions('size')
         return status()
     if cmd == 'voice':
         if not text:

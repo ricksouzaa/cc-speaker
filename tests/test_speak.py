@@ -447,7 +447,7 @@ class Session(unittest.TestCase):
         self.speak('mode', 'summary', session=self.me)
         mine = self.speak('status', session=self.me).stdout
         self.assertIn('modo summary', mine)
-        self.assertIn('modo: full', mine)
+        self.assertIn('modo: summary \u00b7 s\u00f3 nesta sess\u00e3o', mine)
         other = self.speak('status', session=self.other).stdout
         self.assertIn('modo: full', other)
         self.assertIn('esta sessão: segue a geral, modo segue o geral', other)
@@ -455,7 +455,9 @@ class Session(unittest.TestCase):
     def test_mode_all_sets_every_session_and_the_general(self):
         self.speak('mode', 'summary', session=self.other)
         self.speak('mode', 'full', 'all', session=self.me)
-        self.assertIn('modo full', self.speak('status', session=self.other).stdout)  # its own choice was overwritten
+        other = self.speak('status', session=self.other).stdout  # its own choice was removed, not copied
+        self.assertIn('modo segue o geral', other)
+        self.assertIn('modo: full\n', other)
         self.assertIn('modo: full', self.speak('status', session=self.me).stdout)
         self.assertEqual(open(data_dir(self.tmp.name, 'config', 'mode')).read().strip(), 'full')
 
@@ -1254,7 +1256,7 @@ class Size(unittest.TestCase):
         self.assertEqual(speak_read(folder, key)['size'], 'small')
         self.assertFalse(os.path.exists(data_dir(self.tmp.name, 'config', 'size')))
         self.speak('size', 'large', 'all', key=key)
-        self.assertEqual(speak_read(folder, key)['size'], 'large')
+        self.assertNotIn('size', speak_read(folder, key))  # removed, not copied
         self.assertEqual(open(data_dir(self.tmp.name, 'config', 'size')).read().strip(), 'large')
         self.assertNotIn('size', speak_read(folder, other) if os.path.exists(os.path.join(folder, other)) else {})
 
@@ -1648,6 +1650,81 @@ class InstallLock(unittest.TestCase):
         self.assertNotIn('dois', err.getvalue())
 
 
+class Scope(unittest.TestCase):
+    """The session file holds only exceptions; `all` writes the general setting and removes the field from every session."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.env = {'HOME': self.tmp.name, 'PATH': '/usr/bin:/bin'}
+        self.paths = isolate(self, self.tmp.name)
+        self.sleep = subprocess.Popen(['sleep', '60'])
+        self.addCleanup(self.sleep.wait)
+        self.addCleanup(self.sleep.kill)
+        self.me = speak.session_key(os.getpid())
+        self.other = speak.session_key(self.sleep.pid)
+        self.folder = data_dir(self.tmp.name, 'state', 'sessions')
+
+    def speak(self, *args, session, **env):
+        return subprocess.run([sys.executable, '-I', SPEAK, *args], capture_output=True, text=True,
+                              stdin=subprocess.DEVNULL, env={**self.env, 'CLAUDE_SPEAK_SESSION': session, **env})
+
+    def put(self, key, data):
+        os.makedirs(self.folder, exist_ok=True)
+        with open(os.path.join(self.folder, key), 'w') as fh:
+            fh.write(json.dumps(data))
+
+    def test_all_remove_das_sessoes(self):
+        self.put(self.me, {'mode': 'full'})
+        self.put(self.other, {'mode': 'full'})
+        self.speak('mode', 'summary', 'all', session=self.me)
+        self.assertEqual(open(data_dir(self.tmp.name, 'config', 'mode')).read().strip(), 'summary')
+        self.assertEqual(speak_read(self.folder, self.me), {})
+        self.assertEqual(speak_read(self.folder, self.other), {})
+        self.assertEqual(self.speak('status', '--json', session=self.other).stdout.count('"mode": "summary"'), 1)
+
+    def test_on_all_marca_e_remove(self):
+        self.put(self.other, {'voice': 'muted', 'size': 'small'})
+        before = speak.session_started(self.other) - 3600
+        self.speak('on', 'all', session=self.me)
+        mark = data_dir(self.tmp.name, 'state', 'all')
+        self.assertTrue(os.path.exists(mark))
+        self.assertEqual(speak_read(self.folder, self.other), {'size': 'small'})
+        self.assertIn('voz: ligada', self.speak('status', session=self.other, CLAUDE_SPEAK='0').stdout)
+        self.assertLess(before, os.stat(mark).st_mtime)
+
+    def test_status_marca(self):
+        self.put(self.me, {'size': 'large'})
+        out = self.speak('status', session=self.me).stdout
+        self.assertIn('tamanho do resumo: large \u00b7 s\u00f3 nesta sess\u00e3o', out)
+        self.assertIn('modo: full\n', out)
+        self.assertNotIn('modo: full \u00b7', out)
+        self.assertNotIn('voz: sem', out)
+        self.assertTrue(all('s\u00f3 nesta sess\u00e3o' not in l for l in out.splitlines() if 'voz: ' in l and 'velocidade' in l))
+        plain = self.speak('status', session=self.other).stdout
+        self.assertNotIn('s\u00f3 nesta sess\u00e3o', plain)
+
+    def test_status_json_scope(self):
+        self.put(self.me, {'size': 'large'})
+        data = json.loads(self.speak('status', '--json', session=self.me).stdout)
+        self.assertEqual(data['scope'], {'on': 'all', 'mode': 'all', 'size': 'session'})
+        self.assertEqual(data['size'], 'large')
+
+    def test_limpa_copias_antigas(self):
+        os.makedirs(os.path.dirname(speak.MODE_FILE), exist_ok=True)
+        with open(speak.MODE_FILE, 'w') as fh:
+            fh.write('summary\n')
+        self.put(self.me, {'voice': 'muted', 'mode': 'summary', 'size': 'medium'})
+        self.put(self.other, {'mode': 'full', 'size': 'large'})
+        speak.migrate()
+        self.assertEqual(speak_read(self.folder, self.me), {'voice': 'muted'})
+        self.assertEqual(speak_read(self.folder, self.other), {'mode': 'full', 'size': 'large'})
+        # once only: an exception equal to the general value written later stays
+        self.put(self.me, {'mode': 'summary'})
+        speak.migrate()
+        self.assertEqual(speak_read(self.folder, self.me), {'mode': 'summary'})
+
+
 class OldOutputField(unittest.TestCase):
     def test_a_session_file_with_an_output_field_is_read_without_it(self):
         with tempfile.TemporaryDirectory() as root:
@@ -1703,7 +1780,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.5.3')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.5.4')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):
