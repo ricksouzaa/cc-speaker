@@ -22,6 +22,10 @@
   speak say [text | -]     speak in the background and return at once; `-` reads the reply from stdin and applies
                            the mode (used by hooks/speak-stop.py). With the phone output, `-` plays nothing: it
                            synthesizes an mp3 in the foreground and prints its path (nothing when there is none)
+  speak mobile say <text>  synthesize <text> into an mp3 for the phone and print its path (exit 2 without text); the
+                           Stop hook asks Claude to run it with the summary when the phone is on in summary mode
+  speak mobile-summary     exit 0 (printing the size description) when this session speaks to the phone in summary
+                           mode, else 1; used by the hooks
   speak output             print `phone` or `speaker`: where this session's replies go (used by hooks/speak-stop.py)
   speak stop               cut the speech playing now, whoever's it is, and drop every speech waiting its turn; the
                            voice stays on
@@ -977,6 +981,11 @@ def main(argv):
                 fh.write(wanted + '\n')
             set_all_sessions(size=wanted)
         return status()
+    if cmd in ('mobile', 'phone') and rest[:1] == ['say']:
+        if not ' '.join(rest[1:]).strip():
+            print('voz: use "speak mobile say <resumo>"', file=sys.stderr)
+            return 2
+        return phone_say(' '.join(rest[1:]), current_session())
     if cmd in ('mobile', 'phone'):  # 'phone' is the former name, kept silently
         wanted, _, scope = text.partition(' ')
         if wanted not in ('on', 'off') or scope not in ('', 'all'):
@@ -1020,6 +1029,12 @@ def main(argv):
         if gone:
             print(' '.join(gone))
         return 1 if gone else 0
+    if cmd == 'mobile-summary':
+        session = current_session()
+        if is_on(session) and engine_ready() and output(session) == 'phone' and mode(session) == 'summary':
+            print(SIZE_TEXT[summary_size(session)])
+            return 0
+        return 1
     if cmd == 'silent':
         return 1 if is_on(current_session()) and engine_ready() else 0
     if cmd == 'install':

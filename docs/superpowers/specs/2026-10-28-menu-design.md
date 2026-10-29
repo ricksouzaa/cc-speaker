@@ -41,3 +41,11 @@ O diálogo de perguntas (`$.ui.ask`, o do AskUserQuestion) não é o que ele que
 - Escolha completa (`/speak voice alex`), `status`, `stop`, `install`: como antes, sem painel.
 - Painel que não abre (`isPlaced` false, sem superfície): texto com as opções e a forma escrita.
 - `$.ui.ask` não é usado.
+
+## Celular sem a linha 🔊 no chat
+
+Pedido do Ricardo (o mp3 já chega e toca no celular): com a saída `phone` e o modo `summary`, a linha 🔊 não aparece no chat.
+
+- `speak-cut.py` (nova mensagem): nessa combinação avisa "speak: modo celular com resumo: não termine esta resposta com a linha 🔊; o gancho de fim vai pedir o resumo." (a nota de "voz desligada" continua quando está mudo).
+- `speak-stop.py`: nessa combinação não lê linha 🔊; bloqueia uma vez pedindo ao Claude que rode `speak mobile say "<resumo>"` (resumo da resposta recém-dada, no tamanho em vigor, sem código nem caminhos) e envie o mp3 impresso com SendUserFile, sem escrever mais nada. Celular com modo completo: como antes (o gancho sintetiza a prosa). No segundo Stop (`stop_hook_active`) não faz nada.
+- `speak mobile say <texto>`: sintetiza o texto em mp3 (mesma função, mesma pasta e limpeza) e imprime o caminho; sem texto, sai com código 2. `speak mobile-summary` diz se a sessão está nessa combinação (código 0 e imprime a descrição do tamanho).

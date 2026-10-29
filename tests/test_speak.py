@@ -1046,6 +1046,9 @@ class Hook(unittest.TestCase):
                 fh.write('import os, sys\n'
                          'if sys.argv[1] == "output":\n'
                          '    print(os.environ.get("FAKE_OUTPUT", "speaker")); sys.exit(0)\n'
+                         'if sys.argv[1] == "mobile-summary":\n'
+                         '    print(os.environ["FAKE_SUMMARY"]) if os.environ.get("FAKE_SUMMARY") else None\n'
+                         '    sys.exit(0 if os.environ.get("FAKE_SUMMARY") else 1)\n'
                          'open(%r, "w").write(" ".join(sys.argv[1:]) + "|" + sys.stdin.read())\n'
                          'if os.environ.get("FAKE_MP3"):\n'
                          '    print(os.environ["FAKE_MP3"])\n'
@@ -1123,6 +1126,22 @@ class PhoneHook(unittest.TestCase):
         r, _, _ = self.run_hook({'last_assistant_message': REPLY, 'stop_hook_active': True},
                                 FAKE_OUTPUT='phone', FAKE_MP3='@MP3@')
         self.assertEqual((r.returncode, r.stdout), (0, ''))
+
+    def test_phone_with_summary_blocks_once_asking_for_the_summary_through_bash(self):
+        r, _, seen = self.run_hook(FAKE_OUTPUT='phone', FAKE_SUMMARY='duas a três frases', FAKE_MP3='@MP3@')
+        self.assertEqual((r.returncode, r.stderr), (0, ''))
+        out = json.loads(r.stdout)
+        self.assertEqual(out['decision'], 'block')
+        self.assertIn('speak mobile say', out['reason'])
+        self.assertIn('SendUserFile', out['reason'])
+        self.assertIn('duas a três frases', out['reason'])
+        self.assertFalse(os.path.exists(seen), 'the reply must not be handed to `speak say -`')
+
+    def test_phone_with_summary_does_nothing_on_the_second_stop(self):
+        r, _, seen = self.run_hook({'last_assistant_message': REPLY, 'stop_hook_active': True},
+                                   FAKE_OUTPUT='phone', FAKE_SUMMARY='x')
+        self.assertEqual((r.returncode, r.stdout), (0, ''))
+        self.assertFalse(os.path.exists(seen))
 
     def test_hands_the_stop_flag_to_speak(self):
         script = ('import os, sys\n'
@@ -1212,6 +1231,30 @@ class Silent(unittest.TestCase):
         # the voice off here: the note stays (`speak off` itself cuts this session's speech, by design)
         subprocess.run([sys.executable, '-I', SPEAK, 'off'], capture_output=True, env=self.env)
         self.assertIn('desligada', self.cut())
+
+    def test_phone_in_summary_mode_tells_claude_to_leave_the_line_out(self):
+        self.engine()
+        speak_ = lambda *a: subprocess.run([sys.executable, '-I', SPEAK, *a], capture_output=True, text=True,
+                                           env=self.env)
+        speak_('mobile', 'on', 'all')
+        self.assertEqual(speak_('mobile-summary').returncode, 1)  # phone, but the whole reply
+        self.assertEqual(self.cut(), '')
+        speak_('mode', 'summary', 'all')
+        r = speak_('mobile-summary')
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, speak.SIZE_TEXT['medium']))
+        note = self.cut()
+        self.assertIn('modo celular com resumo', note)
+        self.assertIn('🔊', note)
+        speak_('mobile', 'off', 'all')
+        self.assertEqual(speak_('mobile-summary').returncode, 1)
+
+    def test_mobile_say_refuses_without_text_and_prints_nothing_without_engine(self):
+        r = subprocess.run([sys.executable, '-I', SPEAK, 'mobile', 'say', '  '], capture_output=True, text=True,
+                           env=self.env)
+        self.assertEqual((r.returncode, r.stdout), (2, ''))
+        r = subprocess.run([sys.executable, '-I', SPEAK, 'mobile', 'say', 'olá'], capture_output=True, text=True,
+                           env=self.env)
+        self.assertEqual((r.returncode, r.stdout), (0, ''))  # no engine here: nothing is synthesized
 
     def test_without_speak_the_hook_still_notes(self):
         hook = Hook().plugin(self.home, 'speak-cut.py', fake=False)
@@ -1615,6 +1658,18 @@ class InstallMark(unittest.TestCase):
         with self.mock.patch.object(speak, 'install', return_value=1):
             self.assertEqual(speak.install_marked(), 1)
         self.assertFalse(os.path.exists(self.mark))
+
+
+class MobileSay(unittest.TestCase):
+    def test_hands_the_text_to_the_mp3_function_and_refuses_an_empty_one(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as root:
+            isolate(self, root)
+            with mock.patch.object(speak, 'phone_say', return_value=0) as made, \
+                    mock.patch.dict(os.environ, {'CLAUDE_SPEAK_SESSION': '-'}):
+                self.assertEqual(speak.main(['mobile', 'say', 'Terminei', 'a', 'tarefa.']), 0)
+                self.assertEqual(speak.main(['phone', 'say', ' ']), 2)
+        made.assert_called_once_with('Terminei a tarefa.', None)
 
 
 class StatusJson(unittest.TestCase):

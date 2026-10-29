@@ -7,7 +7,9 @@ per session, whether to speak. Silent when `speak` (../bin/speak, never the PATH
 
 Phone output (`speak output` says `phone`): `speak say -` plays nothing and synthesizes an mp3 in the foreground, which
 takes minutes (the wait is then 300 s) and prints its path. The hook then asks Claude to continue, with
-{"decision": "block", "reason": ...}, so that Claude sends the file to the human (only the model has that tool). On the
+{"decision": "block", "reason": ...}, so that Claude sends the file to the human (only the model has that tool). With the
+phone in summary mode (`speak mobile-summary`) the hook does not read a 🔊 line: it blocks once asking Claude to run
+`speak mobile say "<summary>"` and send the mp3. On the
 turn that follows (stop_hook_active) `speak say -` does nothing, so there is no loop.
 """
 import json
@@ -22,6 +24,24 @@ REQUEST = ('speak: o áudio desta resposta está em %s. Envie esse arquivo ao hu
            '(carregue-a pelo ToolSearch se precisar), sem legenda longa, e termine sem escrever mais nada. Se essa '
            'ferramenta não existir nesta sessão, diga em uma frase que o modo celular só funciona no controle remoto '
            'e sugira `speak mobile off`.')
+
+
+SUMMARY_REQUEST = ('speak: modo celular com resumo. Faça um resumo da resposta que você acabou de dar, em português do '
+                   'Brasil claro, no tamanho em vigor (%s), sem código, nomes de arquivo, caminhos, comandos, links nem '
+                   'siglas. Rode pelo Bash `speak mobile say "<resumo>"` (o resumo entre aspas, sem aspas dentro), envie '
+                   'o arquivo mp3 cujo caminho o comando imprimir com a ferramenta SendUserFile (carregue-a pelo '
+                   'ToolSearch se precisar) e termine sem escrever mais nada. Se o comando não imprimir caminho, ou a '
+                   'ferramenta não existir nesta sessão, termine sem escrever mais nada.')
+
+
+def mobile_summary(speak):
+    """The size description when this session speaks to the phone in summary mode; None otherwise or on any doubt."""
+    try:
+        done = subprocess.run([sys.executable, '-I', speak, 'mobile-summary'], stdin=subprocess.DEVNULL,
+                              capture_output=True, timeout=4)
+        return done.stdout.decode('utf-8', 'replace').strip() if done.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError):
+        return None
 
 
 def phone_output(speak):
@@ -65,6 +85,11 @@ def main():
     data = json.load(sys.stdin)
     message = last_message(data)
     if not message.strip():
+        return
+    size = mobile_summary(speak)
+    if size:  # phone + summary: no 🔊 line in the chat; Claude summarizes and sends the mp3 itself
+        if not data.get('stop_hook_active'):
+            print(json.dumps({'decision': 'block', 'reason': SUMMARY_REQUEST % size}, ensure_ascii=False))
         return
     phone = phone_output(speak)
     env = {**os.environ, 'CLAUDE_SPEAK_STOP_ACTIVE': '1' if data.get('stop_hook_active') else '0'}
