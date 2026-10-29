@@ -3,13 +3,16 @@
 speaks it in the background. Waits (at most 4 s) for `speak say -` to return, which is quick because the speech
 itself runs detached inside it: `speak` must still find this hook alive to locate its session (the nearest `claude`
 ancestor). Fail-open: prints nothing and exits 0 in every case. Always hands the reply over (also with
-CLAUDE_SPEAK=0): `speak` decides, per session, whether to speak. Silent only when `speak` is not installed.
+CLAUDE_SPEAK=0): `speak` decides, per session, whether to speak. Silent when `speak` (../bin/speak, never the PATH) is missing, and while the former
+ai-harness voice is installed (temporary guard).
 """
 import json
 import os
-import shutil
 import subprocess
 import sys
+
+LEGACY = ('~/.claude/hooks/speak-stop.py', '~/.claude/hooks/speak-cut.sh')
+SPEAK = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'bin', 'speak')
 
 
 def last_message(data):
@@ -37,7 +40,9 @@ def last_message(data):
 
 
 def main():
-    speak = shutil.which('speak') or os.path.expanduser('~/.local/bin/speak')
+    if os.environ.get('CLAUDE_SPEAK_PLUGIN_FORCE') != '1' and any(os.path.exists(os.path.expanduser(p)) for p in LEGACY):
+        return
+    speak = SPEAK
     if not os.path.exists(speak):
         return
     message = last_message(json.load(sys.stdin))
