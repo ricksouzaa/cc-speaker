@@ -4,6 +4,7 @@ temporary HOME, and a guard compares the real data folders before and after the 
 contents are never read)."""
 import os
 import pwd
+import re
 import shlex
 import subprocess
 import sys
@@ -142,19 +143,53 @@ def real_speech_pids(procs=None, me=None, home_of=_home_of):
     return out
 
 
+def real_claude_pids(procs=None, me=None):
+    """Pids of Claude Code processes (`claude` in the first two words of the command line) that are not descendants of
+    `me` (the battery): real sessions, whose end-of-reply hook writes `state/last/<key>` while the battery runs."""
+    procs = processes() if procs is None else procs
+    me = os.getpid() if me is None else me
+    parent = {pid: ppid for pid, ppid, _ in procs}
+    out = set()
+    for pid, _, argv in procs:
+        if not any(os.path.basename(a) == 'claude' for a in argv[:2]):
+            continue
+        up, hops = pid, 0
+        while up and hops < 200 and up != me:
+            up, hops = parent.get(up, 0), hops + 1
+        if up != me:
+            out.add(pid)
+    return out
+
+
+def is_live_last(path, claude_pids):
+    """True for `state/last` itself or `state/last/<pid>-<start>` when <pid> is a live real Claude Code process: the
+    last reply of a real session, written by its own hook (`speak say -`). Any other name below it is not noise."""
+    parts = path.split(os.sep)
+    if parts[-1] == 'last' and len(parts) > 1 and parts[-2] == 'state':
+        return bool(claude_pids)
+    if len(parts) > 2 and parts[-2] == 'last' and parts[-3] == 'state':
+        match = re.fullmatch(r'(\d+)-\d+', parts[-1])
+        return bool(match) and int(match.group(1)) in claude_pids
+    return False
+
+
 ROOTS = real_roots()
 BEFORE = snapshot(ROOTS)
 SPEECH_BEFORE = real_speech_pids()  # alive when the battery started, so surely not started by it
 
 
-def assert_untouched(case, speech_after=None, speech_before=None):
+def assert_untouched(case, speech_after=None, speech_before=None, claude_pids=None):
     """No change under the real folders, except the noise of a real speaking process that was alive at the start or is
-    alive at the end of the battery (checked here); with none alive, every change is reported."""
+    alive at the end of the battery (checked here); with none alive, every change is reported. The last reply of a
+    live real Claude Code session (`state/last/<key>`) is always noise."""
     after = real_speech_pids() if speech_after is None else speech_after
     before = SPEECH_BEFORE if speech_before is None else speech_before
     changes = differences(BEFORE, snapshot(ROOTS))
     if before or after:
         changes = [c for c in changes if not is_speech_noise(c.split(': ', 1)[1])]
+    if changes:
+        pids = real_claude_pids() if claude_pids is None else claude_pids
+        changes = [c for c in changes if not is_live_last(c.split(': ', 1)[1], pids)]
     case.assertEqual(changes, [], 'a bateria mexeu na pasta real:\n' + '\n'.join(changes))
 
 

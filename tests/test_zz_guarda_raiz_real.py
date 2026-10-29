@@ -97,6 +97,48 @@ class SpeechNoise(unittest.TestCase):
             isolation.assert_untouched(Case(), speech_after={5}, speech_before=set())
 
 
+class LiveLast(unittest.TestCase):
+    STATE = os.path.join(os.path.expanduser('~'), '.claude', 'plugins', 'data', 'speak-cc-speaker', 'state')
+    PROCS = [(100, 1, ['python3', '-m', 'unittest']), (101, 100, ['claude']), (300, 1, ['claude', '--resume']),
+             (301, 1, ['node', '/x/bin/claude']), (302, 1, ['vim', 'notas.txt']), (303, 300, ['sleep', '1'])]
+
+    def test_claude_real_e_o_que_nao_descende_da_bateria(self):
+        self.assertEqual(isolation.real_claude_pids(self.PROCS, me=100), {300, 301})
+
+    def test_last_de_sessao_real_viva_e_ruido_so_ela(self):
+        last = os.path.join(self.STATE, 'last')
+        for path in (last, os.path.join(last, '300-5555'), os.path.join(last, '301-9')):
+            self.assertTrue(isolation.is_live_last(path, {300, 301}), path)
+        for path in (os.path.join(last, '302-5'), os.path.join(last, '300-5555.tmp'), os.path.join(last, 'x'),
+                     os.path.join(last, '300-5555', 'mais'), os.path.join(self.STATE, 'sessions', '300-5555'),
+                     os.path.join(self.STATE, 'all')):
+            self.assertFalse(isolation.is_live_last(path, {300, 301}), path)
+
+    def test_guarda_ignora_last_de_claude_vivo_e_acusa_o_resto(self):
+        class Case(unittest.TestCase):
+            def runTest(self):
+                pass
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = os.path.join(tmp.name, 'speak-cc-speaker')
+        state = os.path.join(root, 'state')
+        os.makedirs(os.path.join(state, 'last'))
+        saved = dict(isolation.BEFORE), isolation.ROOTS
+        self.addCleanup(lambda: (isolation.BEFORE.clear(), isolation.BEFORE.update(saved[0]),
+                                 setattr(isolation, 'ROOTS', saved[1])))
+        isolation.BEFORE.clear()
+        isolation.ROOTS = [root]
+        isolation.BEFORE.update(isolation.snapshot([root]))
+        with open(os.path.join(state, 'last', '300-5555'), 'w') as fh:
+            fh.write('x')
+        isolation.assert_untouched(Case(), speech_after=set(), speech_before=set(), claude_pids={300})
+        with self.assertRaises(AssertionError):  # the same change, with no such live session
+            isolation.assert_untouched(Case(), speech_after=set(), speech_before=set(), claude_pids={999})
+        open(os.path.join(state, 'install.lock'), 'w').close()
+        with self.assertRaises(AssertionError):  # anything else is still reported
+            isolation.assert_untouched(Case(), speech_after=set(), speech_before=set(), claude_pids={300})
+
+
 class RealRoots(unittest.TestCase):
     def test_a_bateria_nao_tocou_na_raiz_real(self):
         isolation.assert_untouched(self)
