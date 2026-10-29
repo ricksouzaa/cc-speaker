@@ -399,7 +399,7 @@ class MacTest(unittest.TestCase):
             time.sleep(0.01)
 
     def fast_deadline(self):
-        for patch in (mock.patch.object(speak, 'STREAM_SLACK', 0.1),):
+        for patch in (mock.patch.object(speak, 'STREAM_SLACK', 0.1), mock.patch.object(speak, 'STREAM_OPEN', 0.1)):
             patch.start()
             self.addCleanup(patch.stop)
 
@@ -479,6 +479,52 @@ class MacTest(unittest.TestCase):
         self.assertEqual(sd.stream.events[-2:], ['abort', 'close'])
         self.assertEqual(sd.stream.events.count('abort'), 1)
         self.assertEqual(sd.stream.events.count('close'), 1)
+
+    def test_play_mac_sounddevice_abrir_que_nao_volta_cai_para_afplay(self):
+        import time
+        self.fast_deadline()
+        sd = FakeSoundDevice(hang_open=True)
+        self.addCleanup(sd.open_hung.set)
+        start = time.time()
+        code, launched, wavs, state = self.mac_play(sd, pieces=('um', 'dois', 'tres'))
+        self.assertLess(time.time() - start, 3)
+        self.assertEqual((code, len(launched), len(wavs)), (0, 3, 3))  # every piece by afplay
+        self.assertEqual([n for n in os.listdir(state) if n.endswith('.wav')], [])
+
+    def test_play_mac_sounddevice_aberto_tarde_demais_e_fechado(self):
+        """The stream that finally opens after the deadline is closed, not left holding the device."""
+        import time
+        self.fast_deadline()
+        sd = FakeSoundDevice(hang_open=True)
+        created = []
+        real = sd.OutputStream
+        sd.OutputStream = lambda **kw: created.append(real(**kw)) or created[-1]
+        self.mac_play(sd)
+        sd.open_hung.set()
+        end = time.time() + 2
+        while time.time() < end and not (created and 'close' in created[0].events):
+            time.sleep(0.01)
+        self.assertEqual(created[0].events, ['start', 'abort', 'close'])
+
+    def test_play_mac_corte_pelo_microfone_nao_espera_o_abort(self):
+        import threading
+        import time
+        sd = FakeSoundDevice(block_write_at=1, hang_abort=True)
+        took = []
+
+        def cut_now(player):
+            self.addCleanup(sd.stream.hung.set)
+            start = time.time()
+            player.kill()
+            took.append(time.time() - start)
+
+        def recording():
+            return {7} if sd.stream and sd.stream.blocked.is_set() else set()
+        with mock.patch.object(speak, 'cut_by_microphone', cut_now):
+            code, launched, wavs, state = self.mac_play(sd, watch_mic=recording)
+        self.assertTrue(took and took[0] < 1, took)
+        self.assertEqual(launched, [])
+        self.assertIn('abort', sd.stream.events)
 
     def test_linux_never_imports_sounddevice(self):
         sd = FakeSoundDevice()
@@ -580,6 +626,8 @@ class FakeStream:
     def abort(self):
         self.events.append('abort')
         self.released.set()
+        if self.owner.hang_abort:
+            self.hung.wait(5)
 
     def close(self):
         self.events.append('close')
@@ -589,12 +637,18 @@ class FakeSoundDevice:
     """A stand-in for the `sounddevice` module."""
 
     def __init__(self, fail_open=False, fail_write_at=None, block_write_at=None, hang_write_at=None,
-                 hang_stop=False, fail_start=False):
+                 hang_stop=False, fail_start=False, hang_open=False, hang_abort=False):
+        import threading
+        self.hang_open, self.hang_abort = hang_open, hang_abort
+        self.open_hung = threading.Event()  # never set by the fake: opening waits on it until the test ends
         self.fail_open, self.opened, self.stream = fail_open, [], None
         self.fail_write_at, self.block_write_at = fail_write_at, block_write_at
         self.hang_write_at, self.hang_stop, self.fail_start = hang_write_at, hang_stop, fail_start
 
     def OutputStream(self, **kw):
+        if self.hang_open:
+            self.open_hung.wait(5)
+            return FakeStream(self)  # opened, but too late: nobody is waiting for it any more
         if self.fail_open:
             raise OSError('no output device')
         self.opened.append(kw)

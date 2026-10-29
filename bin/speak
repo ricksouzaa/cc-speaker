@@ -729,6 +729,7 @@ class FilePlayer:
 
 
 STREAM_SLACK = 2.0  # seconds a stream write or stop may take beyond the audio's own length before it is given up on
+STREAM_OPEN = 5.0  # seconds to open and start the output stream (a device that never answers must not hold the speech)
 
 
 class StreamPlayer:
@@ -741,12 +742,47 @@ class StreamPlayer:
         import sounddevice
         self.closed = False
         self.lock = threading.Lock()
-        self.stream = sounddevice.OutputStream(samplerate=RATE, channels=1, dtype='float32')
-        try:
-            self.stream.start()
-        except BaseException:
-            self.close()
-            raise
+        self.stream = None
+        found, gate, late = [], threading.Lock(), threading.Event()
+
+        def opening():
+            stream = None
+            try:
+                stream = sounddevice.OutputStream(samplerate=RATE, channels=1, dtype='float32')
+                stream.start()
+            except BaseException as exc:
+                if stream is not None:
+                    try:
+                        stream.close()
+                    except Exception:
+                        pass
+                with gate:
+                    found.append(exc)
+                return
+            with gate:
+                found.append(stream)
+                abandoned = late.is_set()
+            if abandoned:  # opened after the deadline: nobody wants it any more, and it must not hold the device
+                try:
+                    stream.abort()
+                except Exception:
+                    pass
+                try:
+                    stream.close()
+                except Exception:
+                    pass
+
+        thread = threading.Thread(target=opening, daemon=True)
+        thread.start()
+        thread.join(STREAM_OPEN)
+        with gate:
+            if not found:
+                late.set()
+                raise TimeoutError('the audio stream did not open in %.1f s' % STREAM_OPEN)
+        if isinstance(found[0], BaseException):
+            self.closed = True
+            raise found[0]
+        self.stream = found[0]
 
     def bounded(self, call, seconds):
         """Runs call() in a daemon thread and waits `seconds` for it; its error is raised here. On timeout the
@@ -827,6 +863,8 @@ class MacPlayer:
             try:
                 if self.stream is None:
                     self.stream = StreamPlayer()
+                    if self.cut:  # cut while the stream was opening
+                        return 0
                 return self.stream.play(samples)
             except Exception:
                 self.streaming = False
@@ -852,7 +890,7 @@ class MacPlayer:
         self.cut = True
         stream = self.stream
         if stream is not None:
-            stream.abort()
+            stream.abort(wait=False)  # the microphone cut goes on to the exit: it never waits for the device
         self.files.kill()
 
 
