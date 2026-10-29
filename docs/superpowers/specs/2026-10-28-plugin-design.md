@@ -40,6 +40,8 @@ Motor, configuração e estado continuam em `~/.local/share/claude-speak`, `~/.c
 
 Enquanto a voz do ai-harness estiver instalada, os três ganchos do plugin não fazem nada: assim o plugin pode ser instalado e ligado já, sem falar em dobro nem injetar a regra duas vezes. Sinal: existe `~/.claude/hooks/speak-stop.py` ou `~/.claude/hooks/speak-cut.sh` (os ganchos globais que o ai-harness liga). Variável `CLAUDE_SPEAK_PLUGIN_FORCE=1` ignora o sinal (testes). Quando a sessão do ai-harness tira de lá o comando, os ganchos, a regra e o `/speak`, o plugin assume na sessão seguinte, sem passo extra. Essa guarda é temporária: sai numa versão seguinte, depois da troca.
 
+A guarda foi retirada na versão 0.1.2, depois da troca.
+
 ## Regra no começo da sessão
 
 `hooks/speak-start.py` imprime a saída de `speak rule` (texto puro no stdout vai ao contexto). Se o motor não estiver pronto, acrescenta: o motor não está instalado; na primeira resposta, ofereça ao humano instalar (`speak install`, cerca de 350 MB, sem sudo, precisa do uv); não instale sem o sim. Se não houver tocador (pw-play, paplay, aplay), diz isso no lugar.

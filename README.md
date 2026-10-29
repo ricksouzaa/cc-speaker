@@ -16,8 +16,6 @@ Respostas do Claude Code lidas em voz alta, em português do Brasil, com um moto
 3. Abra uma sessão nova.
 4. O Claude vai oferecer a instalação do motor; responda que sim (ou rode `/speak:install`). Não precisa de sudo.
 
-Se você ainda tem a voz antiga do ai-harness instalada, o plugin fica mudo até ela sair, para não falar em dobro.
-
 ## Comandos
 
 Todos são só para você digitar. Com `all` no fim, valem para todas as sessões; sem ele, só para a sessão atual.

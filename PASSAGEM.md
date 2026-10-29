@@ -41,17 +41,9 @@ No ai-harness, hoje, o instalador liga `bin/speak` em `~/.local/bin/speak`, e os
 - Ramo `feat/plugin`, sem push e sem merge. Desenho em `docs/superpowers/specs/2026-10-28-plugin-design.md`.
 - Plugin `speak` instalado no escopo do usuário a partir do catálogo local `cc-speaker` (esta pasta), ligado.
 - Tamanho do resumo e escolha da voz entraram já nesta etapa, por pedido do Ricardo.
-- Enquanto existirem `~/.claude/hooks/speak-stop.py` ou `~/.claude/hooks/speak-cut.sh`, os ganchos do plugin ficam mudos (guarda temporária).
+- Troca feita em 28/10/2026 (ai-harness commit eebe90f, merge 14246b5); o plugin assumiu, conferido numa sessão nova; guarda retirada na versão 0.1.2.
 - Neste repositório toda sessão começa muda (`.claude/settings.local.json`, fora do git).
-
-### Troca, pela sessão do ai-harness (depois do sim do Ricardo)
-
-1. Tirar do ai-harness o comando (`~/.local/bin/speak`), os ganchos `speak-stop.py` e `speak-cut.sh` (arquivos em `~/.claude/hooks/` e linhas no `settings.json`), a regra `~/.claude/rules/speak.md` e o `/speak`.
-2. Nada mais: na sessão seguinte, a guarda não vê mais a voz antiga e o plugin assume. Motor, escolhas e estado continuam nas mesmas pastas.
-3. Conferir: sessão nova, `/speak:status`, uma resposta falada.
-4. Volta, se falhar: reinstalar a voz antiga pelo ai-harness; o plugin volta a ficar mudo sozinho.
-
-Depois da troca: tirar a guarda, mudar o catálogo para o GitHub (`ricksouzaa/cc-speaker`) depois do push.
+- O catálogo já vem do GitHub (`ricksouzaa/cc-speaker`).
 
 ## Pendente de decidir
 

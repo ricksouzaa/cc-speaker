@@ -1047,14 +1047,11 @@ class Hook(unittest.TestCase):
                          % os.path.join(home, 'seen'))
         return os.path.join(root, 'hooks', hook)
 
-    def hand_over(self, legacy=False, **env):
+    def hand_over(self, **env):
         """Runs the hook with a fake `speak` beside it and returns what the fake received (arguments, `|`, stdin)."""
         with tempfile.TemporaryDirectory() as home:
             hook = self.plugin(home)
             seen = os.path.join(home, 'seen')
-            if legacy:
-                os.makedirs(os.path.join(home, '.claude', 'hooks'))
-                open(os.path.join(home, '.claude', 'hooks', 'speak-stop.py'), 'w').close()
             r = subprocess.run([sys.executable, '-I', hook], input=json.dumps({'last_assistant_message': REPLY}),
                                capture_output=True, text=True, env={'HOME': home, 'PATH': '/usr/bin:/bin', **env})
             self.assertEqual((r.returncode, r.stdout, r.stderr), (0, '', ''))
@@ -1069,12 +1066,6 @@ class Hook(unittest.TestCase):
 
     def test_hook_hands_over_even_with_env_mute(self):
         self.assertEqual(self.hand_over(CLAUDE_SPEAK='0'), 'say -|' + REPLY)
-
-    def test_hook_is_mute_while_the_former_voice_is_installed(self):
-        self.assertIsNone(self.hand_over(legacy=True))
-
-    def test_hook_is_forced_by_the_variable(self):
-        self.assertEqual(self.hand_over(legacy=True, CLAUDE_SPEAK_PLUGIN_FORCE='1'), 'say -|' + REPLY)
 
     def test_hook_is_silent_and_exits_zero_without_speak(self):
         with tempfile.TemporaryDirectory() as home:
@@ -1168,12 +1159,6 @@ class Silent(unittest.TestCase):
         r = subprocess.run([sys.executable, '-I', hook], input='{}', capture_output=True, text=True, env=self.env)
         self.assertEqual((r.returncode, r.stderr), (0, ''))
         self.assertIn('🔊', r.stdout)
-
-    def test_cut_hook_is_mute_with_the_former_voice_unless_forced(self):
-        os.makedirs(os.path.join(self.home, '.claude', 'hooks'))
-        open(os.path.join(self.home, '.claude', 'hooks', 'speak-cut.sh'), 'w').close()
-        self.assertEqual(self.cut(), '')  # no engine would note; the guard keeps it mute
-        self.assertIn('🔊', self.cut(CLAUDE_SPEAK_PLUGIN_FORCE='1'))
 
 
 class Size(unittest.TestCase):
@@ -1328,12 +1313,6 @@ class StartHook(unittest.TestCase):
         out = self.run_hook(PATH='/nonexistent')
         self.assertIn('tocador', out)
         self.assertNotIn('speak install', out)
-
-    def test_mute_with_the_former_voice_unless_forced(self):
-        os.makedirs(os.path.join(self.home, '.claude', 'hooks'))
-        open(os.path.join(self.home, '.claude', 'hooks', 'speak-stop.py'), 'w').close()
-        self.assertEqual(self.run_hook(), '')
-        self.assertIn('🔊', self.run_hook(CLAUDE_SPEAK_PLUGIN_FORCE='1'))
 
 
 class Plugin(unittest.TestCase):
