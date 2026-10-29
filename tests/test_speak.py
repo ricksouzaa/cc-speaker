@@ -445,6 +445,78 @@ class MicChoice(unittest.TestCase):
             self.assertTrue(speak.wait_turn(self.me, True))
         speak.drop_own_tickets()
 
+    def three_sessions(self):
+        """Three live session keys (this process, the test's sleep and another sleep of its own)."""
+        extra = subprocess.Popen(['sleep', '60'])
+        self.addCleanup(extra.wait)
+        self.addCleanup(extra.kill)
+        return self.me, self.other, speak.session_key(extra.pid)
+
+    def run_turns(self, sessions, busy_now, free_after):
+        """Joins the queue with one speech per session, in order (fake microphone, no player), and returns the order in
+        which they took the turn. `busy_now`: the microphone is busy at first; `free_after`: how many turns must go
+        before it is freed (None: it stays busy until the first `wait` that is left alone)."""
+        import threading
+        import time
+        from unittest import mock
+        busy = [busy_now]
+        order = []
+        threads = []
+
+        def queued():
+            try:
+                return len(os.listdir(speak.QUEUE))
+            except OSError:
+                return 0
+
+        def speech(key):
+            if speak.wait_turn(key, True):
+                order.append(key)
+
+        with mock.patch.object(speak, 'QUEUE_POLL', 0.01), \
+                mock.patch.object(speak, 'current_recordings', side_effect=lambda: {7} if busy[0] else set()):
+            for key in sessions:
+                before = queued() + len(order)
+                thread = threading.Thread(target=speech, args=(key,), daemon=True)
+                thread.start()
+                threads.append(thread)
+                for _ in range(200):
+                    if queued() + len(order) > before:
+                        break
+                    time.sleep(0.01)
+            deadline = time.time() + 5
+            while len(order) < free_after and time.time() < deadline:
+                time.sleep(0.01)
+            busy[0] = False
+            for thread in threads:
+                thread.join(5)
+        speak.drop_own_tickets()
+        return order
+
+    def test_a_speech_that_waits_for_the_microphone_does_not_hold_the_ones_behind(self):
+        a, b, c = self.three_sessions()
+        speak.set_session(a, mic='wait')
+        speak.set_session(b, mic='play')
+        speak.set_session(c, mic='play')
+        # A arrived first, B behind: B plays while the microphone is busy, A plays after it is free
+        self.assertEqual(self.run_turns([a, b], True, 1), [b, a])
+        # three speeches: B and C play in order, then A
+        self.assertEqual(self.run_turns([a, b, c], True, 2), [b, c, a])
+
+    def test_with_the_microphone_free_the_order_is_the_order_of_arrival(self):
+        a, b, c = self.three_sessions()
+        speak.set_session(a, mic='wait')
+        speak.set_session(b, mic='play')
+        speak.set_session(c, mic='wait')
+        self.assertEqual(self.run_turns([a, b, c], False, 0), [a, b, c])
+
+    def test_a_ticket_without_session_counts_as_wait(self):
+        speak.set_session(self.other, mic='play')
+        self.assertTrue(speak.ticket_holds('', {7}))
+        self.assertFalse(speak.ticket_holds('', set()))
+        self.assertFalse(speak.ticket_holds(self.other, {7}))
+        self.assertTrue(speak.ticket_holds(self.me, {7}))
+
     def test_watcher_cuts_only_on_wait(self):
         import threading
         from unittest import mock
@@ -2689,7 +2761,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.8.0')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.8.1')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

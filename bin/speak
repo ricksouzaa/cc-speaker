@@ -675,20 +675,28 @@ def queue_lock():
 
 
 def wait_turn(session, watch):
-    """Joins the queue and waits to be first, with no speech playing and the microphone free; then takes the turn
-    (writes speech.pid and speech.owner, drops the ticket). False if the ticket was dropped meanwhile (stopped).
+    """Joins the queue and waits to be the first that can play, with no speech playing; then takes the turn (writes
+    speech.pid and speech.owner, drops the ticket). A speech whose session waits for a busy microphone does not
+    count as first: the ones behind it may go. False if the ticket was dropped meanwhile (stopped).
     The ticket's name is taken and written, and the turn checked and taken, each under the queue lock."""
     import time
     with queue_lock():
         ticket = os.path.join(QUEUE, '%d-%d' % (time.time_ns(), os.getpid()))
         write_atomic(ticket, session or '-')
     while True:
-        if not (watch and holds_for_microphone(session)):
+        recs = current_recordings() if watch else None  # the microphone is read once per lap, for every ticket
+        if watch:
+            track_mic(session, recs)
+        if not (watch and holds_with(session, recs)):
             with queue_lock():
                 line = tickets()
                 if not any(path == ticket for path, _, _ in line):
                     return False
-                if line[0][0] == ticket and playing() is None:
+                # The turn goes to the oldest speech that can play now: one whose session holds for the microphone
+                # keeps its place but does not stop those behind it.
+                head = next((path for path, _, key in line
+                             if not (watch and ticket_holds(key, recs))), None)
+                if head == ticket and playing() is None:
                     write_atomic(PID, str(os.getpid()))
                     write_atomic(OWNER, session or '')
                     drop(ticket)
@@ -753,6 +761,20 @@ def track_mic(session, recs):
         pass
 
 
+def holds_with(session, recs):
+    """True when the microphone is busy (`recs`, already read) and the choice of `session` is `wait`. With `play` or
+    `auto` nothing holds."""
+    return mic_busy(recs) and mic(session) == 'wait'
+
+
+def ticket_holds(key, recs):
+    """True when the speech behind a ticket (its session key as written there) holds for the microphone. A ticket
+    from an old version has no session: it counts as `wait`. A '-' is a speech with no session (general choice)."""
+    if not key:
+        return mic_busy(recs)
+    return holds_with(None if key == '-' else key, recs)
+
+
 def holds_for_microphone(session):
     """True when a speech must wait (or be cut): the microphone is busy and the choice is `wait`. With `play` the
     microphone is not even looked at; with `auto` it is looked at to see when the meeting ends."""
@@ -760,7 +782,7 @@ def holds_for_microphone(session):
         return False
     recs = current_recordings()
     track_mic(session, recs)
-    return mic_busy(recs) and mic(session) == 'wait'
+    return holds_with(session, recs)
 
 
 def watch_microphone(player, session=None):
