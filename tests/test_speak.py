@@ -145,7 +145,7 @@ class Full(unittest.TestCase):
 class Filter(unittest.TestCase):
     def test_inline_code_keeps_only_plain_words(self):
         self.assertEqual(speak.clean('Rode `speak off` na `main`, veja `summary`.'), 'Rode speak off na main, veja summary.')
-        for gone in ('ci-mac', 'cc-speaker', 'speak-cc-speaker', 'install_marked', 'e863ea0', '0.7.3', 'CLAUDE_SPEAK=0'):
+        for gone in ('ci-mac', 'cc-speaker', 'speak-cc-speaker', 'install_marked', 'e863ea0', 'CLAUDE_SPEAK=0'):
             self.assertEqual(speak.clean('Veja `%s` agora.' % gone), 'Veja agora.')
 
     def test_commit_codes_and_head_go(self):
@@ -170,6 +170,38 @@ class Filter(unittest.TestCase):
     def test_lowercase_words_with_hyphen_and_digit_go(self):
         self.assertEqual(speak.clean('Use wt-1 e python3-venv hoje'), 'Use e hoje')
         self.assertEqual(speak.clean('Em 2026-10-29 sim'), 'Em 2026-10-29 sim')
+
+    def test_slash_commands_are_read(self):
+        self.assertEqual(speak.clean('para cortar uma fala que está tocando, o `/speak stop`'),
+                         'para cortar uma fala que está tocando, o speak stop'.replace('o speak', 'o barra speak'))
+        self.assertEqual(speak.clean('Use `/speak stop` agora.'), 'Use barra speak stop agora.')
+        self.assertEqual(speak.clean('Use /speak stop agora.'), 'Use barra speak stop agora.')
+        self.assertEqual(speak.clean('Rode `/reload-plugins`.'), 'Rode barra reload plugins.')
+        self.assertEqual(speak.clean('Rode /reload-plugins.'), 'Rode barra reload plugins.')
+        self.assertEqual(speak.clean('Rode `/plugin install speak@cc-speaker` antes.'), 'Rode barra plugin install antes.')
+        self.assertEqual(speak.clean('Rode `/speak`'), 'Rode barra speak')
+        self.assertEqual(speak.full_text('Para cortar, o `/speak stop`.'), 'Para cortar, o barra speak stop.')
+
+    def test_versions_are_read_digit_by_digit(self):
+        self.assertEqual(speak.clean('atualizei da versão 0.9.1 para a 0.9.2'),
+                         'atualizei da versão 0 ponto 9 ponto 1 para a 0 ponto 9 ponto 2')
+        self.assertEqual(speak.clean('atualizei da versão `0.9.1` para a `v0.9.2`.'),
+                         'atualizei da versão 0 ponto 9 ponto 1 para a 0 ponto 9 ponto 2.')
+        self.assertEqual(speak.clean('Claude Code `2.1.312` e 1.5 e 1.2.3.4.'),
+                         'Claude Code 2 ponto 1 ponto 312 e 1 ponto 5 e 1 ponto 2 ponto 3 ponto 4.')
+        self.assertEqual(speak.clean('Em 2026-10-29 sim, commit b48e609 sai.'), 'Em 2026-10-29 sim, commit sai.')
+        self.assertEqual(speak.clean('Rode `speak update` na 0.9.1.'), 'Rode speak update na 0 ponto 9 ponto 1.')
+        self.assertEqual(speak.clean('e 1.2.3.4.5 ficam'), 'e 1.2.3.4.5 ficam')
+
+    def test_paths_still_go(self):
+        for path in ('/home/x/y', '~/.claude/x', 'dir/arquivo', '/tmp/a.txt', './bin/speak', '../x', '/usr/bin/env',
+                     'https://x.y/speak'):
+            self.assertEqual(speak.clean('Veja %s agora.' % path), 'Veja agora.', path)
+            self.assertEqual(speak.clean('Veja `%s` agora.' % path), 'Veja agora.', path)
+        self.assertEqual(speak.clean('Veja `/home/x` e /home/x/y.'), 'Veja e')
+
+    def test_a_one_level_path_reads_as_a_command(self):
+        self.assertEqual(speak.clean('Veja /tmp agora.'), 'Veja barra tmp agora.')
 
     def test_portuguese_compounds_stay(self):
         self.assertEqual(speak.clean('O alto-falante e o guarda-costas'), 'O alto-falante e o guarda-costas')

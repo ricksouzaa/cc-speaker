@@ -390,24 +390,53 @@ def engine_ready():
 
 # --- what is spoken -----------------------------------------------------------------------------------------------
 
+VERSION = r'v?(\d+(?:\.\d+){1,3})'  # two to four numbers separated by dots, an optional v before
+
+
+def _version_spoken(match):
+    """0.9.1 -> "0 ponto 9 ponto 1": spelled so the voice reads neither a date nor a decimal number."""
+    return match.group(1).replace('.', ' ponto ')
+
+
 def _inline_code(match):
-    """Keeps `speak off` (plain words); drops `ci-mac`, `e863ea0`, `~/.claude/x`, `CLAUDE_SPEAK=0` and the like."""
+    """Keeps `speak off` (plain words) and `0.9.1` (read as "0 ponto 9 ponto 1"); drops `ci-mac`, `e863ea0`,
+    `~/.claude/x`, `CLAUDE_SPEAK=0` and the like."""
     inner = match.group(1).strip()
+    if re.fullmatch(VERSION, inner):
+        return re.sub(VERSION, _version_spoken, inner)
     word = r"[^\W\d_]+(?:'[^\W\d_]+)*"
     return inner if len(inner) <= 40 and re.fullmatch(word + '(?: ' + word + ')*', inner) else ''
 
 
+def _slash_name(name):
+    return 'barra ' + name.replace('-', ' ')
+
+
+def _slash_in_code(match):
+    """`/speak stop` -> "barra speak stop": a slash command between backticks, its simple words kept and the rest
+    (arguments such as speak@cc-speaker) dropped; anything else between backticks is left to `_inline_code`."""
+    found = re.fullmatch(r'\s*/([A-Za-z][A-Za-z0-9-]*)((?:\s+[^\W\d_]+(?=\s|$))*)(?:\s+\S.*)?\s*', match.group(1))
+    if not found:
+        return match.group(0)
+    return (_slash_name(found.group(1)) + found.group(2)).strip()
+
+
 def clean(text):
-    """One line of markdown made fit to be heard."""
+    """One line of markdown made fit to be heard. A slash command (`/speak stop`, `/reload-plugins`) is read as
+    "barra speak stop"; paths are dropped."""
     text = re.sub(r'^\s*(?:>\s*)*(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+)?', '', text)
     text = re.sub(r'!?\[([^\]]*)\]\([^)]*\)', r'\1', text)  # [label](url) -> label
+    text = re.sub(r'`([^`]*)`', _slash_in_code, text)
     text = re.sub(r'`([^`]*)`', _inline_code, text)
     text = re.sub(r'https?://\S+', '', text)
     text = re.sub(r'(?<![\w-])(?=[0-9a-fA-F]*\d)(?=[0-9a-fA-F]*[a-fA-F])[0-9a-fA-F]{7,40}(?![\w-])', '', text)  # commit code
+    text = re.sub(r'(?<![\w.-])' + VERSION + r'(?![\w-]|\.\d)', _version_spoken, text)  # 0.9.1, v2.1.312
     text = re.sub(r'\bHEAD\b', '', text)
     text = text.replace('·', ', ')
     text = re.sub(r'(?i)\b(ramos?|branch|worktree)\s+(?=[\w./-]*[-_\d/])[\w/-]+(?:\.[\w/-]+)*', r'\1', text)  # branch name
     text = re.sub(r'(?<![\w-])(?=[a-z0-9-]*[a-z])(?=[a-z0-9-]*\d)[a-z0-9]+(?:-[a-z0-9]+)+(?![\w-])', '', text)  # wt-1
+    text = re.sub(r'(?<![\w/~.:-])/([A-Za-z][A-Za-z0-9-]*)(?![\w/-])(?!\.\w)',
+                  lambda m: _slash_name(m.group(1)), text)  # a bare /command, before the path rule
     text = re.sub(r'(?<![\w/])[~.]{0,2}/[^\s,;)]+', '', text)  # /abs, ~/x, ./x, ../x
     text = re.sub(r'\b[\w.-]+/[\w./-]+', '', text)  # dir/file
     text = re.sub(r'\b[\w-]+\.(?:py|sh|json|jsonl|md|js|ts|tsx|txt|log|wav|onnx|bin|yml|yaml|toml|html|css)\b', '', text)
