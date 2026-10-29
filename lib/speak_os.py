@@ -9,6 +9,7 @@ back into epoch seconds from the text alone, without asking the live process (a 
 """
 import json
 import os
+import resource
 import shutil
 import subprocess
 import sys
@@ -189,6 +190,26 @@ def player():
 def streams():
     """True when the player reads samples from its stdin (Linux); False when it plays one file at a time (Mac)."""
     return SYSTEM != 'mac'
+
+
+RT_LIMIT = 200000  # microseconds of CPU a real-time player may run without blocking: a player that spins gets SIGXCPU
+# instead of freezing the machine (rtkit also demands a finite limit before it grants real time)
+RT_PRIORITY = 10  # real-time priority asked of rtkit (it allows up to 20 here); enough to beat the busy machine
+
+
+def realtime(pid):
+    """Linux: asks rtkit to run the main thread of the player `pid` in real time (SCHED_RR), so the audio server's
+    deadlines are kept when every core is busy. Returns None; any failure (no busctl, no rtkit, refusal, timeout)
+    leaves the player as it was. The Mac does nothing."""
+    if SYSTEM == 'mac' or not shutil.which('busctl'):
+        return None
+    try:
+        resource.prlimit(pid, resource.RLIMIT_RTTIME, (RT_LIMIT, RT_LIMIT))
+        subprocess.run(['busctl', 'call', '--', 'org.freedesktop.RealtimeKit1', '/org/freedesktop/RealtimeKit1',
+                        'org.freedesktop.RealtimeKit1', 'MakeThreadRealtimeWithPID', 'ttu', str(pid), str(pid),
+                        str(RT_PRIORITY)], capture_output=True, timeout=2)
+    except (OSError, ValueError, AttributeError, subprocess.SubprocessError):
+        pass
 
 
 class Recordings(set):

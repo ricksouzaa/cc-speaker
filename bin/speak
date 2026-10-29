@@ -119,6 +119,7 @@ MARK = '🔊'
 LIMIT = {'full': 6000}  # characters; a longer reply is cut at a sentence end
 SUMMARY_LIMIT = {'small': 300, 'medium': 600, 'large': 1200}  # the same, for the 🔊 line, by size
 PIECES = (120, 160, 220, 300, 400)  # characters per piece: short first, then growing, so each is ready while the last plays
+SAFETY = 0.85  # margin on the measured engine rate: it varies with the load, so plan for a bit less than seen
 MIC_POLL = 0.15  # seconds between looks at the microphone while speaking
 QUEUE_POLL = 0.15  # seconds between looks at the queue while waiting a turn
 MIC_WAIT_POLL = 1.0  # seconds between looks at the microphone while waiting a turn (each look runs pw-dump)
@@ -508,44 +509,83 @@ def pieces(text):
     return out
 
 
-def synthesize_ahead(texts, synth, ahead=2):
-    """Yields synth(text) for each text, in order, synthesizing up to `ahead` pieces in a background thread while
-    the caller plays the current one (synthesis runs 1.4 to 1.9 times faster than speech, barely so on the first
-    piece, so the pieces grow gradually and each is ready when the one before ends). An error of synth is raised
-    to the caller; closing the generator stops the thread."""
+def enough_buffered(buffered, unsent, rate):
+    """True if speech can start (or resume) now and still play to the end without stopping. `buffered` is the
+    audio ready and not yet played (seconds), `unsent` the estimated audio of the text still to generate (seconds),
+    `rate` the seconds of audio generated per second spent generating. Playing from now for t seconds needs
+    buffered + rm*t >= t until generation ends, which gives buffered >= unsent * (1 - rm) / rm."""
+    if unsent <= 0:
+        return True
+    rm = rate * SAFETY
+    if rm >= 1:
+        return True
+    return rm > 0 and buffered >= unsent * (1 - rm) / rm
+
+
+def synthesize_ahead(texts, synth, clock=time.monotonic, duration=lambda samples: len(samples) / RATE):
+    """Yields synth(text) for each text, in order. A background thread synthesizes ahead without limit (audio is
+    small, about 100 KB per second of speech) while the caller plays. When the engine is slower than speech (a busy
+    machine) the pieces would arrive late and the sound would stop between them, so at the start, and whenever the
+    next piece is not ready, the generator holds back until enough is ready to play through (enough_buffered),
+    measuring the engine's rate and the audio per character on the pieces already made. An error of synth is raised
+    to the caller after the pieces made before it; closing the generator stops the thread."""
     import queue
     import threading
+    texts = list(texts)
     done, stop = object(), threading.Event()
-    box = queue.Queue(maxsize=ahead)
-
-    def put(item):
-        while not stop.is_set():
-            try:
-                box.put(item, timeout=0.1)
-                return True
-            except queue.Full:
-                continue
-        return False
+    box = queue.Queue()
 
     def work():
         try:
             for text in texts:
-                if stop.is_set() or not put(('ok', synth(text))):
+                if stop.is_set():
                     return
+                began = clock()
+                box.put(('ok', text, synth(text), clock() - began))
         except Exception as exc:  # handed to the caller, which raises it
-            put(('error', exc))
+            box.put(('error', exc, None, 0))
             return
-        put(('ok', done))
+        box.put(('ok', done, None, 0))
 
     threading.Thread(target=work, daemon=True).start()
+    ready, made_chars, made_audio, spent = [], 0, 0.0, 0.0  # ready: (samples, seconds) not yet delivered
+    total_chars, finished, failure = sum(len(t) for t in texts), False, None
+
+    def take(item):
+        nonlocal made_chars, made_audio, spent, finished, failure
+        kind, text, samples, took = item
+        if kind == 'error':
+            finished, failure = True, text
+        elif text is done:
+            finished = True
+        else:
+            seconds = duration(samples)
+            ready.append((samples, seconds))
+            made_chars, made_audio, spent = made_chars + len(text), made_audio + seconds, spent + took
+
+    def safe():
+        """At a decision point: is what is ready enough to play through to the end?"""
+        unsent = (total_chars - made_chars) * made_audio / made_chars if made_chars else 0.0
+        rate = made_audio / spent if spent > 0 else float('inf')
+        return enough_buffered(sum(seconds for _, seconds in ready), unsent, rate)
+
     try:
         while True:
-            kind, value = box.get()
-            if kind == 'error':
-                raise value
-            if value is done:
+            while not finished and (not ready or not safe()):  # a decision point: nothing to hand over, or too little
+                take(box.get())
+            while True:  # deliver what is ready, taking in (without waiting) what has come meanwhile
+                while not finished:
+                    try:
+                        take(box.get_nowait())
+                    except queue.Empty:
+                        break
+                if not ready:
+                    break
+                yield ready.pop(0)[0]
+            if finished:
+                if failure is not None:
+                    raise failure
                 return
-            yield value
     finally:
         stop.set()
 
@@ -1119,6 +1159,7 @@ def play(text):
         if not speak_os.streams():
             return play_files(player, synthesize_ahead(pieces(text), synth), watch, session)
         proc = subprocess.Popen(player, stdin=subprocess.PIPE)
+        speak_os.realtime(proc.pid)  # real time for the player, or as before when the system will not give it
         watcher = watch_microphone(proc, session) if watch else None
         try:
             try:

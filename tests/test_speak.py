@@ -248,6 +248,127 @@ class Ahead(unittest.TestCase):
         gen.close()  # the player was cut: the background synthesis must not keep the program alive
 
 
+class FakeClock:
+    """A clock that only moves when a fake engine says it spent time."""
+
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+
+def timed_engine(clock, cost, seconds, log=None):
+    """A fake synth: each piece takes `cost` seconds on `clock` and yields `seconds` of audio (the sample IS the
+    duration, see the `duration` argument of synthesize_ahead)."""
+    def synth(piece):
+        clock.now += cost
+        if log is not None:
+            log.append(piece)
+        return seconds
+    return synth
+
+
+class Deliver(unittest.TestCase):
+    """The pure decision: start (or restart) playing now, or wait for more audio to be ready?"""
+
+    def test_fast_machine_delivers_at_once(self):
+        self.assertTrue(speak.enough_buffered(1.0, 100.0, 2.0))
+
+    def test_nothing_left_to_generate_delivers(self):
+        self.assertTrue(speak.enough_buffered(0.0, 0.0, 0.1))
+
+    def test_slow_machine_waits_for_enough_audio(self):
+        rm = 0.5 * speak.SAFETY
+        need = 12.0 * (1 - rm) / rm
+        self.assertFalse(speak.enough_buffered(need - 0.01, 12.0, 0.5))
+        self.assertTrue(speak.enough_buffered(need + 0.01, 12.0, 0.5))
+
+    def test_boundary_of_the_formula(self):
+        rm = 0.6 * speak.SAFETY
+        need = 10.0 * (1 - rm) / rm
+        self.assertTrue(speak.enough_buffered(need, 10.0, 0.6))
+        # the margin: a rate of exactly 1 is not enough to count as fast, only 1 / SAFETY is
+        self.assertTrue(speak.enough_buffered(0.0, 10.0, 1 / speak.SAFETY))
+        self.assertFalse(speak.enough_buffered(0.0, 10.0, 1.0))
+
+    def test_zero_rate_waits_until_the_end(self):
+        self.assertFalse(speak.enough_buffered(50.0, 1.0, 0.0))
+
+
+class AdaptiveWait(unittest.TestCase):
+    """The generator holds the speech back while the engine is slower than speech, then plays it through."""
+
+    def test_fast_engine_delivers_the_first_piece_without_waiting_for_the_others(self):
+        import threading
+        clock, release = FakeClock(), threading.Event()
+        quick = timed_engine(clock, 1.0, 4.0)
+
+        def synth(piece):
+            if piece != 'a' * 100:
+                release.wait(5)  # the other pieces are not ready while the first is asked for
+            return quick(piece)
+
+        gen = speak.synthesize_ahead(['a' * 100, 'b' * 100, 'c' * 100], synth, clock=clock, duration=lambda s: s)
+        try:
+            self.assertEqual(next(gen), 4.0)
+        finally:
+            release.set()
+            gen.close()
+
+    def test_slow_engine_holds_the_first_piece_until_the_criterion_holds(self):
+        clock, log = FakeClock(), []
+        texts = [c * 100 for c in 'abcd']
+        gen = speak.synthesize_ahead(texts, timed_engine(clock, 8.0, 4.0, log), clock=clock, duration=lambda s: s)
+        first = next(gen)
+        # rate 0.5: with 1 or 2 pieces ready the buffer is short of the 16.2 s and 10.8 s needed; 3 pieces do it
+        self.assertGreaterEqual(len(log), 3)
+        self.assertEqual(first, 4.0)
+        self.assertEqual(list(gen), [4.0, 4.0, 4.0])
+        self.assertEqual(log, texts)
+
+    def test_order_is_kept(self):
+        clock = FakeClock()
+        seconds = {'a' * 50: 1.0, 'b' * 50: 2.0, 'c' * 50: 3.0}
+        gen = speak.synthesize_ahead(list(seconds), lambda p: clock.__setattr__('now', clock.now + 5) or seconds[p],
+                                     clock=clock, duration=lambda s: s)
+        self.assertEqual(list(gen), [1.0, 2.0, 3.0])
+
+    def test_an_error_after_a_slow_start_still_delivers_the_ready_pieces_then_raises(self):
+        clock = FakeClock()
+
+        def synth(piece):
+            clock.now += 8.0
+            if piece == 'c' * 100:
+                raise ValueError('motor falhou')
+            return 4.0
+
+        got = []
+        with self.assertRaises(ValueError):
+            for samples in speak.synthesize_ahead(['a' * 100, 'b' * 100, 'c' * 100, 'd' * 100], synth,
+                                                  clock=clock, duration=lambda s: s):
+                got.append(samples)
+        self.assertEqual(got, [4.0, 4.0])
+
+    def test_closing_stops_the_generation_between_pieces(self):
+        import threading
+        clock, release, calls = FakeClock(), threading.Event(), []
+
+        def synth(piece):
+            calls.append(piece)
+            if len(calls) > 2:
+                release.wait(5)
+            clock.now += 0.1
+            return 4.0
+
+        gen = speak.synthesize_ahead(['p%d' % i * 50 for i in range(50)], synth, clock=clock, duration=lambda s: s)
+        self.assertEqual(next(gen), 4.0)
+        gen.close()
+        release.set()
+        time.sleep(0.3)
+        self.assertLessEqual(len(calls), 3)
+
+
 def fake_claude(path):
     """A program named `claude` that is not the Python interpreter: a copy of the system shell. A symlink to Python
     would not do on the Mac, where python3 is a stub that re-executes `.../Python.app/Contents/MacOS/Python` and the
@@ -3007,7 +3128,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.11.1')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.12.0')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

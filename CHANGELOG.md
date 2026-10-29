@@ -7,6 +7,12 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.12.0] - 2026-10-29
+
+### Adicionado
+- Com a máquina carregada, a voz junta fala pronta suficiente antes de começar, para tocar até o fim sem parar entre as frases; com a máquina livre, começa na hora, como antes.
+- No Linux, o tocador de áudio pede prioridade de tempo real ao sistema (sem senha), para o som não picotar no meio da palavra quando o processador está cheio. Se o sistema recusar, toca como antes.
+
 ## [0.11.1] - 2026-10-29
 
 ### Corrigido
@@ -207,7 +213,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.11.1...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.12.0
 [0.11.1]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.11.1
 [0.11.0]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.11.0
 [0.10.0]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.10.0

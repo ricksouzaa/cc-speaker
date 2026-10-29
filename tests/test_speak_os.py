@@ -3,6 +3,7 @@ import importlib.machinery
 import importlib.util
 import io
 import os
+import shutil
 import subprocess
 import sys
 import unittest
@@ -79,6 +80,66 @@ class LinuxTest(unittest.TestCase):
         self.assertTrue(os.path.basename(speak_os.argv(me)[0]).startswith('python'))
         self.assertAlmostEqual(speak_os.started_at(me), speak.session_started(speak.session_key(me)), places=3)
         self.assertEqual(speak_os.ancestors(me)[0][0], me)
+
+
+class RealtimeTest(unittest.TestCase):
+    """The stdin player asks rtkit for real time, so a busy machine does not make the sound stutter."""
+
+    def test_asks_rtkit_with_the_right_call_and_limits_the_cpu_burst(self):
+        with mock.patch.object(speak_os, 'SYSTEM', 'linux'), \
+                mock.patch.object(speak_os.shutil, 'which', return_value='/usr/bin/busctl'), \
+                mock.patch.object(speak_os.resource, 'prlimit') as prlimit, \
+                mock.patch.object(speak_os.subprocess, 'run') as run:
+            speak_os.realtime(4242)
+        prlimit.assert_called_once_with(4242, speak_os.resource.RLIMIT_RTTIME, (speak_os.RT_LIMIT, speak_os.RT_LIMIT))
+        cmd = run.call_args[0][0]
+        self.assertEqual(cmd, ['busctl', 'call', '--', 'org.freedesktop.RealtimeKit1', '/org/freedesktop/RealtimeKit1',
+                               'org.freedesktop.RealtimeKit1', 'MakeThreadRealtimeWithPID', 'ttu', '4242', '4242',
+                               str(speak_os.RT_PRIORITY)])
+        self.assertEqual(run.call_args[1]['timeout'], 2)
+        self.assertEqual(speak_os.RT_LIMIT, 200000)
+        self.assertEqual(speak_os.RT_PRIORITY, 10)
+
+    def test_swallows_every_failure(self):
+        failures = (OSError('sem busctl'), subprocess.TimeoutExpired('busctl', 2), ValueError('x'),
+                    subprocess.CalledProcessError(1, 'busctl'))
+        for failure in failures:
+            with mock.patch.object(speak_os, 'SYSTEM', 'linux'), \
+                    mock.patch.object(speak_os.resource, 'prlimit'), \
+                    mock.patch.object(speak_os.subprocess, 'run', side_effect=failure):
+                self.assertIsNone(speak_os.realtime(4242))
+        with mock.patch.object(speak_os, 'SYSTEM', 'linux'), \
+                mock.patch.object(speak_os.resource, 'prlimit', side_effect=ProcessLookupError), \
+                mock.patch.object(speak_os.subprocess, 'run', side_effect=AssertionError('asked rtkit')):
+            self.assertIsNone(speak_os.realtime(4242))  # no limit set: rtkit would refuse, so it is not even asked
+
+    def test_without_busctl_does_nothing(self):
+        with mock.patch.object(speak_os, 'SYSTEM', 'linux'), mock.patch.object(speak_os.shutil, 'which', return_value=None), \
+                mock.patch.object(speak_os.resource, 'prlimit', side_effect=AssertionError('limited')):
+            self.assertIsNone(speak_os.realtime(4242))
+
+    def test_mac_does_nothing(self):
+        with mock.patch.object(speak_os, 'SYSTEM', 'mac'), \
+                mock.patch.object(speak_os.subprocess, 'run', side_effect=AssertionError('ran')):
+            self.assertIsNone(speak_os.realtime(4242))
+
+    def test_a_refusal_is_not_logged_as_an_error(self):
+        refused = subprocess.CompletedProcess([], 1, '', 'denied')
+        with mock.patch.object(speak_os, 'SYSTEM', 'linux'), mock.patch.object(speak_os.resource, 'prlimit'), \
+                mock.patch.object(speak_os.shutil, 'which', return_value='/usr/bin/busctl'), \
+                mock.patch.object(speak_os.subprocess, 'run', return_value=refused):
+            self.assertIsNone(speak_os.realtime(4242))
+
+    @unittest.skipUnless(shutil.which('busctl') and sys.platform.startswith('linux'), 'needs busctl on Linux')
+    def test_real_process_becomes_round_robin_when_rtkit_allows(self):
+        proc = subprocess.Popen(['sleep', '30'])
+        self.addCleanup(proc.wait)
+        self.addCleanup(proc.kill)
+        speak_os.realtime(proc.pid)
+        policy = os.sched_getscheduler(proc.pid) & ~os.SCHED_RESET_ON_FORK  # rtkit sets that flag too
+        if policy != os.SCHED_RR:
+            self.skipTest('rtkit did not allow real time here')
+        self.assertEqual(os.sched_getparam(proc.pid).sched_priority, speak_os.RT_PRIORITY)
 
 
 class MacTest(unittest.TestCase):
@@ -333,6 +394,7 @@ class MacTest(unittest.TestCase):
         class LinuxProc(Proc):
             def __init__(self, cmd):
                 launched.append(cmd)
+                self.pid = 4242
                 self.stdin = io.BytesIO()
                 self.stdin.close = lambda: None
         popen = (lambda cmd, **kw: LinuxProc(cmd)) if linux else (lambda cmd, **kw: Proc(cmd))
@@ -532,6 +594,14 @@ class MacTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual([c[0] for c in launched], ['aplay'])  # one stdin player, as before
         self.assertEqual((sd.opened, wavs), ([], []))
+
+    def test_linux_player_gets_real_time_and_mac_never_asks(self):
+        with mock.patch.object(speak.speak_os, 'realtime') as realtime:
+            self.mac_play(FakeSoundDevice(), linux=True)
+        realtime.assert_called_once_with(4242)  # the pid of the stdin player
+        with mock.patch.object(speak.speak_os, 'realtime') as realtime:
+            self.mac_play(None)
+        realtime.assert_not_called()
 
     # --- speak install on the Mac and on Linux ------------------------------------------------------------------
 
