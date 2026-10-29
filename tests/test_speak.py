@@ -363,7 +363,7 @@ class Toggle(unittest.TestCase):
 
 
 def speak_stat_start():
-    return speak._stat_fields(os.getpid())[19]
+    return speak.speak_os.started(os.getpid())
 
 
 def speak_read(folder, key):

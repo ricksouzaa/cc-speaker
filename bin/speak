@@ -15,6 +15,7 @@
   speak rule               print rules/speak.md with {size} replaced by the size in force (the SessionStart hook
                            hands it to Claude)
   speak check              print `engine` and/or `player` for what is missing; exit 0 when nothing is
+                           (on stderr, a line "processos acima: pid nome, ...": the ancestors, to find the session)
   speak test [text]        speak a test sentence, in the foreground (errors show)
   speak install            install the engine: Python 3.12 via uv, kokoro-onnx, model files (~350 MB); no sudo
   speak say [text | -]     speak in the background and return at once; `-` reads the reply from stdin and applies
@@ -44,6 +45,9 @@ import subprocess
 import sys
 import time
 import urllib.request
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))  # python3 -I does not add it
+import speak_os  # noqa: E402
 
 HOME = os.path.expanduser('~')
 DATA = os.path.join(os.environ.get('XDG_DATA_HOME') or os.path.join(HOME, '.local', 'share'), 'claude-speak')
@@ -136,49 +140,41 @@ def summary_size(session=None):
     return wanted if wanted in SIZES else 'medium'
 
 
-def _stat_fields(pid):
-    """Fields of /proc/<pid>/stat after the process name (which may hold spaces and parentheses): field 3 on."""
-    try:
-        with open('/proc/%d/stat' % pid) as fh:
-            return fh.read().rpartition(')')[2].split()
-    except (OSError, ValueError):
-        return None
-
-
 def session_key(pid):
     """'<pid>-<start time>' of a process, which tells it from a later process that reuses the number; None if unreadable."""
-    fields = _stat_fields(pid)
-    return '%d-%s' % (pid, fields[19]) if fields and len(fields) > 19 else None
+    start = speak_os.started(pid)
+    return '%d-%s' % (pid, start) if start is not None else None
 
 
 def current_session():
-    """Key of the Claude Code session this process runs in: its nearest ancestor named `claude`; None if none."""
+    """Key of the Claude Code session this process runs in: its nearest ancestor named `claude`; failing that, the
+    nearest one with an argument whose base name is `claude` (a node install); None if none or unreadable."""
     forced = os.environ.get('CLAUDE_SPEAK_SESSION')
     if forced:
         return forced if forced != '-' and re.fullmatch(r'[A-Za-z0-9_-]+', forced) else None
+    chain = []
     pid = os.getppid()
-    while pid > 1:
-        try:
-            with open('/proc/%d/comm' % pid) as fh:
-                if fh.read().strip() == 'claude':
-                    return session_key(pid)
-        except OSError:
-            return None
-        fields = _stat_fields(pid)
-        if not fields:
-            return None
-        pid = int(fields[1])
+    while pid and pid > 1 and len(chain) < 64:
+        label = speak_os.name(pid)
+        if label is None:
+            break
+        if label == 'claude':
+            return session_key(pid)
+        chain.append(pid)
+        pid = speak_os.parent(pid)
+    for pid in chain:
+        if any(os.path.basename(arg) == 'claude' for arg in speak_os.argv(pid) or []):
+            return session_key(pid)
     return None
 
 
 def session_started(key):
-    """Start time (seconds since the epoch) of the process of a '<pid>-<start>' key; None if it cannot be read."""
+    """Start time (seconds since the epoch) of the process of a '<pid>-<start>' key, computed from the key alone;
+    None if it cannot be read."""
     try:
         pid, start = key.split('-')
-        with open('/proc/stat') as fh:
-            btime = next(int(line.split()[1]) for line in fh if line.startswith('btime '))
-        return btime + int(start) / os.sysconf('SC_CLK_TCK') if int(pid) > 0 else None
-    except (OSError, ValueError, StopIteration):
+        return speak_os.start_epoch(start) if int(pid) > 0 else None
+    except ValueError:
         return None
 
 
@@ -194,7 +190,7 @@ def prune_tmp():
         return
     for name in names:
         match = re.fullmatch(r'\.tmp-(\d+)-.*', name)
-        if match and not os.path.exists('/proc/%s' % match.group(1)):
+        if match and not speak_os.alive(int(match.group(1))):
             try:
                 os.remove(os.path.join(STATE, name))
             except OSError:
@@ -438,12 +434,8 @@ def synthesize_ahead(texts, synth, ahead=2):
 
 def is_speech(pid):
     """True if `pid` is a speech process of ours: its command line is `<python> -I <...>/speak _play ...`."""
-    try:
-        with open('/proc/%d/cmdline' % pid, 'rb') as fh:
-            argv = fh.read().split(b'\0')
-        return len(argv) > 3 and argv[1] == b'-I' and os.path.basename(argv[2]) == b'speak' and argv[3] == b'_play'
-    except (OSError, ValueError):
-        return False
+    argv = speak_os.argv(pid)
+    return bool(argv) and len(argv) > 3 and argv[1] == '-I' and os.path.basename(argv[2]) == 'speak' and argv[3] == '_play'
 
 
 def clear_speech(pid):
@@ -942,6 +934,9 @@ def main(argv):
         gone = missing()
         if gone:
             print(' '.join(gone))
+        # On stderr: hooks/speak-start.py reads the stdout of `check` as a list of words.
+        print('processos acima: %s' % ', '.join('%d %s' % item for item in speak_os.ancestors(os.getppid())),
+              file=sys.stderr)
         return 1 if gone else 0
     if cmd == 'silent':
         return 1 if is_on(current_session()) and engine_ready() else 0
