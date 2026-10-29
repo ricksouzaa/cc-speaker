@@ -1660,8 +1660,15 @@ class Again(unittest.TestCase):
         self.other = speak.session_key(self.sleep.pid)
         self.calls = []
         speak.write_atomic(os.path.join(speak.STATE, 'scope'), '')  # the one-time migration of old session files is done
+        real_popen = subprocess.Popen
+
+        def fake_popen(cmd, **k):  # only the speech process is faked: on the Mac `ps` runs through Popen too
+            if '_play' in cmd:
+                return self.calls.append((cmd, k))
+            return real_popen(cmd, **k)
+
         patchers = [mock.patch.dict(os.environ), mock.patch.object(speak, 'engine_ready', lambda: True),
-                    mock.patch.object(speak.subprocess, 'Popen', lambda cmd, **k: self.calls.append((cmd, k)))]
+                    mock.patch.object(speak.subprocess, 'Popen', fake_popen)]
         for patcher in patchers:
             patcher.start()
             self.addCleanup(patcher.stop)
