@@ -47,3 +47,7 @@ O motor fica em `~/.local/share/claude-speak`, as escolhas em `~/.config/claude-
 `python3 -m unittest discover -s tests`
 
 O estado da mudança do ai-harness para este repositório está em `PASSAGEM.md`.
+
+## Licença
+
+MIT (veja `LICENSE`). O motor de voz não vem neste repositório: o modelo Kokoro (Apache 2.0) e as bibliotecas são baixados na sua máquina por `speak install`, cada um com a sua licença.

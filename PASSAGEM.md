@@ -53,5 +53,5 @@ Depois da troca: tirar a guarda, mudar o catálogo para o GitHub (`ricksouzaa/cc
 
 ## Pendente de decidir
 
-- Licença do repositório (sem licença, ninguém pode reusar legalmente).
+- ~~Licença~~: MIT, decidida pelo Ricardo em 28/10/2026.
 - Se este repositório usa o fluxo do harness (`/harness-init`): o Ricardo decide.
