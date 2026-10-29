@@ -33,7 +33,7 @@ Um comando só, para você digitar. Sem nada depois, abre um menu de setas no lu
 Também dá para escrever a ação inteira e pular o menu. Com `all` no fim, vale para todas as sessões; sem ele, só para a sessão atual:
 
 - `/speak on` e `/speak off`: ligam e desligam a voz.
-- `/speak mode [full|summary]`: lê a resposta inteira (sem código, caminhos e links) ou só o resumo da linha 🔊 (padrão: o resumo; na resposta inteira o Claude não escreve a linha). Sem a escolha, abre o menu com o foco nessa linha.
+- `/speak mode [full|summary]`: lê a resposta inteira (sem código, caminhos e links) ou só o resumo da linha 🔊 (padrão: o resumo; na resposta inteira o Claude não escreve a linha; quem nunca tinha escolhido o modo passa ao resumo ao atualizar). Sem a escolha, abre o menu com o foco nessa linha.
 - `/speak size [small|medium|large]`: tamanho do resumo falado: uma frase curta, duas a três frases (padrão) ou um parágrafo.
 - `/speak voice [dora|alex|santa]`: sem nome, abre o menu na linha da voz; com nome, escolhe (dora é feminina; alex e santa são masculinas). Vale para todas as sessões.
 - `/speak status`: mostra o estado atual (voz, modo, tamanho, motor).

@@ -23,6 +23,8 @@
                            the mode (used by hooks/speak-stop.py)
   speak stop               cut the speech playing now, whoever's it is, and drop every speech waiting its turn; the
                            voice stays on
+  speak told [full|summary] print, or record, the mode last told to the model in this session (`rule` records it;
+                           used by hooks/speak-cut.py to say when the mode changes)
   speak silent             exit 0 when this session will not speak (voice off here, or no engine), else 1; prints
                            nothing; used by hooks/speak-cut.py to tell Claude to leave out the 🔊 line
 
@@ -241,7 +243,8 @@ def read_session(key):
     if not isinstance(data, dict):
         return {}
     return {k: v for k, v in data.items() if (k == 'voice' and v in ('muted', 'speaking'))
-            or (k == 'mode' and v in MODES) or (k == 'size' and v in SIZES)}
+            or (k == 'mode' and v in MODES) or (k == 'size' and v in SIZES)
+            or (k == 'told' and v in MODES)}
 
 
 def session_mode(key):
@@ -1090,7 +1093,7 @@ def _drop_copied_fields_once():
     done = os.path.join(STATE, 'scope')
     if os.path.exists(done):
         return
-    general = {}
+    general = {}  # a missing general file counts as 'full': this describes the old copy model, whose default was full
     for field, path, default in (('mode', MODE_FILE, 'full'), ('size', SIZE_FILE, 'medium')):
         try:
             with open(path) as fh:
@@ -1213,9 +1216,18 @@ def main(argv):
         with open(VOICE_FILE, 'w') as fh:
             fh.write(full + '\n')
         return status()
+    if cmd == 'told':  # the mode last told to the model in this session (a field of the session file)
+        session = current_session()
+        if text in MODES and session:
+            set_session(session, told=text)
+        elif not text:
+            print(read_session(session).get('told', ''))
+        return 0
     if cmd == 'rule':
         try:
             sys.stdout.write(rule())
+            if current_session():  # the session starts knowing the mode this rule told
+                set_session(current_session(), told=mode(current_session()))
         except OSError:
             return 1
         return 0

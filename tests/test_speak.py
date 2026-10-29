@@ -1226,6 +1226,38 @@ class Silent(unittest.TestCase):
         subprocess.run([sys.executable, '-I', SPEAK, 'off'], capture_output=True, env=self.env)
         self.assertEqual(self.cut(), 'speak: a voz está desligada nesta sessão; não termine esta resposta com a linha 🔊.\n')
 
+    def test_volta_ao_resumo(self):
+        self.engine()
+        back = 'speak: a leitura voltou a ser só o resumo; termine esta resposta com a linha 🔊.\n'
+        full = 'speak: a leitura é da resposta inteira; não termine esta resposta com a linha 🔊.\n'
+
+        sleeper = subprocess.Popen(['sleep', '60'])  # live session keys: dead ones are pruned at every write
+        self.addCleanup(sleeper.wait)
+        self.addCleanup(sleeper.kill)
+        one, two = speak.session_key(os.getpid()), speak.session_key(sleeper.pid)
+        self.env['CLAUDE_SPEAK_SESSION'] = one
+
+        def run(*args):
+            return subprocess.run([sys.executable, '-I', SPEAK, *args], capture_output=True, text=True, env=self.env)
+        run('mode', 'full')
+        self.assertEqual(run('rule').returncode, 0)  # the session starts in full: the rule said so
+        self.assertEqual(self.cut(), full)
+        self.assertEqual(self.cut(), full)
+        run('mode', 'summary')
+        self.assertEqual(self.cut(), back)
+        self.assertEqual(self.cut(), '')
+        # starts in summary: nothing; the voice off leaves what was told alone
+        env = {**self.env, 'CLAUDE_SPEAK_SESSION': two}
+        subprocess.run([sys.executable, '-I', SPEAK, 'rule'], capture_output=True, env=env)
+        self.assertEqual(self.cut(CLAUDE_SPEAK_SESSION=two), '')
+        subprocess.run([sys.executable, '-I', SPEAK, 'mode', 'full'], env=env, capture_output=True)
+        self.assertEqual(self.cut(CLAUDE_SPEAK_SESSION=two), full)
+        subprocess.run([sys.executable, '-I', SPEAK, 'off'], env=env, capture_output=True)
+        subprocess.run([sys.executable, '-I', SPEAK, 'mode', 'summary'], env=env, capture_output=True)
+        self.assertIn('desligada', self.cut(CLAUDE_SPEAK_SESSION=two))
+        subprocess.run([sys.executable, '-I', SPEAK, 'on'], env=env, capture_output=True)
+        self.assertEqual(self.cut(CLAUDE_SPEAK_SESSION=two), back)
+
     def test_without_speak_the_hook_still_notes(self):
         hook = Hook().plugin(self.home, 'speak-cut.py', fake=False)
         r = subprocess.run([sys.executable, '-I', hook], input='{}', capture_output=True, text=True, env=self.env)
