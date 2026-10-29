@@ -166,6 +166,23 @@ Na leitura inteira (`mode full`) a linha `🔊` é pulada pela voz e fica na tel
 
 Também na Tarefa 2: a mudança única apaga a pasta `state/phone` que sobrou do modo celular retirado.
 
+**Padrões de instalação (Ricardo, 29/10/2026):** voz ligada, modo `summary`, tamanho `medium`, voz `dora`. Hoje o padrão do modo é `'full'` (`bin/speak`, `mode()`); passa a ser `'summary'`, com teste (`test_padrao_summary`: sem escolha nenhuma gravada, `speak status --json` dá `mode == 'summary'`, `size == 'medium'`, `voice == 'dora'`, `on == true`). Quem já gravou `mode` no arquivo geral mantém a escolha. Versão 0.5.7.
+
+### Task 6c: Fim de sessão corta a fala daquela sessão **(Ricardo, 29/10/2026)**
+
+Hoje, ao sair de uma sessão (`exit`) no meio da leitura, a fala continua até o fim: não há gancho `SessionEnd`. Pela documentação do Claude Code, `SessionEnd` roda quando a sessão termina (motivos `clear`, `resume`, `logout`, `prompt_input_exit`, `other`), não bloqueia e os ganchos dele dividem um orçamento de 1,5 s.
+
+**Files:**
+- Create: `hooks/speak-end.py`
+- Modify: `hooks/hooks.json`, `bin/speak` (um `stop` só da sessão, se a fila ainda não souber de quem é cada fala)
+- Test: `tests/test_speak.py`
+
+- [ ] **Step 1: Testes que falham:** `test_fim_corta_so_a_sessao` (duas falas na fila, uma de cada sessão, e a da sessão A tocando → o gancho de fim da sessão A corta a que toca e tira da fila só as de A; a de B continua na fila); `test_fim_sem_fala` (nada da sessão na fila → sai com 0 sem mexer em nada); `test_fim_rapido` (o gancho termina bem abaixo de 1,5 s e sai com 0 mesmo com erro).
+- [ ] **Step 2:** Rodar → FALHA.
+- [ ] **Step 3:** Implementar: o gancho lê `session_id` da entrada JSON e chama o corte só daquela sessão; registrar em `hooks/hooks.json` em `SessionEnd`, sem filtro de motivo. Conferir no código da fila como cada fala sabe a sessão de origem; se não souber, gravar a sessão no bilhete da fila.
+- [ ] **Step 4:** `python3 -m unittest discover -s tests` → OK; `claude plugin validate .` → passa.
+- [ ] **Step 5:** Commit `feat: fim de sessão corta a fala daquela sessão`. Versão 0.5.8.
+
 ### Task 7: Documentos, versão e testes no GitHub nos dois sistemas
 
 **Files:**
@@ -186,6 +203,9 @@ Também na Tarefa 2: a mudança única apaga a pasta `state/phone` que sobrou do
 - [ ] **Step 5:** O plano e o desenho saem por `git rm` no commit de fechamento, com o que deve durar passado ao `docs/proximos-passos.md`.
 
 ## Decisões tomadas na execução
+
+- Versão por tarefa (Ricardo, 29/10/2026): sem subir o número, a atualização não chega aos outros computadores. Cada tarefa aprovada sobe a versão de correção e é enviada na hora (0.5.2 = Tarefas 1 e 2; 0.5.3 = Tarefa 3; ...); o fechamento é 0.6.0 na Tarefa 7.
+- Mac por último (Ricardo, 29/10/2026): o código do Mac entra na ordem do plano; o teste num Mac de verdade fica para o fim, depois de tudo.
 
 - Task 3 (instalação automática): o gancho de começo funciona (testado com `uv` real, com PATH mínimo, no HEAD e no `635ecd3`; Ubuntu 26.04, Claude Code 2.1.312). As causas reais, que levam a rodar `speak install` à mão: (1) enquanto a instalação de fundo roda, `speak status` e `speak test` diziam "não instalado (rode: speak install)", ignorando a trava; (2) um `speak install` manual não esperava o que já rodava (só o gancho tomava `state/install.lock`) e os dois gravavam o mesmo `<arquivo>.part`, dando `[Errno 2] ... .part` e um `install.failed` falso, que depois impedia o gancho de tentar de novo. O registro do Ubuntu 24 segue pendente (o `speak check` agora mostra as três últimas linhas do `install.log` quando falta o motor). Desenho: a trava `fcntl.flock` em `state/install.lock` passou para dentro de `speak install` (`install_marked`), bloqueante, com a mensagem "outra instalação está em andamento; esperando ela terminar"; o gancho só sonda a trava (ocupada: 'installing'; livre: solta e inicia o filho, sem `pass_fds`); dois ganchos em corrida podem iniciar dois filhos, o segundo espera e acha tudo instalado. Download temporário por processo (`.part-<pid>`, removido na falha). `status` (texto e `--json`, campo novo `installing`) e `test` dizem "sendo instalado em segundo plano (registro em ...)". Versão 0.5.3.
 - Task 4 (alcance de verdade): `clear_all_sessions(*fields)` substitui `set_all_sessions` (que foi removida); `speak on/off all` grava o geral, marca `ALL_MARK` e remove só `voice` das sessões; `mode`/`size` `all` removem o campo. O arquivo de sessão que fica vazio é mantido. `status` passou a mostrar o valor em vigor da sessão (antes mostrava o geral) em voz, modo e tamanho, com a marca `· só nesta sessão` quando o campo é próprio da sessão; o rótulo `modo:` foi mantido (o desenho citava `leitura:` só como exemplo do menu). `status --json` ganhou `scope` (`on`, `mode`, `size`). A limpeza única (`_drop_copied_fields`, no fim de `migrate()`) tira `mode`/`size` iguais ao geral das sessões e grava o marcador `state/scope` para não apagar exceções futuras; erro de escrita na pasta de estado é ignorado e tenta de novo na próxima chamada. Dois testes antigos (`test_mode_here_does_not_touch_other_sessions`, `test_mode_all_sets_every_session_and_the_general`) e `test_session_size_stays_in_the_session_and_all_sets_every_one` foram ajustados ao modelo novo (remover, não copiar). Versão 0.5.4.
