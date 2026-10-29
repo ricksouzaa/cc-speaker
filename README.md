@@ -45,7 +45,7 @@ O motor fica em `~/.local/share/claude-speak`, as escolhas em `~/.config/claude-
 
 `python3 -m unittest discover -s tests`
 
-O estado da mudança do ai-harness para este repositório está em `PASSAGEM.md`.
+Decisões e próximos passos: `docs/proximos-passos.md`.
 
 ## Licença
 
