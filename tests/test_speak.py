@@ -20,6 +20,14 @@ CUT = os.path.join(ROOT, 'hooks', 'speak-cut.py')
 SPEAK = os.path.join(ROOT, 'bin', 'speak')
 
 
+DATA_PARTS = ('.claude', 'plugins', 'data', 'speak-cc-speaker')  # the data root below HOME when nothing else decides
+
+
+def data_dir(home, *sub):
+    """A path inside the plugin's data root below `home` (sub: 'engine', 'config' or 'state', then names)."""
+    return os.path.join(home, *DATA_PARTS, *sub)
+
+
 def load(name, path):
     loader = importlib.machinery.SourceFileLoader(name, path)
     spec = importlib.util.spec_from_loader(name, loader)
@@ -33,12 +41,19 @@ speak_stop = load('speak_stop', HOOK)
 
 
 def isolate(case, root):
-    """Points every path constant of the in-process `speak` module into `root`, so that no test touches the real
-    ~/.config, ~/.local/share or ~/.local/state (main() runs migrate()). Undone at the test's cleanup."""
+    """Points every path constant of the in-process `speak` module into `root`, and pins HOME (clearing the XDG
+    variables, CLAUDE_PLUGIN_DATA and CLAUDE_CONFIG_DIR) so that the in-process migrate() can only look inside `root`:
+    no test touches the real plugin data folder or the former ~/.config, ~/.local/share, ~/.local/state.
+    Undone at the test's cleanup."""
     from unittest import mock
-    data = os.path.join(root, '.local', 'share', 'claude-speak')
-    conf = os.path.join(root, '.config', 'claude-speak')
-    state = os.path.join(root, '.local', 'state', 'claude-speak')
+    env = mock.patch.dict(os.environ, {'HOME': root})
+    env.start()
+    case.addCleanup(env.stop)
+    for name in ('XDG_DATA_HOME', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'CLAUDE_PLUGIN_DATA', 'CLAUDE_CONFIG_DIR'):
+        os.environ.pop(name, None)
+    data = data_dir(root, 'engine')
+    conf = data_dir(root, 'config')
+    state = data_dir(root, 'state')
     paths = {'DATA': data, 'CONF': conf, 'STATE': state,
              'OFF_FLAG': os.path.join(conf, 'off'), 'MODE_FILE': os.path.join(conf, 'mode'),
              'SIZE_FILE': os.path.join(conf, 'size'), 'VOICE_FILE': os.path.join(conf, 'voice'),
@@ -66,7 +81,7 @@ print("não leia isto")
 | Comando `speak off` | `~/.local/bin/speak` |
 
 - Rode `speak mode summary` para voltar ao resumo
-- O log fica em ~/.local/state/claude-speak/error.log e no speak-stop.py
+- O log fica em state/error.log da pasta de dados do plugin e no speak-stop.py
 
 🔊 Terminei a voz; falta você testar."""
 
@@ -289,19 +304,19 @@ class Migration(unittest.TestCase):
         out = self.speak('status').stdout
         self.assertIn('voz: desligada', out)
         self.assertIn('modo: summary', out)
-        self.assertTrue(os.path.exists(self.path('.local', 'share', 'claude-speak', 'kokoro-v1.0.onnx')))
-        self.assertTrue(os.path.exists(self.path('.config', 'claude-speak', 'off')))
-        with open(self.path('.config', 'claude-speak', 'mode')) as fh:
+        self.assertTrue(os.path.exists(data_dir(self.home, 'engine', 'kokoro-v1.0.onnx')))
+        self.assertTrue(os.path.exists(data_dir(self.home, 'config', 'off')))
+        with open(data_dir(self.home, 'config', 'mode')) as fh:
             self.assertEqual(fh.read().strip(), 'summary')
         for old in ('.local/share', '.config', '.local/state'):
             self.assertFalse(os.path.exists(self.path(old, 'claude-voz')), old)
-        self.assertFalse(os.path.exists(self.path('.local', 'state', 'claude-speak', 'sessoes')))
+        self.assertFalse(os.path.exists(data_dir(self.home, 'state', 'sessoes')))
 
     def test_old_state_marker_and_leftovers(self):
         for name in ('tudo', 'fala.pid', 'fala.dono', 'erro.log', 'fala-123.wav', 'fala-9.wav'):
             self.put(self.path('.local', 'state', 'claude-voz', name), 'x')
         self.speak('status')
-        folder = self.path('.local', 'state', 'claude-speak')
+        folder = data_dir(self.home, 'state')
         self.assertTrue(os.path.exists(os.path.join(folder, 'all')))
         for name in ('tudo', 'fala.pid', 'fala.dono', 'erro.log', 'fala-123.wav', 'fala-9.wav'):
             self.assertFalse(os.path.exists(os.path.join(folder, name)), name)
@@ -309,13 +324,13 @@ class Migration(unittest.TestCase):
     def test_old_mode_completo_becomes_full(self):
         self.put(self.path('.config', 'claude-voz', 'modo'), 'completo\n')
         self.assertIn('modo: full', self.speak('status').stdout)
-        with open(self.path('.config', 'claude-speak', 'mode')) as fh:
+        with open(data_dir(self.home, 'config', 'mode')) as fh:
             self.assertEqual(fh.read().strip(), 'full')
-        self.assertFalse(os.path.exists(self.path('.config', 'claude-speak', 'modo')))
+        self.assertFalse(os.path.exists(data_dir(self.home, 'config', 'modo')))
 
     def test_new_folder_wins_and_old_is_left(self):
         self.put(self.path('.config', 'claude-voz', 'desligado'))
-        os.makedirs(self.path('.config', 'claude-speak'))
+        os.makedirs(data_dir(self.home, 'config'))
         self.assertIn('voz: ligada', self.speak('status').stdout)
         self.assertTrue(os.path.exists(self.path('.config', 'claude-voz', 'desligado')))
 
@@ -337,7 +352,7 @@ class Toggle(unittest.TestCase):
     def test_off_then_on(self):
         self.assertIn('voz: ligada', self.speak('status').stdout)
         self.assertIn('voz: desligada', self.speak('off').stdout)
-        self.assertTrue(os.path.exists(os.path.join(self.tmp.name, '.config', 'claude-speak', 'off')))
+        self.assertTrue(os.path.exists(data_dir(self.tmp.name, 'config', 'off')))
         self.assertIn('voz: ligada', self.speak('on').stdout)
 
     def test_session_switch(self):
@@ -421,7 +436,7 @@ class Session(unittest.TestCase):
 
     def test_all_request_before_opening_keeps_the_seed(self):
         self.speak('on', 'all', session=self.me)
-        mark = os.path.join(self.tmp.name, '.local', 'state', 'claude-speak', 'all')
+        mark = data_dir(self.tmp.name, 'state', 'all')
         before = speak.session_started(self.other) - 3600
         os.utime(mark, (before, before))
         self.assertIn('voz: desligada', self.speak('status', session=self.other, CLAUDE_SPEAK='0').stdout)
@@ -440,7 +455,7 @@ class Session(unittest.TestCase):
         self.speak('mode', 'full', 'all', session=self.me)
         self.assertIn('modo full', self.speak('status', session=self.other).stdout)  # its own choice was overwritten
         self.assertIn('modo: full', self.speak('status', session=self.me).stdout)
-        self.assertEqual(open(os.path.join(self.tmp.name, '.config', 'claude-speak', 'mode')).read().strip(), 'full')
+        self.assertEqual(open(data_dir(self.tmp.name, 'config', 'mode')).read().strip(), 'full')
 
     def test_mode_outside_a_session_is_general(self):
         self.speak('mode', 'summary', session='-')
@@ -511,9 +526,9 @@ class Session(unittest.TestCase):
     def test_forced_key_with_slash_is_no_session(self):
         self.assertIn('fora de uma sessão do Claude Code', self.speak('status', session='../x').stdout)
         self.speak('off', session='../x')
-        self.assertTrue(os.path.exists(os.path.join(self.tmp.name, '.config', 'claude-speak', 'off')))
-        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, '.local', 'state', 'claude-speak', 'x')))
-        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, '.local', 'state', 'x')))
+        self.assertTrue(os.path.exists(data_dir(self.tmp.name, 'config', 'off')))
+        self.assertFalse(os.path.exists(data_dir(self.tmp.name, 'state', 'x')))
+        self.assertFalse(os.path.exists(data_dir(self.tmp.name, 'state', 'x')))
         self.assertEqual(os.listdir(self.state) if os.path.isdir(self.state) else [], [])
 
     def test_status_has_no_contradiction(self):
@@ -608,7 +623,7 @@ class Session(unittest.TestCase):
 
     def test_outside_a_session_off_is_global(self):
         self.speak('off', session='-')
-        self.assertTrue(os.path.exists(os.path.join(self.tmp.name, '.config', 'claude-speak', 'off')))
+        self.assertTrue(os.path.exists(data_dir(self.tmp.name, 'config', 'off')))
         self.assertIn('voz: desligada', self.speak('status', session=self.me).stdout)
 
 
@@ -621,7 +636,7 @@ class Session(unittest.TestCase):
         proc = subprocess.Popen([sys.executable, '-I', script, '_play'], start_new_session=True)
         self.addCleanup(proc.wait)
         self.addCleanup(proc.kill)
-        folder = os.path.join(self.tmp.name, '.local', 'state', 'claude-speak')
+        folder = data_dir(self.tmp.name, 'state')
         os.makedirs(folder, exist_ok=True)
         with open(os.path.join(folder, 'speech.pid'), 'w') as fh:
             fh.write(str(proc.pid))
@@ -647,7 +662,7 @@ class Session(unittest.TestCase):
     def test_muted_session_neither_speaks_nor_cuts(self):
         from unittest import mock
         speech = self.speech(self.other)
-        folder = os.path.join(self.tmp.name, '.local', 'state', 'claude-speak')
+        folder = data_dir(self.tmp.name, 'state')
         popen = mock.Mock()
         with mock.patch.dict(os.environ), \
                 mock.patch.object(speak, 'ALL_MARK', os.path.join(self.tmp.name, 'all')), \
@@ -669,7 +684,7 @@ class Session(unittest.TestCase):
         other = subprocess.Popen(['sleep', '60'], start_new_session=True)
         self.addCleanup(other.wait)
         self.addCleanup(other.kill)
-        folder = os.path.join(self.tmp.name, '.local', 'state', 'claude-speak')
+        folder = data_dir(self.tmp.name, 'state')
         os.makedirs(folder, exist_ok=True)
         with open(os.path.join(folder, 'speech.pid'), 'w') as fh:
             fh.write(str(other.pid))
@@ -681,7 +696,7 @@ class Session(unittest.TestCase):
                                  start_new_session=True)
         self.addCleanup(other.wait)
         self.addCleanup(other.kill)
-        folder = os.path.join(self.tmp.name, '.local', 'state', 'claude-speak')
+        folder = data_dir(self.tmp.name, 'state')
         os.makedirs(folder, exist_ok=True)
         with open(os.path.join(folder, 'speech.pid'), 'w') as fh:
             fh.write(str(other.pid))
@@ -737,7 +752,7 @@ class Session(unittest.TestCase):
             self.assertEqual(fh.read(), str(speech.pid))
 
     def folder(self):
-        return os.path.join(self.tmp.name, '.local', 'state', 'claude-speak')
+        return data_dir(self.tmp.name, 'state')
 
     def wait_gone(self, *paths, seconds=2):
         end = time.time() + seconds
@@ -1036,7 +1051,7 @@ class Session(unittest.TestCase):
             self.assertEqual(bool(made), reaches)
 
     def test_speak_test_command_marks_the_diagnostic(self):
-        data = os.path.join(self.tmp.name, '.local', 'share', 'claude-speak')
+        data = data_dir(self.tmp.name, 'engine')
         os.makedirs(os.path.join(data, '.venv', 'bin'))
         mark = os.path.join(self.tmp.name, 'mark')
         engine = os.path.join(data, '.venv', 'bin', 'python')
@@ -1136,7 +1151,7 @@ class Silent(unittest.TestCase):
         self.env = {'HOME': self.home, 'PATH': '/usr/bin:/bin', 'CLAUDE_SPEAK_SESSION': 'sessao-1'}
 
     def engine(self):
-        data = os.path.join(self.home, '.local', 'share', 'claude-speak')
+        data = data_dir(self.home, 'engine')
         os.makedirs(os.path.join(data, '.venv', 'bin'))
         for rel in ('.venv/bin/python', 'kokoro-v1.0.onnx', 'voices-v1.0.bin'):
             open(os.path.join(data, rel), 'w').close()
@@ -1178,7 +1193,7 @@ class Silent(unittest.TestCase):
 
     def test_new_message_does_not_cut_any_speech_even_this_sessions(self):
         self.engine()
-        folder = os.path.join(self.home, '.local', 'state', 'claude-speak')
+        folder = data_dir(self.home, 'state')
         os.makedirs(folder)
         script = os.path.join(self.home, 'speak')
         with open(script, 'w') as fh:
@@ -1217,7 +1232,7 @@ class Size(unittest.TestCase):
     def test_default_is_medium_and_general_is_kept(self):
         self.assertIn('tamanho do resumo: medium', self.speak('status').stdout)
         self.assertIn('tamanho do resumo: large', self.speak('size', 'large').stdout)
-        self.assertTrue(os.path.exists(os.path.join(self.tmp.name, '.config', 'claude-speak', 'size')))
+        self.assertTrue(os.path.exists(data_dir(self.tmp.name, 'config', 'size')))
         self.assertIn('tamanho do resumo: large', self.speak('status').stdout)
 
     def test_variable_beats_everything(self):
@@ -1233,13 +1248,13 @@ class Size(unittest.TestCase):
     def test_session_size_stays_in_the_session_and_all_sets_every_one(self):
         key = '%d-%s' % (os.getpid(), speak_stat_start())
         other = '99999999-1'
-        folder = os.path.join(self.tmp.name, '.local', 'state', 'claude-speak', 'sessions')
+        folder = data_dir(self.tmp.name, 'state', 'sessions')
         self.speak('size', 'small', key=key)
         self.assertEqual(speak_read(folder, key)['size'], 'small')
-        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, '.config', 'claude-speak', 'size')))
+        self.assertFalse(os.path.exists(data_dir(self.tmp.name, 'config', 'size')))
         self.speak('size', 'large', 'all', key=key)
         self.assertEqual(speak_read(folder, key)['size'], 'large')
-        self.assertEqual(open(os.path.join(self.tmp.name, '.config', 'claude-speak', 'size')).read().strip(), 'large')
+        self.assertEqual(open(data_dir(self.tmp.name, 'config', 'size')).read().strip(), 'large')
         self.assertNotIn('size', speak_read(folder, other) if os.path.exists(os.path.join(folder, other)) else {})
 
     def test_say_uses_the_size_limit(self):
@@ -1266,7 +1281,7 @@ class Voice(unittest.TestCase):
 
     def test_short_and_full_names_are_saved(self):
         self.assertIn('voz: pm_alex', self.speak('voice', 'alex').stdout)
-        self.assertEqual(open(os.path.join(self.tmp.name, '.config', 'claude-speak', 'voice')).read().strip(), 'pm_alex')
+        self.assertEqual(open(data_dir(self.tmp.name, 'config', 'voice')).read().strip(), 'pm_alex')
         self.speak('voice', 'pm_santa')
         self.assertIn('voz: pm_santa', self.speak('status').stdout)
 
@@ -1274,7 +1289,7 @@ class Voice(unittest.TestCase):
         r = self.speak('voice', 'bob')
         self.assertEqual(r.returncode, 2)
         self.assertIn('voz:', r.stderr)
-        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, '.config', 'claude-speak', 'voice')))
+        self.assertFalse(os.path.exists(data_dir(self.tmp.name, 'config', 'voice')))
 
     def test_order_is_variable_then_file_then_default(self):
         self.assertIn('voz: pf_dora', self.speak('status').stdout)
@@ -1327,7 +1342,7 @@ class StartHook(unittest.TestCase):
         return r.stdout
 
     def engine(self):
-        data = os.path.join(self.home, '.local', 'share', 'claude-speak')
+        data = data_dir(self.home, 'engine')
         os.makedirs(os.path.join(data, '.venv', 'bin'))
         for rel in ('.venv/bin/python', 'kokoro-v1.0.onnx', 'voices-v1.0.bin'):
             open(os.path.join(data, rel), 'w').close()
@@ -1546,8 +1561,9 @@ class Isolation(unittest.TestCase):
                 with open(os.path.join(folder, 'marca'), 'w') as fh:
                     fh.write('x')
                 made[folder] = ['marca']
-            env = {k: v for k, v in os.environ.items() if not k.startswith(('XDG_', 'CLAUDE_SPEAK'))}
+            env = {k: v for k, v in os.environ.items() if not k.startswith(('XDG_', 'CLAUDE_SPEAK', 'CLAUDE_PLUGIN'))}
             env['HOME'] = home
+            env['CLAUDE_PLUGIN_DATA'] = os.path.join(home, 'real-data')  # isolate() must ignore it
             r = subprocess.run([sys.executable, os.path.join(ROOT, 'tests', 'test_speak.py'), 'Session'],
                                capture_output=True, text=True, env=env, cwd=home)
             self.assertEqual(r.returncode, 0, r.stderr)
@@ -1555,6 +1571,7 @@ class Isolation(unittest.TestCase):
                 self.assertEqual(os.listdir(folder), names, folder)
             for rel in ('.local/share', '.config', '.local/state'):
                 self.assertEqual(os.listdir(os.path.join(home, rel)), ['claude-voz'], rel)
+            self.assertFalse(os.path.exists(os.path.join(home, 'real-data')))
 
 
 if __name__ == '__main__':

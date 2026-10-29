@@ -21,7 +21,7 @@ Respostas do Claude Code lidas em voz alta, em português do Brasil, com um moto
 O Claude Code não tem passo de instalação para plugins. Por isso, ao abrir uma sessão sem o motor, o plugin dispara a instalação em segundo plano (cerca de 350 MB, sem perguntar), e o Claude avisa você em uma frase. A voz começa sozinha quando termina. Detalhes:
 
 - Só uma instalação roda por vez: outra sessão que abra nesse meio tempo não começa outra.
-- O andamento fica em `~/.local/state/claude-speak/install.log`.
+- O andamento fica em `state/install.log`, dentro da pasta de dados do plugin (veja "Pastas").
 - Se faltar o `uv`, nada é instalado; o Claude diz como instalá-lo (https://docs.astral.sh/uv/).
 - Se a instalação falhar, ela não tenta de novo sozinha: o Claude aponta o registro e você roda `/speak install` para tentar outra vez, em primeiro plano.
 - `CLAUDE_SPEAK_AUTOINSTALL=0` desliga a instalação automática.
@@ -50,7 +50,7 @@ Se as caixas não puderem abrir (por exemplo, numa execução sem tela), o coman
 
 ## Pastas
 
-O motor fica em `~/.local/share/claude-speak`, as escolhas em `~/.config/claude-speak` e o estado em `~/.local/state/claude-speak`. Desinstalar o plugin não apaga o motor.
+Tudo fica na pasta de dados do plugin, em `~/.claude/plugins/data/speak-cc-speaker` (ou onde `CLAUDE_PLUGIN_DATA` mandar): o motor em `engine/`, as escolhas em `config/` e o estado em `state/`. Desinstalar o plugin apaga o motor, as escolhas e o estado (a menos que use `--keep-data`). Quem já tinha as pastas antigas (`~/.local/share/claude-speak`, `~/.config/claude-speak`, `~/.local/state/claude-speak`) as vê movidas para lá na primeira vez, sem baixar o motor de novo.
 
 ## Testes
 

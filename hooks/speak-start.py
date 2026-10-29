@@ -4,13 +4,17 @@ when the engine or an audio player is missing. Without the engine it also starts
 detached from the session, once at a time (CLAUDE_SPEAK_AUTOINSTALL=0 turns that off). Fail-open: exits 0 in every case."""
 import fcntl
 import os
+import shlex
 import shutil
 import subprocess
 import sys
 
 SPEAK = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'bin', 'speak')
-STATE = os.path.join(os.environ.get('XDG_STATE_HOME') or os.path.join(os.path.expanduser('~'), '.local', 'state'),
-                     'claude-speak')
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'lib'))  # -I skips it
+import speak_paths  # noqa: E402
+
+ROOT = speak_paths.root(SPEAK)
+STATE = os.path.join(ROOT, 'state')
 INSTALL_LOG = os.path.join(STATE, 'install.log')
 INSTALL_LOCK = os.path.join(STATE, 'install.lock')  # flock'ed by the install itself, for as long as it runs
 INSTALL_FAILED = os.path.join(STATE, 'install.failed')  # written by `speak install` when it fails
@@ -57,8 +61,29 @@ def start_install():
     return 'installing'
 
 
+def share_root():
+    """Appends `export CLAUDE_PLUGIN_DATA=<root>` to $CLAUDE_ENV_FILE (once), so the shell commands of the session
+    reach the same data root as the hooks."""
+    path = os.environ.get('CLAUDE_ENV_FILE')
+    if not path:
+        return
+    line = 'export CLAUDE_PLUGIN_DATA=%s\n' % shlex.quote(ROOT)
+    try:
+        with open(path) as fh:
+            if line in fh.read().splitlines(True):
+                return
+    except OSError:
+        pass
+    with open(path, 'a') as fh:
+        fh.write(line)
+
+
 def main():
     sys.stdin.read()
+    try:
+        share_root()
+    except OSError:
+        pass
     out = run('rule').stdout
     if not out.strip():
         return

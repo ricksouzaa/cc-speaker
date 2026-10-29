@@ -34,7 +34,8 @@ Env: CLAUDE_SPEAK=0 silences one session (a first choice that a later `speak on`
 CLAUDE_SPEAK_SESSION forces the session key ('-' means none; for tests and to force a key);
 CLAUDE_SPEAK_MODE overrides the mode; CLAUDE_SPEAK_SIZE the size; CLAUDE_SPEAK_VOICE the voice (default pf_dora);
 CLAUDE_SPEAK_SPEED (default 1.1).
-Errors of a background speech go to ~/.local/state/claude-speak/error.log.
+Files live in the plugin's data folder (CLAUDE_PLUGIN_DATA; see lib/speak_paths.py): engine/, config/, state/.
+Errors of a background speech go to state/error.log there.
 """
 import json
 import os
@@ -48,11 +49,10 @@ import urllib.request
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))  # python3 -I does not add it
 import speak_os  # noqa: E402
+import speak_paths  # noqa: E402
 
 HOME = os.path.expanduser('~')
-DATA = os.path.join(os.environ.get('XDG_DATA_HOME') or os.path.join(HOME, '.local', 'share'), 'claude-speak')
-CONF = os.path.join(os.environ.get('XDG_CONFIG_HOME') or os.path.join(HOME, '.config'), 'claude-speak')
-STATE = os.path.join(os.environ.get('XDG_STATE_HOME') or os.path.join(HOME, '.local', 'state'), 'claude-speak')
+DATA, CONF, STATE = speak_paths.paths(os.path.realpath(__file__))  # engine, choices, state: see lib/speak_paths.py
 OFF_FLAG = os.path.join(CONF, 'off')
 ALL_MARK = os.path.join(STATE, 'all')  # its modification time: when the last request for every session was made
 SESSIONS = os.path.join(STATE, 'sessions')  # one file per session: name = key, content = JSON
@@ -692,14 +692,30 @@ def play(text):
         clear_speech(os.getpid())
 
 
+def venv_works():
+    """True when the engine's Python runs. False when it is missing, a broken symlink (lexists, not exists) or does
+    not start: after the one-time move of the engine folder the environment may point at places that are gone."""
+    if not os.path.lexists(VENV_PY) or not os.path.exists(VENV_PY):
+        return False
+    try:
+        return subprocess.call([VENV_PY, '-c', 'pass'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0
+    except OSError:
+        return False
+
+
 def install():
     uv = shutil.which('uv') or os.path.join(HOME, '.local', 'bin', 'uv')
     if not os.path.exists(uv):
         print('voz: o uv não foi encontrado; instale-o (https://docs.astral.sh/uv/) e rode de novo', file=sys.stderr)
         return 1
     os.makedirs(DATA, exist_ok=True)
-    if not os.path.exists(VENV_PY):
-        subprocess.check_call([uv, 'venv', '--python', '3.12', '-q', os.path.join(DATA, '.venv')])
+    if not venv_works():
+        venv = os.path.join(DATA, '.venv')  # rebuilt alone: the model and voices beside it are not downloaded again
+        if os.path.islink(venv):
+            os.remove(venv)
+        elif os.path.isdir(venv):
+            shutil.rmtree(venv)
+        subprocess.check_call([uv, 'venv', '--python', '3.12', '-q', venv])
     subprocess.check_call([uv, 'pip', 'install', '-q', '--python', VENV_PY, 'kokoro-onnx'])
     for path in (MODEL, VOICES):
         if not os.path.exists(path):
@@ -787,17 +803,14 @@ def status():
 
 
 def migrate():
-    """Moves the folders of the former name (`claude-voz`) to `claude-speak`, once, when only the old one exists.
-    Config: `desligado` becomes `off`, old `fala-*.wav` files are removed,
-    `modo` becomes `mode` (completo -> full, resumo -> summary). The old session
+    """Moves the former folders to the plugin's data folder, once (speak_paths.migrate_old), then those of the
+    former name (`claude-voz`) the same way, when only the old one exists. Config: `desligado` becomes `off`, old
+    `fala-*.wav` files are removed, `modo` becomes `mode` (completo -> full, resumo -> summary). The old session
     files (`sessoes`) are dropped. A new folder that already exists wins and the old one is left alone."""
-    for new in (DATA, CONF, STATE):
-        old = os.path.join(os.path.dirname(new), 'claude-voz')
-        if os.path.isdir(old) and not os.path.exists(new):
-            try:
-                os.rename(old, new)
-            except OSError:
-                continue
+    speak_paths.migrate_old(os.path.dirname(DATA))
+    for kind, new in (('engine', DATA), ('config', CONF), ('state', STATE)):
+        old = speak_paths.old_folder(kind, 'claude-voz')
+        if old and not os.path.exists(new) and speak_paths.move_dir(old, new):
             if new == CONF:
                 _translate_config()
             elif new == STATE:
