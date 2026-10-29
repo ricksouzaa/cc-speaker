@@ -16,7 +16,7 @@ import speak_paths  # noqa: E402
 ROOT = speak_paths.root(SPEAK)
 STATE = os.path.join(ROOT, 'state')
 INSTALL_LOG = os.path.join(STATE, 'install.log')
-INSTALL_LOCK = os.path.join(STATE, 'install.lock')  # flock'ed by the install itself, for as long as it runs
+INSTALL_LOCK = os.path.join(STATE, 'install.lock')  # flock'ed by `speak install` itself, for as long as it runs
 INSTALL_FAILED = os.path.join(STATE, 'install.failed')  # written by `speak install` when it fails
 NOTICE = {
     'installing': 'speak: o motor de voz está sendo instalado em segundo plano (cerca de 350 MB, sem sudo); a voz '
@@ -51,13 +51,10 @@ def start_install():
     except OSError:
         lock.close()
         return 'installing'
-    try:
-        with open(INSTALL_LOG, 'ab') as log:
-            # The child inherits the locked descriptor: the lock lasts as long as the install does.
-            subprocess.Popen([sys.executable, '-I', SPEAK, 'install'], stdin=subprocess.DEVNULL, stdout=log,
-                             stderr=log, start_new_session=True, close_fds=True, pass_fds=(lock.fileno(),))
-    finally:
-        lock.close()
+    lock.close()  # only a probe: `speak install` takes the lock itself (and waits if another one got it first)
+    with open(INSTALL_LOG, 'ab') as log:
+        subprocess.Popen([sys.executable, '-I', SPEAK, 'install'], stdin=subprocess.DEVNULL, stdout=log,
+                         stderr=log, start_new_session=True, close_fds=True)
     return 'installing'
 
 

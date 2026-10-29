@@ -83,11 +83,11 @@ O Ricardo precisou rodar `speak install` à mão no Ubuntu 24 depois de instalar
 - Modify: o que a causa apontar (provável `hooks/speak-start.py` ou `bin/speak install`)
 - Test: `tests/test_speak.py`
 
-- [ ] **Step 1:** Reproduzir com `superpowers:systematic-debugging`: `HOME` temporário, sem motor, `uv` real no PATH, rodar o gancho de começo como o Claude Code roda (`python3 -I hooks/speak-start.py` com a entrada JSON de `SessionStart`, `CLAUDE_PLUGIN_ROOT` e `CLAUDE_PLUGIN_DATA` definidos) e esperar o `install.log` e o resultado. Registrar a causa em "Decisões tomadas na execução" deste plano. Se não reproduzir, registrar o que foi tentado, acrescentar ao `speak check` a linha do último `install.log` (as três últimas linhas) e pedir ao Ricardo o arquivo do Ubuntu; não inventar correção.
-- [ ] **Step 2:** Teste que falha pela causa achada.
-- [ ] **Step 3:** Correção.
-- [ ] **Step 4:** `python3 -m unittest discover -s tests` → OK.
-- [ ] **Step 5:** Commit `fix: <causa>`.
+- [x] **Step 1:** Reproduzir com `superpowers:systematic-debugging`: `HOME` temporário, sem motor, `uv` real no PATH, rodar o gancho de começo como o Claude Code roda (`python3 -I hooks/speak-start.py` com a entrada JSON de `SessionStart`, `CLAUDE_PLUGIN_ROOT` e `CLAUDE_PLUGIN_DATA` definidos) e esperar o `install.log` e o resultado. Registrar a causa em "Decisões tomadas na execução" deste plano. Se não reproduzir, registrar o que foi tentado, acrescentar ao `speak check` a linha do último `install.log` (as três últimas linhas) e pedir ao Ricardo o arquivo do Ubuntu; não inventar correção.
+- [x] **Step 2:** Teste que falha pela causa achada.
+- [x] **Step 3:** Correção.
+- [x] **Step 4:** `python3 -m unittest discover -s tests` → OK.
+- [x] **Step 5:** Commit `fix: <causa>`.
 
 ### Task 4: Alcance de verdade
 
@@ -187,4 +187,4 @@ Também na Tarefa 2: a mudança única apaga a pasta `state/phone` que sobrou do
 
 ## Decisões tomadas na execução
 
-(vazio)
+- Task 3 (instalação automática): o gancho de começo funciona (testado com `uv` real, com PATH mínimo, no HEAD e no `635ecd3`; Ubuntu 26.04, Claude Code 2.1.312). As causas reais, que levam a rodar `speak install` à mão: (1) enquanto a instalação de fundo roda, `speak status` e `speak test` diziam "não instalado (rode: speak install)", ignorando a trava; (2) um `speak install` manual não esperava o que já rodava (só o gancho tomava `state/install.lock`) e os dois gravavam o mesmo `<arquivo>.part`, dando `[Errno 2] ... .part` e um `install.failed` falso, que depois impedia o gancho de tentar de novo. O registro do Ubuntu 24 segue pendente (o `speak check` agora mostra as três últimas linhas do `install.log` quando falta o motor). Desenho: a trava `fcntl.flock` em `state/install.lock` passou para dentro de `speak install` (`install_marked`), bloqueante, com a mensagem "outra instalação está em andamento; esperando ela terminar"; o gancho só sonda a trava (ocupada: 'installing'; livre: solta e inicia o filho, sem `pass_fds`); dois ganchos em corrida podem iniciar dois filhos, o segundo espera e acha tudo instalado. Download temporário por processo (`.part-<pid>`, removido na falha). `status` (texto e `--json`, campo novo `installing`) e `test` dizem "sendo instalado em segundo plano (registro em ...)". Versão 0.5.3.

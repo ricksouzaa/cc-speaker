@@ -37,6 +37,7 @@ CLAUDE_SPEAK_SPEED (default 1.1).
 Files live in the plugin's data folder (CLAUDE_PLUGIN_DATA or CLAUDE_SPEAK_DATA; see lib/speak_paths.py): engine/, config/, state/.
 Errors of a background speech go to state/error.log there.
 """
+import fcntl
 import json
 import os
 import re
@@ -434,8 +435,8 @@ def synthesize_ahead(texts, synth, ahead=2):
 
 def is_speech(pid):
     """True if `pid` is a speech process of ours: its command line is `<python> -I <...>/speak _play ...`.
-    # Known limit: on Mac the command line is split on spaces, so a plugin path with a space is not recognised
-    # (stop then leaves that speech playing)."""
+    Known limit: on Mac the command line is split on spaces, so a plugin path with a space is not recognised
+    (stop then leaves that speech playing)."""
     argv = speak_os.argv(pid)
     return bool(argv) and len(argv) > 3 and argv[1] == '-I' and os.path.basename(argv[2]) == 'speak' and argv[3] == '_play'
 
@@ -722,18 +723,63 @@ def install():
     for path in (MODEL, VOICES):
         if not os.path.exists(path):
             print('voz: baixando %s' % os.path.basename(path))
-            urllib.request.urlretrieve(MODEL_URL + os.path.basename(path), path + '.part')
-            os.replace(path + '.part', path)
+            part = '%s.part-%d' % (path, os.getpid())  # one per process: two installs never share a file
+            try:
+                urllib.request.urlretrieve(MODEL_URL + os.path.basename(path), part)
+                os.replace(part, path)
+            finally:
+                if os.path.exists(part):
+                    os.remove(part)
     print('voz: motor instalado em %s' % DATA)
     return 0
 
 
+INSTALL_LOCK = os.path.join(STATE, 'install.lock')  # flock'ed by `speak install` for as long as it runs
+INSTALL_LOG = os.path.join(STATE, 'install.log')  # where the SessionStart hook sends the background install's output
 INSTALL_FAILED = os.path.join(STATE, 'install.failed')  # present after a failed install; speak-start.py reads it
 
 
+def installing():
+    """True while a `speak install` runs (it holds INSTALL_LOCK); the probe releases the lock at once."""
+    try:
+        probe = open(INSTALL_LOCK, 'a+')
+    except OSError:
+        return False
+    try:
+        fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return True
+    finally:
+        probe.close()
+    return False
+
+
+def engine_text():
+    """The status line about the engine."""
+    if engine_ready():
+        return 'instalado em %s' % DATA
+    if installing():
+        return 'sendo instalado em segundo plano (registro em %s)' % INSTALL_LOG
+    return 'não instalado (rode: speak install)'
+
+
 def install_marked():
-    """install(), leaving INSTALL_FAILED behind when it fails (so the SessionStart hook does not retry by itself)
-    and removing it when it works."""
+    """install() alone at a time: it waits for a running install (INSTALL_LOCK), then leaves INSTALL_FAILED behind
+    when it fails (so the SessionStart hook does not retry by itself) and removes it when it works."""
+    os.makedirs(STATE, exist_ok=True)
+    lock = open(INSTALL_LOCK, 'a+')  # closed (and so unlocked) when the process ends
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        print('voz: outra instalação está em andamento; esperando ela terminar', flush=True)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+    try:
+        return install_unlocked()
+    finally:
+        lock.close()
+
+
+def install_unlocked():
     failed = False
     try:
         code = install()  # 1 without an exception: no uv, nothing was tried
@@ -799,7 +845,7 @@ def status():
         print('  desligada só nesta sessão (CLAUDE_SPEAK=0)')
     print('  modo: %s' % mode())  # the general one (or CLAUDE_SPEAK_MODE)
     print('  tamanho do resumo: %s' % summary_size())
-    print('  motor: %s' % ('instalado em %s' % DATA if engine_ready() else 'não instalado (rode: speak install)'))
+    print('  motor: %s' % engine_text())
     print('  voz: %s, velocidade %s' % (voice(), speed()))
     return 0
 
@@ -855,7 +901,7 @@ def status_json():
     session = current_session()
     now = voice()
     print(json.dumps({'on': is_on(session), 'mode': mode(session), 'size': summary_size(session),
-                      'engine': engine_ready(),
+                      'engine': engine_ready(), 'installing': not engine_ready() and installing(),
                       'voice': next((short for short, (full, _) in PT_VOICES.items() if full == now), now)}))
     return 0
 
@@ -949,6 +995,12 @@ def main(argv):
         gone = missing()
         if gone:
             print(' '.join(gone))
+        if 'engine' in gone:
+            try:
+                with open(INSTALL_LOG, errors='replace') as fh:
+                    print(''.join(fh.readlines()[-3:]), end='', file=sys.stderr)
+            except OSError:
+                pass
         # On stderr: hooks/speak-start.py reads the stdout of `check` as a list of words.
         print('processos acima: %s' % ', '.join('%d %s' % item for item in speak_os.ancestors(os.getppid())),
               file=sys.stderr)
@@ -965,7 +1017,7 @@ def main(argv):
         return speak_background(text, session)
     if cmd == 'test':
         if not engine_ready():
-            print('voz: motor não instalado (rode: speak install)', file=sys.stderr)
+            print('voz: motor %s' % engine_text(), file=sys.stderr)
             return 1
         return subprocess.call([VENV_PY, '-I', os.path.realpath(__file__), '_play',
                                 text or 'Olá! A voz do Claude Code está funcionando.'],

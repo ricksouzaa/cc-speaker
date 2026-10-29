@@ -62,9 +62,10 @@ def isolate(case, root):
              'PID': os.path.join(state, 'speech.pid'), 'OWNER': os.path.join(state, 'speech.owner'),
              'QUEUE': os.path.join(state, 'queue'), 'LOCK': os.path.join(state, 'queue.lock'),
              'LOG': os.path.join(state, 'error.log'), 'VENV_PY': os.path.join(data, '.venv', 'bin', 'python'),
-             'MODEL': os.path.join(data, 'kokoro-v1.0.onnx'), 'VOICES': os.path.join(data, 'voices-v1.0.bin')}
+             'MODEL': os.path.join(data, 'kokoro-v1.0.onnx'), 'VOICES': os.path.join(data, 'voices-v1.0.bin'),
+             'INSTALL_LOCK': os.path.join(state, 'install.lock'), 'INSTALL_LOG': os.path.join(state, 'install.log')}
     for name, value in paths.items():
-        patcher = mock.patch.object(speak, name, value)
+        patcher = mock.patch.object(speak, name, value, create=True)
         patcher.start()
         case.addCleanup(patcher.stop)
     return paths
@@ -1411,6 +1412,14 @@ class AutoInstall(unittest.TestCase):
         self.assertEqual(kwargs['stdin'], START_MOD.subprocess.DEVNULL)
         self.assertEqual(kwargs['stdout'].name, START_MOD.INSTALL_LOG)
 
+    def test_free_lock_spawns_the_child_without_passing_the_lock(self):
+        import fcntl
+        self.have_uv()
+        self.assertEqual(START_MOD.start_install(), 'installing')
+        self.assertNotIn('pass_fds', self.popen.call_args.kwargs)
+        with open(START_MOD.INSTALL_LOCK, 'a+') as probe:
+            fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)  # the hook left it free
+
     def test_while_one_holds_the_lock_no_other_starts(self):
         import fcntl
         self.have_uv()
@@ -1486,6 +1495,122 @@ class InstallMark(unittest.TestCase):
         self.assertFalse(os.path.exists(self.mark))
 
 
+class InstallLock(unittest.TestCase):
+    """`speak install` takes STATE/install.lock itself, waits for a running install, and the status says so."""
+
+    def setUp(self):
+        import fcntl
+        from unittest import mock
+        self.fcntl, self.mock = fcntl, mock
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        isolate(self, self.tmp.name)
+        os.makedirs(speak.STATE)
+        env = mock.patch.dict(os.environ, {'CLAUDE_SPEAK_SESSION': '-'})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def hold(self):
+        held = open(speak.INSTALL_LOCK, 'a+')
+        self.fcntl.flock(held, self.fcntl.LOCK_EX)
+        self.addCleanup(held.close)
+        return held
+
+    def test_install_waits_for_running_install(self):
+        import threading
+        held = self.hold()
+        calls = []
+        out = io.StringIO()
+        result = []
+        with self.mock.patch.object(speak, 'install', side_effect=lambda: calls.append(1) or 0), \
+                self.mock.patch('sys.stdout', out):
+            t = threading.Thread(target=lambda: result.append(speak.install_marked()))
+            t.start()
+            time.sleep(0.5)
+            self.assertEqual(calls, [])
+            self.assertTrue(t.is_alive())
+            self.assertIn('outra instalação está em andamento', out.getvalue())
+            self.fcntl.flock(held, self.fcntl.LOCK_UN)
+            t.join(10)
+        self.assertEqual((calls, result), ([1], [0]))
+        self.assertFalse(os.path.exists(speak.INSTALL_FAILED))
+
+    def test_install_without_a_running_one_says_nothing_about_waiting(self):
+        out = io.StringIO()
+        with self.mock.patch.object(speak, 'install', return_value=0), self.mock.patch('sys.stdout', out):
+            self.assertEqual(speak.install_marked(), 0)
+        self.assertNotIn('em andamento', out.getvalue())
+
+    def test_status_says_installing_while_lock_held(self):
+        self.hold()
+        out = io.StringIO()
+        with self.mock.patch('sys.stdout', out):
+            speak.main(['status'])
+        self.assertIn('segundo plano', out.getvalue())
+        self.assertIn('install.log', out.getvalue())
+        self.assertNotIn('rode: speak install', out.getvalue())
+        out = io.StringIO()
+        with self.mock.patch('sys.stdout', out):
+            speak.main(['status', '--json'])
+        data = json.loads(out.getvalue())
+        self.assertIs(data['installing'], True)
+        self.assertIs(data['engine'], False)
+
+    def test_status_json_not_installing_when_lock_free(self):
+        out = io.StringIO()
+        with self.mock.patch('sys.stdout', out):
+            speak.main(['status', '--json'])
+        self.assertIs(json.loads(out.getvalue())['installing'], False)
+
+    def test_test_command_says_installing_while_lock_held(self):
+        self.hold()
+        err = io.StringIO()
+        with self.mock.patch('sys.stderr', err):
+            self.assertEqual(speak.main(['test']), 1)
+        self.assertIn('segundo plano', err.getvalue())
+        self.assertNotIn('rode: speak install', err.getvalue())
+
+    def _install_with_fakes(self, urlretrieve):
+        uv = os.path.join(self.tmp.name, 'uv')
+        open(uv, 'w').close()
+        with self.mock.patch.object(speak.shutil, 'which', return_value=uv), \
+                self.mock.patch.object(speak, 'venv_works', return_value=True), \
+                self.mock.patch.object(speak.subprocess, 'check_call'), \
+                self.mock.patch.object(speak.urllib.request, 'urlretrieve', side_effect=urlretrieve), \
+                self.mock.patch('sys.stdout', io.StringIO()):
+            return speak.install()
+
+    def test_download_uses_a_part_file_per_process(self):
+        seen = []
+
+        def fake(url, dest):
+            seen.append(dest)
+            open(dest, 'w').close()
+        self.assertEqual(self._install_with_fakes(fake), 0)
+        self.assertEqual(seen, [speak.MODEL + '.part-%d' % os.getpid(), speak.VOICES + '.part-%d' % os.getpid()])
+        self.assertTrue(os.path.exists(speak.MODEL) and os.path.exists(speak.VOICES))
+        self.assertEqual([n for n in os.listdir(speak.DATA) if '.part' in n], [])
+
+    def test_failed_download_removes_its_part_file(self):
+        def fake(url, dest):
+            open(dest, 'w').close()
+            raise OSError('rede caiu')
+        with self.assertRaises(OSError):
+            self._install_with_fakes(fake)
+        self.assertEqual([n for n in os.listdir(speak.DATA) if '.part' in n], [])
+
+    def test_check_shows_the_tail_of_the_install_log_without_engine(self):
+        with open(speak.INSTALL_LOG, 'w') as fh:
+            fh.write('um\ndois\ntres\nquatro\ncinco\n')
+        err, out = io.StringIO(), io.StringIO()
+        with self.mock.patch('sys.stderr', err), self.mock.patch('sys.stdout', out):
+            speak.main(['check'])
+        self.assertIn('engine', out.getvalue())
+        self.assertNotIn('engine', err.getvalue())
+        self.assertIn('tres\nquatro\ncinco', err.getvalue())
+        self.assertNotIn('dois', err.getvalue())
+
+
 class OldOutputField(unittest.TestCase):
     def test_a_session_file_with_an_output_field_is_read_without_it(self):
         with tempfile.TemporaryDirectory() as root:
@@ -1541,7 +1666,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.5.2')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.5.3')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):
