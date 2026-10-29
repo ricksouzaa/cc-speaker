@@ -7,6 +7,14 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.13.1] - 2026-10-29
+
+### Corrigido
+- O aviso de que a voz está sendo instalada sai uma vez só: quando o módulo do painel e o início da sessão tentavam instalar ao mesmo tempo (máquina carregada), os dois podiam avisar. Agora avisa quem de fato começou a instalação; a sessão que abre com a instalação já em andamento não repete o aviso na tela (o progresso segue na linha de status).
+- Duas sessões abertas juntas na primeira vez depois de atualizar não rodam mais ao mesmo tempo a limpeza única dos arquivos de sessão do modelo antigo.
+- Mudança de pastas antigas para a nova entre discos que falha por um erro inesperado já não deixa para trás a cópia pela metade (`<pasta>.part-<número>`).
+- Um arquivo de ambiente da sessão (`CLAUDE_ENV_FILE`) com bytes que não são texto não faz o gancho de começo repetir a linha `export CLAUDE_SPEAK_DATA=...` a cada sessão.
+
 ## [0.13.0] - 2026-10-29
 
 ### Adicionado
@@ -221,7 +229,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.13.0...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.13.1...HEAD
+[0.13.1]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.13.1
 [0.13.0]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.13.0
 [0.12.0]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.12.0
 [0.11.1]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.11.1

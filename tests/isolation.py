@@ -9,6 +9,8 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 from unittest import mock
 
 PROJECT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -19,6 +21,7 @@ DATA_PARTS = ('.claude', 'plugins', 'data', 'speak-cc-speaker')  # the data root
 PATH_VARIABLES = ('CLAUDE_PLUGIN_DATA', 'CLAUDE_SPEAK_DATA', 'CLAUDE_CONFIG_DIR')
 PREFIXES = ('CLAUDE_', 'XDG_')
 SAFE_PATH = '/usr/bin:/bin'
+_POPEN = subprocess.Popen  # kept from the start: a test that patches subprocess.Popen or run must not see the speech watch's `ps`
 
 # What was in the environment when the battery started, before any test patched anything.
 START_ENV_LEAK = [name for name in PATH_VARIABLES if os.environ.get(name)]
@@ -92,7 +95,9 @@ def speak_paths_dirname():
 def processes():
     """[(pid, ppid, argv)] of every process, from `ps` (the same on Linux and macOS); [] when `ps` is not usable."""
     try:
-        out = subprocess.run(['ps', '-axo', 'pid=,ppid=,command='], capture_output=True, text=True, timeout=10).stdout
+        with _POPEN(['ps', '-axo', 'pid=,ppid=,command='], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                    text=True) as proc:
+            out = proc.communicate(timeout=10)[0]
     except (OSError, subprocess.SubprocessError):
         return []
     found = []
@@ -173,24 +178,91 @@ def is_live_last(path, claude_pids):
     return False
 
 
+class SpeechWatch:
+    """Remembers every real speech process seen while the battery runs. A speech of another session that starts and
+    ends in the middle of the battery is alive neither at its start nor at its end, but it writes the queue, the lock
+    and the speech files all the same; looking only at the two ends misses it. A look every `every` seconds in a daemon
+    thread (named `speech-watch`, ignored by the thread checks) gathers the pids; a speech shorter than the interval
+    can still slip through, which only leaves the old behaviour for it."""
+
+    def __init__(self, finder=None, every=0.5):
+        self.finder = finder or real_speech_pids
+        self.every = every
+        self.seen = set()
+        self.stopping = threading.Event()
+        self.thread = None
+
+    def look(self):
+        """One look: adds the pids alive now; returns the set seen so far."""
+        self.seen |= set(self.finder())
+        return self.seen
+
+    def start(self):
+        self.look()
+        self.thread = threading.Thread(target=self._loop, name='speech-watch', daemon=True)
+        self.thread.start()
+        return self
+
+    def _loop(self):
+        while not self.stopping.wait(self.every):
+            try:
+                self.look()
+            except Exception:
+                pass  # a failing look is only a missed look
+
+    def stop(self):
+        self.stopping.set()
+
+
 ROOTS = real_roots()
 BEFORE = snapshot(ROOTS)
 SPEECH_BEFORE = real_speech_pids()  # alive when the battery started, so surely not started by it
+WATCH = SpeechWatch().start()  # every real speech seen from now on, to the end of the battery
 
 
-def assert_untouched(case, speech_after=None, speech_before=None, claude_pids=None):
-    """No change under the real folders, except the noise of a real speaking process that was alive at the start or is
-    alive at the end of the battery (checked here); with none alive, every change is reported. The last reply of a
-    live real Claude Code session (`state/last/<key>`) is always noise."""
+def assert_untouched(case, speech_after=None, speech_before=None, claude_pids=None, speech_seen=None):
+    """No change under the real folders, except the noise of a real speaking process that was alive at the start, at
+    any look of the watch during the battery, or at the end (checked here); with none, every change is reported. The
+    last reply of a live real Claude Code session (`state/last/<key>`) is always noise.
+    Why a real leak is still caught: the noise is only the speech names (queue, lock, speech files, session files,
+    error log, microphone mark) below a `state` folder; whatever else the battery touches (engine, config, install
+    files, the `all` mark, anything outside those names) is reported even while a real speech is playing, and the
+    names themselves are reported on every run where no real speech was seen at all."""
     after = real_speech_pids() if speech_after is None else speech_after
     before = SPEECH_BEFORE if speech_before is None else speech_before
+    seen = WATCH.look() if speech_seen is None else speech_seen
     changes = differences(BEFORE, snapshot(ROOTS))
-    if before or after:
+    if before or after or seen:
         changes = [c for c in changes if not is_speech_noise(c.split(': ', 1)[1])]
     if changes:
         pids = real_claude_pids() if claude_pids is None else claude_pids
         changes = [c for c in changes if not is_live_last(c.split(': ', 1)[1], pids)]
     case.assertEqual(changes, [], 'a bateria mexeu na pasta real:\n' + '\n'.join(changes))
+
+
+# Daemon threads the code under test starts and ends by itself: a test must leave none of them alive.
+WORKERS = ('synthesize_ahead.<locals>.work', 'StreamPlayer.bounded.<locals>.work')
+
+
+def live_workers():
+    """The alive threads that run one of WORKERS."""
+    import threading
+    return [th for th in threading.enumerate()
+            if th.is_alive() and getattr(getattr(th, '_target', None), '__qualname__', '') in WORKERS]
+
+
+def assert_no_workers(case, wait=3.0):
+    """Fails `case` if a worker thread is still alive after `wait` seconds (they end as soon as their call returns)."""
+    import time
+    end = time.monotonic() + wait
+    while live_workers() and time.monotonic() < end:
+        time.sleep(0.01)
+    case.assertEqual([th.name for th in live_workers()], [], 'a worker thread outlived its test')
+
+
+def guard_workers(case):
+    """Checks at the test's cleanup (add it first in setUp: cleanups run last-in first-out) that no worker is alive."""
+    case.addCleanup(assert_no_workers, case)
 
 
 def clean_env(home, **extra):

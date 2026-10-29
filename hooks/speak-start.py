@@ -48,13 +48,18 @@ def run(*args):
 
 def start_install():
     """Asks `speak autoinstall` (the one rule: it starts `speak install` detached, once at a time, unless the last one
-    failed in this version, the uv is missing or CLAUDE_SPEAK_AUTOINSTALL=0). Returns the NOTICE key to tell Claude,
-    or None when there is nothing to tell (engine ready, switched off, or the call failed)."""
+    failed in this version, the uv is missing or CLAUDE_SPEAK_AUTOINSTALL=0). Returns the NOTICE key to tell, or None
+    when there is nothing to tell (engine ready, switched off, or the call failed). `installing` is told only when this
+    call started the install (`installing started`): the one that starts it tells the person, once; another install
+    already running was announced by whoever started it (the module's line in the conversation, or the hook of an
+    earlier session) and shows its progress on the status line."""
     try:
-        word = (run('autoinstall').stdout.split() or [''])[0]
+        words = run('autoinstall').stdout.split() + ['', '']
     except (OSError, subprocess.SubprocessError):
         return None
-    return word if word in ('installing', 'no-uv', 'failed') else None
+    if words[0] == 'installing':
+        return 'installing' if words[1] == 'started' else None
+    return words[0] if words[0] in ('no-uv', 'failed') else None
 
 
 def share_root():
@@ -65,12 +70,12 @@ def share_root():
         return
     line = 'export CLAUDE_SPEAK_DATA=%s\n' % shlex.quote(ROOT)
     try:
-        with open(path) as fh:
-            if line in fh.read().splitlines(True):
+        with open(path, 'rb') as fh:  # bytes: a file that is not text (or not UTF-8) is searched the same way
+            if line.encode() in fh.read().splitlines(True):
                 return
-    except (OSError, ValueError):
+    except OSError:
         pass
-    with open(path, 'a') as fh:
+    with open(path, 'a', encoding='utf-8') as fh:
         fh.write(line)
 
 

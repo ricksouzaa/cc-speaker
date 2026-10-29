@@ -30,6 +30,7 @@ isolation.pin_module(speak, MODULE_ROOT)
 
 def tearDownModule():
     _remove_module_root()
+    isolation.assert_no_workers(unittest.TestCase())
     isolation.assert_untouched(unittest.TestCase())
 
 
@@ -148,6 +149,8 @@ class MacTest(unittest.TestCase):
         home = tempfile.TemporaryDirectory()
         self.addCleanup(home.cleanup)
         isolation.isolate(self, speak, home.name)
+        isolation.guard_workers(self)  # registered before the devices release their hung calls: runs after it
+        self.addCleanup(release_devices)
         self.addCleanup(self.no_leaked_watcher)  # safety net: runs after the patches are undone
         patch = mock.patch.object(speak_os, 'SYSTEM', 'mac')
         patch.start()
@@ -666,7 +669,7 @@ class FakeStream:
         self.events, self.written, self.count = [], [], 0
         self.owner = owner
         self.fail_write_at, self.block_write_at = owner.fail_write_at, owner.block_write_at
-        self.hung = threading.Event()  # never set by the stream: a call that waits on it hangs until the test ends
+        self.hung = threading.Event()  # a call that waits on it hangs until release_devices (or the test) sets it
         self.blocked, self.released = threading.Event(), threading.Event()
 
     def start(self):
@@ -703,6 +706,19 @@ class FakeStream:
         self.events.append('close')
 
 
+DEVICES = []  # the fakes of the running test; release_devices frees every call they hold hung
+
+
+def release_devices():
+    """Sets every event a fake call waits on, so the daemon thread that runs it (StreamPlayer.bounded) ends with the test."""
+    while DEVICES:
+        device = DEVICES.pop()
+        device.open_hung.set()
+        for stream in device.streams:
+            stream.hung.set()
+            stream.released.set()
+
+
 class FakeSoundDevice:
     """A stand-in for the `sounddevice` module."""
 
@@ -710,19 +726,23 @@ class FakeSoundDevice:
                  hang_stop=False, fail_start=False, hang_open=False, hang_abort=False):
         import threading
         self.hang_open, self.hang_abort = hang_open, hang_abort
-        self.open_hung = threading.Event()  # never set by the fake: opening waits on it until the test ends
-        self.fail_open, self.opened, self.stream = fail_open, [], None
+        self.open_hung = threading.Event()  # set by release_devices at the test's cleanup: opening waits on it until then
+        self.fail_open, self.opened, self.stream, self.streams = fail_open, [], None, []
+        DEVICES.append(self)
         self.fail_write_at, self.block_write_at = fail_write_at, block_write_at
         self.hang_write_at, self.hang_stop, self.fail_start = hang_write_at, hang_stop, fail_start
 
     def OutputStream(self, **kw):
         if self.hang_open:
             self.open_hung.wait(5)
-            return FakeStream(self)  # opened, but too late: nobody is waiting for it any more
+            late = FakeStream(self)  # opened, but too late: nobody is waiting for it any more
+            self.streams.append(late)
+            return late
         if self.fail_open:
             raise OSError('no output device')
         self.opened.append(kw)
         self.stream = FakeStream(self)
+        self.streams.append(self.stream)
         return self.stream
 
 

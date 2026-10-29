@@ -89,12 +89,94 @@ class SpeechNoise(unittest.TestCase):
         isolation.BEFORE.update(isolation.snapshot([root]))
         open(os.path.join(state, 'queue.lock'), 'w').close()
         with self.assertRaises(AssertionError):
-            isolation.assert_untouched(Case(), speech_after=set(), speech_before=set())
-        isolation.assert_untouched(Case(), speech_after={5}, speech_before=set())
-        isolation.assert_untouched(Case(), speech_after=set(), speech_before={5})
+            isolation.assert_untouched(Case(), speech_after=set(), speech_before=set(), speech_seen=set())
+        isolation.assert_untouched(Case(), speech_after={5}, speech_before=set(), speech_seen=set())
+        isolation.assert_untouched(Case(), speech_after=set(), speech_before={5}, speech_seen=set())
         open(os.path.join(state, 'install.lock'), 'w').close()
         with self.assertRaises(AssertionError):
-            isolation.assert_untouched(Case(), speech_after={5}, speech_before=set())
+            isolation.assert_untouched(Case(), speech_after={5}, speech_before=set(), speech_seen=set())
+
+
+class SeenDuringTheBattery(unittest.TestCase):
+    """A real speech that starts and ends in the middle of the battery is seen by the watch, not by the two ends."""
+
+    def case(self):
+        class Case(unittest.TestCase):
+            def runTest(self):
+                pass
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = os.path.join(tmp.name, 'speak-cc-speaker')
+        self.state = os.path.join(root, 'state')
+        os.makedirs(self.state)
+        saved = dict(isolation.BEFORE), isolation.ROOTS
+        self.addCleanup(lambda: (isolation.BEFORE.clear(), isolation.BEFORE.update(saved[0]),
+                                 setattr(isolation, 'ROOTS', saved[1])))
+        isolation.BEFORE.clear()
+        isolation.ROOTS = [root]
+        isolation.BEFORE.update(isolation.snapshot([root]))
+        return Case()
+
+    def test_o_olhar_junta_as_falas_que_passaram_entre_as_pontas(self):
+        now = [set()]
+        watch = isolation.SpeechWatch(finder=lambda: now[0])
+        self.assertEqual(watch.look(), set())
+        now[0] = {41}
+        watch.look()
+        now[0] = set()  # the speech ended: the end of the battery would see nothing
+        self.assertEqual(watch.look(), {41})
+        now[0] = {42}
+        self.assertEqual(watch.look(), {41, 42})
+
+    def test_a_linha_de_fundo_olha_sozinha_e_para(self):
+        import time
+        now = [set()]
+        watch = isolation.SpeechWatch(finder=lambda: now[0], every=0.01).start()
+        self.addCleanup(watch.stop)
+        now[0] = {7}
+        end = time.time() + 3
+        while 7 not in watch.seen and time.time() < end:
+            time.sleep(0.01)
+        now[0] = set()
+        self.assertIn(7, watch.seen)
+        watch.stop()
+        watch.thread.join(2)
+        self.assertFalse(watch.thread.is_alive())
+
+    def test_fala_curta_do_meio_perdoa_o_ruido_de_fila_e_so_ele(self):
+        case = self.case()
+        open(os.path.join(self.state, 'queue.lock'), 'w').close()
+        with self.assertRaises(AssertionError):  # nobody was seen: the same change is reported
+            isolation.assert_untouched(case, speech_after=set(), speech_before=set(), speech_seen=set())
+        isolation.assert_untouched(case, speech_after=set(), speech_before=set(), speech_seen={99})
+        open(os.path.join(self.state, 'install.lock'), 'w').close()  # not a speech name: reported even then
+        with self.assertRaises(AssertionError):
+            isolation.assert_untouched(case, speech_after=set(), speech_before=set(), speech_seen={99})
+
+    def test_com_fala_vista_o_que_nao_e_nome_de_fala_continua_acusado(self):
+        case = self.case()
+        os.makedirs(os.path.join(os.path.dirname(self.state), 'config'))
+        open(os.path.join(os.path.dirname(self.state), 'config', 'mode'), 'w').close()
+        with self.assertRaises(AssertionError):
+            isolation.assert_untouched(case, speech_after=set(), speech_before=set(), speech_seen={99})
+
+
+class Workers(unittest.TestCase):
+    def test_thread_viva_de_trabalho_e_apanhada_e_depois_que_acaba_nao(self):
+        import threading
+
+        def work():
+            release.wait(5)
+        work.__qualname__ = 'synthesize_ahead.<locals>.work'
+        release = threading.Event()
+        thread = threading.Thread(target=work, daemon=True)
+        thread.start()
+        self.addCleanup(release.set)
+        with self.assertRaises(AssertionError):
+            isolation.assert_no_workers(unittest.TestCase(), wait=0.05)
+        release.set()
+        thread.join(2)
+        isolation.assert_no_workers(unittest.TestCase(), wait=0.05)
 
 
 class LiveLast(unittest.TestCase):
@@ -131,12 +213,12 @@ class LiveLast(unittest.TestCase):
         isolation.BEFORE.update(isolation.snapshot([root]))
         with open(os.path.join(state, 'last', '300-5555'), 'w') as fh:
             fh.write('x')
-        isolation.assert_untouched(Case(), speech_after=set(), speech_before=set(), claude_pids={300})
+        isolation.assert_untouched(Case(), speech_after=set(), speech_before=set(), speech_seen=set(), claude_pids={300})
         with self.assertRaises(AssertionError):  # the same change, with no such live session
-            isolation.assert_untouched(Case(), speech_after=set(), speech_before=set(), claude_pids={999})
+            isolation.assert_untouched(Case(), speech_after=set(), speech_before=set(), speech_seen=set(), claude_pids={999})
         open(os.path.join(state, 'install.lock'), 'w').close()
         with self.assertRaises(AssertionError):  # anything else is still reported
-            isolation.assert_untouched(Case(), speech_after=set(), speech_before=set(), claude_pids={300})
+            isolation.assert_untouched(Case(), speech_after=set(), speech_before=set(), speech_seen=set(), claude_pids={300})
 
 
 class RealRoots(unittest.TestCase):

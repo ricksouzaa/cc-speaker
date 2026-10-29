@@ -73,8 +73,9 @@ def move_dir(src, dst):
             raise OSError('destino apareceu')
         os.rename(part, dst)
     except (OSError, shutil.Error):
-        shutil.rmtree(part, ignore_errors=True)
         return False
+    finally:
+        shutil.rmtree(part, ignore_errors=True)  # whatever stopped the copy (even an unexpected error): no half copy stays
     shutil.rmtree(src, ignore_errors=True)
     return True
 

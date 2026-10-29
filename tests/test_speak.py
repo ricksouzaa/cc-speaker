@@ -13,6 +13,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 import isolation
 
@@ -42,7 +43,15 @@ isolation.pin_module(speak, MODULE_ROOT)
 
 def tearDownModule():
     _remove_module_root()
+    isolation.assert_no_workers(unittest.TestCase())
     isolation.assert_untouched(unittest.TestCase())
+
+
+def remove_if_there(path):
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
 
 
 def no_leaked_watcher(case):
@@ -211,6 +220,9 @@ class Filter(unittest.TestCase):
 class Ahead(unittest.TestCase):
     """The next piece is synthesized while the current one plays, so no silence falls between pieces."""
 
+    def setUp(self):
+        isolation.guard_workers(self)
+
     def test_next_piece_is_synthesized_while_the_current_one_plays(self):
         import threading
         playing_first = threading.Event()
@@ -299,6 +311,9 @@ class Deliver(unittest.TestCase):
 
 class AdaptiveWait(unittest.TestCase):
     """The generator holds the speech back while the engine is slower than speech, then plays it through."""
+
+    def setUp(self):
+        isolation.guard_workers(self)
 
     def test_fast_engine_delivers_the_first_piece_without_waiting_for_the_others(self):
         import threading
@@ -2225,12 +2240,21 @@ class Hook(unittest.TestCase):
         self.assertEqual(seen, 'stop here|')
 
     def test_fim_rapido(self):
+        """The hook gives `speak stop here` 1 s and no more (the SessionEnd budget is 1.5 s): a `speak` that hangs for
+        30 s ends the hook at about 1 s, and one that fails ends it at once. The bound is the hook's own second plus the
+        cost of starting Python here and now (measured with an empty script), so a loaded machine, where starting the
+        two interpreters is slow, does not fail it; a hook that waited for the 30 s child would still fail by far."""
+        started = time.monotonic()
+        subprocess.run([sys.executable, '-I', '-c', 'pass'], check=True)
+        startup = time.monotonic() - started  # one interpreter start, under the present load
+        limit = 1.0 + 0.5 + 4 * startup  # the second the hook waits, the old slack, and four interpreter starts
         r, _, took = self.end_hook('import time\ntime.sleep(30)\n')
         self.assertEqual(r.returncode, 0)
-        self.assertLess(took, 1.5)
+        self.assertGreaterEqual(took, 0.9)  # it was the hook's limit that ended it, not an early exit
+        self.assertLess(took, limit)
         r, _, took = self.end_hook('raise SystemExit(7)\n')
         self.assertEqual((r.returncode, r.stdout, r.stderr), (0, '', ''))
-        self.assertLess(took, 1.5)
+        self.assertLess(took, limit)
 
     def test_fim_sem_speak_sai_com_zero(self):
         with tempfile.TemporaryDirectory() as home:
@@ -2854,6 +2878,48 @@ class AutoInstallCommand(unittest.TestCase):
             self.assertEqual(speak.autoinstall(), ('installing', False))
         self.assertEqual(speak.autoinstall()[0], 'installing')
 
+    def slow_child(self, pid=4242):
+        """A child that is alive but has not taken INSTALL_LOCK yet (a loaded machine): the call gives up waiting."""
+        self.popen.return_value = self.mock.Mock(pid=pid, poll=lambda: None)
+        self.alive = {pid: [sys.executable, '-u', '-I', os.path.realpath(SPEAK), 'install']}
+        for patch in (self.mock.patch.object(speak, 'AUTOINSTALL_WAIT', 0.05),
+                      self.mock.patch.object(speak.speak_os, 'argv', side_effect=lambda p: self.alive.get(p))):
+            patch.start()
+
+    def test_a_child_slow_to_take_the_lock_is_not_started_twice(self):
+        """Hook and module call at the same instant and the child is slow: only the first call starts it and says
+        `started` (the one that tells the person); the second sees that child alive and starts nothing."""
+        self.have_uv()
+        self.slow_child()
+        self.assertEqual(speak.autoinstall(), ('installing', True))
+        self.assertEqual(speak.autoinstall(), ('installing', False))
+        self.assertEqual(self.popen.call_count, 1)
+
+    def test_two_calls_at_the_same_instant_say_started_once(self):
+        import threading
+        self.have_uv()
+        self.slow_child()
+        gate, answers = threading.Barrier(2), []
+
+        def call():
+            gate.wait(5)
+            answers.append(speak.autoinstall())
+        threads = [threading.Thread(target=call) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(10)
+        self.assertEqual(sorted(answers), [('installing', False), ('installing', True)])
+        self.assertEqual(self.popen.call_count, 1)
+
+    def test_a_child_that_died_before_taking_the_lock_is_started_again(self):
+        self.have_uv()
+        self.slow_child()
+        self.assertEqual(speak.autoinstall(), ('installing', True))
+        self.alive.clear()  # it died without leaving a failure mark
+        self.assertEqual(speak.autoinstall(), ('installing', True))
+        self.assertEqual(self.popen.call_count, 2)
+
     def test_the_help_lists_the_command(self):
         self.assertIn('speak autoinstall', speak.__doc__)
 
@@ -2868,7 +2934,7 @@ class AutoInstall(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.state = os.path.join(self.tmp.name, 'state')
-        self.words = {'autoinstall': 'installing\n'}
+        self.words = {'autoinstall': 'installing started\n'}
         self.calls = []
         self.addCleanup(mock.patch.stopall)
         mock.patch.object(START_MOD, 'run', self.fake_run).start()
@@ -2880,10 +2946,16 @@ class AutoInstall(unittest.TestCase):
         return self.mock.Mock(stdout=self.words[args[0]])
 
     def test_start_install_maps_the_word(self):
-        for word, key in (('installing', 'installing'), ('no-uv', 'no-uv'), ('failed', 'failed'), ('off', None),
-                          ('ready', None), ('', None), ('lixo', None)):
+        for word, key in (('installing started', 'installing'), ('installing', None), ('no-uv', 'no-uv'),
+                          ('failed', 'failed'), ('off', None), ('ready', None), ('', None), ('lixo', None)):
             self.words['autoinstall'] = word + '\n'
             self.assertEqual(START_MOD.start_install(), key, word)
+
+    def test_an_install_someone_else_started_is_not_told_again(self):
+        """Module and hook race: the module started the install and told the person in the conversation; the hook's
+        call answers a bare `installing` and says nothing, so the notice comes out once."""
+        self.words['autoinstall'] = 'installing\n'
+        self.assertEqual(self.main_out('engine\n'), 'regra 🔊\n')
 
     def test_a_call_that_times_out_is_not_a_notice(self):
         self.words['autoinstall'] = subprocess.TimeoutExpired('speak', 10)
@@ -3088,6 +3160,50 @@ class InstallLock(unittest.TestCase):
         with self.assertRaises(OSError):
             self._install_with_fakes(fake)
         self.assertEqual([n for n in os.listdir(speak.DATA) if '.part' in n], [])
+
+    def test_every_failure_of_a_download_removes_its_part_file(self):
+        """Whatever stops a download (the network, the progress hook, the final replace, an interrupt, a failure of the
+        second file) leaves no `<file>.part-<pid>`; a file already complete stays."""
+        part = '.part-%d' % os.getpid()
+        real_replace = os.replace
+
+        def drops(url, dest, reporthook=None):
+            open(dest, 'w').close()
+            raise OSError('rede caiu')
+
+        def hook_fails(url, dest, reporthook=None):
+            open(dest, 'w').close()
+            with self.mock.patch.object(speak, 'write_progress', side_effect=OSError('disco cheio')):
+                reporthook(0, 1000, 5000)
+
+        def interrupted(url, dest, reporthook=None):
+            open(dest, 'w').close()
+            raise KeyboardInterrupt
+
+        def second_fails(url, dest, reporthook=None):
+            open(dest, 'w').close()
+            if dest.startswith(speak.VOICES):
+                raise OSError('rede caiu')
+
+        def replace_fails(src, dst):
+            if dst == speak.MODEL:
+                raise OSError('trocar falhou')
+            return real_replace(src, dst)
+
+        for name, fake, error, replace in (('rede', drops, OSError, real_replace),
+                                           ('progresso', hook_fails, OSError, real_replace),
+                                           ('interrupção', interrupted, KeyboardInterrupt, real_replace),
+                                           ('segundo arquivo', second_fails, OSError, real_replace),
+                                           ('trocar o nome', lambda u, d, reporthook=None: open(d, 'w').close(),
+                                            OSError, replace_fails)):
+            with self.subTest(name):
+                for path in (speak.MODEL, speak.VOICES):
+                    remove_if_there(path)
+                with self.mock.patch.object(speak.os, 'replace', replace), self.assertRaises(error):
+                    self._install_with_fakes(fake)
+                self.assertEqual([n for n in os.listdir(speak.DATA) if part in n], [])
+                if name == 'segundo arquivo':
+                    self.assertTrue(os.path.exists(speak.MODEL))  # the first one was complete, it stays
 
     def test_check_shows_the_tail_of_the_install_log_without_engine(self):
         with open(speak.INSTALL_LOG, 'w') as fh:
@@ -3382,6 +3498,67 @@ class Scope(unittest.TestCase):
         self.assertEqual(speak_read(self.folder, self.me), {'mode': 'summary'})
 
 
+class DropCopiedOnce(unittest.TestCase):
+    """The one-time cleanup of the old copy-on-all session files takes the queue lock, so two sessions that start
+    together never run it at the same time and it runs once."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        isolate(self, self.tmp.name)
+        os.makedirs(speak.SESSIONS)
+        for key in ('1-1', '2-2', '3-3'):
+            speak.write_atomic(os.path.join(speak.SESSIONS, key), json.dumps({'mode': 'full', 'size': 'small'}))
+        os.makedirs(os.path.dirname(speak.MODE_FILE), exist_ok=True)
+        with open(speak.MODE_FILE, 'w') as fh:
+            fh.write('full\n')
+
+    def test_two_runs_at_once_do_the_work_once_and_never_overlap(self):
+        import threading
+        inside, most, reads = [0], [0], []
+        guard = threading.Lock()
+        real_read = speak.read_session
+
+        def slow_read(key):
+            with guard:
+                inside[0] += 1
+                most[0] = max(most[0], inside[0])
+                reads.append(key)
+            time.sleep(0.05)  # widens the window in which a second run could start
+            try:
+                return real_read(key)
+            finally:
+                with guard:
+                    inside[0] -= 1
+
+        gate = threading.Barrier(2)
+        errors = []
+
+        def run():
+            try:
+                gate.wait(5)
+                speak._drop_copied_fields_once()
+            except BaseException as exc:
+                errors.append(exc)
+
+        with mock.patch.object(speak, 'read_session', slow_read):
+            threads = [threading.Thread(target=run) for _ in range(2)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(10)
+        self.assertEqual(errors, [])
+        self.assertEqual(most[0], 1, 'two runs were inside the cleanup together')
+        self.assertEqual(sorted(reads), ['1-1', '2-2', '3-3'], 'the cleanup ran more than once')
+        self.assertTrue(os.path.exists(os.path.join(speak.STATE, 'scope')))
+        self.assertEqual(speak_read(speak.SESSIONS, '1-1'), {'size': 'small'})
+
+    def test_it_runs_inside_a_queue_lock_already_held_by_the_same_thread(self):
+        with speak.queue_lock():  # reentrant: a caller that holds the lock does not hang
+            speak._drop_copied_fields_once()
+        self.assertTrue(os.path.exists(os.path.join(speak.STATE, 'scope')))
+
+
 class OldOutputField(unittest.TestCase):
     def test_a_session_file_with_an_output_field_is_read_without_it(self):
         with tempfile.TemporaryDirectory() as root:
@@ -3457,7 +3634,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.13.0')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.13.1')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

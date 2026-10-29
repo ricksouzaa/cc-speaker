@@ -5,6 +5,7 @@ import importlib.machinery
 import importlib.util
 import io
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -156,6 +157,71 @@ class MoveOnce(Base):
         self.assertTrue(os.path.exists(self.path('src', 'a')))
         self.assertEqual([n for n in os.listdir(self.home) if '.part' in n], [])
 
+    def leftovers(self):
+        return sorted(n for n in os.listdir(self.home) if '.part' in n)
+
+    def other_disk(self, src_path):
+        """An os.rename that refuses to move `src_path` (as between two disks) and does everything else for real."""
+        real_rename = os.rename
+
+        def rename(src, dst):
+            if src == src_path:
+                raise OSError('outro disco')
+            return real_rename(src, dst)
+        return rename
+
+    def test_cada_falha_da_copia_remove_o_arquivo_temporario(self):
+        """Whatever stops the copy between two disks (a file that cannot be read, a destination that appears, the final
+        rename failing, an error nobody expected), `<destino>.part-<pid>` is gone afterwards; the source stays."""
+        real_rename = os.rename
+        real_copyfile, real_copytree = shutil.copyfile, shutil.copytree
+        src, dst = self.path('src'), self.path('dst')
+
+        def copy_fails_at_b(a, b, **kw):
+            if os.path.basename(a) == 'b':
+                raise OSError('disco cheio')
+            return real_copyfile(a, b, **kw)
+
+        def final_rename_fails(a, b):
+            if a == src:
+                raise OSError('outro disco')
+            if b == dst:
+                raise OSError('rename final falhou')
+            return real_rename(a, b)
+
+        def winner_appears(a, b):
+            if a == src:
+                raise OSError('outro disco')
+            put(os.path.join(dst, 'vencedor'), 'w')
+            raise OSError('destino existe')
+
+        def copy_then_crash(a, b, **kw):
+            os.makedirs(b)  # half a copy, then something nobody expected (not an OSError)
+            raise RuntimeError('inesperado')
+
+        cases = {  # name: (os.rename, shutil.copyfile, shutil.copytree, exception the call lets through)
+            'um arquivo falha no meio': (self.other_disk(src), copy_fails_at_b, real_copytree, None),
+            'rename final falha': (final_rename_fails, real_copyfile, real_copytree, None),
+            'o destino aparece': (winner_appears, real_copyfile, real_copytree, None),
+            'erro inesperado': (self.other_disk(src), real_copyfile, copy_then_crash, RuntimeError),
+        }
+        for name, (rename, copyfile, copytree, raises) in cases.items():
+            with self.subTest(name):
+                shutil.rmtree(src, ignore_errors=True)
+                shutil.rmtree(dst, ignore_errors=True)
+                put(os.path.join(src, 'a'), '1')
+                put(os.path.join(src, 'b'), '2')
+                with mock.patch.object(speak_paths.os, 'rename', side_effect=rename), \
+                        mock.patch.object(shutil, 'copyfile', copyfile), \
+                        mock.patch.object(shutil, 'copytree', copytree):
+                    if raises:
+                        with self.assertRaises(raises):
+                            speak_paths.move_dir(src, dst)
+                    else:
+                        self.assertFalse(speak_paths.move_dir(src, dst))
+                self.assertEqual(self.leftovers(), [])
+                self.assertTrue(os.path.exists(os.path.join(src, 'a')) and os.path.exists(os.path.join(src, 'b')))
+
     def test_copia_entre_discos_que_funciona_remove_a_origem(self):
         put(self.path('src', 'sub', 'a'), '1')
         real_rename = os.rename
@@ -200,6 +266,30 @@ class EnvFile(Base):
         self.run_hook(target, CLAUDE_SPEAK_DATA=self.path('dados'), CLAUDE_PLUGIN_DATA=self.path('outro'))
         with open(target) as fh:
             self.assertEqual(fh.read().splitlines(), ['export CLAUDE_SPEAK_DATA=%s' % self.path('dados')])
+
+    def test_arquivo_de_ambiente_com_bytes_que_nao_sao_texto(self):
+        """A CLAUDE_ENV_FILE that is not text must neither fail the session start nor be written twice: the bytes stay,
+        the line is added once, and the rule is still printed."""
+        target = self.path('env.sh')
+        binary = b'\xff\xfe\x00\x80binario\n'
+        with open(target, 'wb') as fh:
+            fh.write(binary)
+        for _ in range(2):
+            r = self.run_hook(target, CLAUDE_SPEAK_DATA=self.path('dados'))
+            self.assertEqual((r.returncode, r.stderr), (0, ''))
+            self.assertIn('\U0001F50A', r.stdout)
+        with open(target, 'rb') as fh:
+            data = fh.read()
+        self.assertTrue(data.startswith(binary))
+        self.assertEqual(data[len(binary):], ('export CLAUDE_SPEAK_DATA=%s\n' % self.path('dados')).encode())
+
+    def test_arquivo_de_ambiente_que_nao_da_para_abrir_nao_derruba_o_gancho(self):
+        r = self.run_hook(self.path('e-uma-pasta'), CLAUDE_SPEAK_DATA=self.path('dados'))
+        self.assertEqual((r.returncode, r.stderr), (0, ''))
+        os.makedirs(self.path('pasta'))
+        r = self.run_hook(self.path('pasta'), CLAUDE_SPEAK_DATA=self.path('dados'))
+        self.assertEqual((r.returncode, r.stderr), (0, ''))
+        self.assertIn('\U0001F50A', r.stdout)
 
     def test_sem_a_variavel_do_arquivo_nada_e_escrito(self):
         r = subprocess.run([sys.executable, '-I', START], input='{}', capture_output=True, text=True,

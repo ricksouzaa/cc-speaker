@@ -1514,6 +1514,7 @@ INSTALL_LOG = os.path.join(STATE, 'install.log')  # where the SessionStart hook 
 INSTALL_FAILED = os.path.join(STATE, 'install.failed')  # present after a failed install, holding the plugin version; `autoinstall` reads it
 AUTOINSTALL_LOCK = os.path.join(STATE, 'autoinstall.lock')  # held for an instant by `autoinstall`, so two do not start two installs
 AUTOINSTALL_WAIT = 3.0  # seconds `autoinstall` waits for the install it started to take INSTALL_LOCK
+AUTOINSTALL_PID = os.path.join(STATE, 'autoinstall.pid')  # pid of the child `autoinstall` started last, until it holds INSTALL_LOCK
 
 
 def plugin_version():
@@ -1658,12 +1659,25 @@ def failed_this_version():
     return False
 
 
+def started_child_alive():
+    """True while the install child that `autoinstall` started last is alive (its command line is still
+    `... speak install`), even if it has not taken INSTALL_LOCK yet (a loaded machine takes more than AUTOINSTALL_WAIT)."""
+    try:
+        with open(AUTOINSTALL_PID) as fh:
+            pid = int(fh.read().strip())
+    except (OSError, ValueError):
+        return False
+    argv = speak_os.argv(pid) or []
+    return bool(argv) and argv[-1] == 'install' and any(os.path.basename(a) == 'speak' for a in argv[:-1])
+
+
 def autoinstall():
     """The one rule for starting the engine install by itself (used by the SessionStart hook and by the module when a
     plugin is turned on in the middle of a session). Starts `speak install` detached (own session, output in
     INSTALL_LOG) unless one runs, the last one failed in this version, the uv is missing or CLAUDE_SPEAK_AUTOINSTALL=0.
     Returns (word, started): word is ready (engine there; also clears INSTALL_FAILED), installing, no-uv, failed or off;
-    started is True only when this call started the install (so only it tells the person).
+    started is True only when this call started the install: the one who starts it is the one who tells the person
+    (the SessionStart hook on the screen, the module in the conversation), so the notice comes out once.
     Safe to call at the same time from several places: AUTOINSTALL_LOCK serializes the probe of INSTALL_LOCK and the
     start, and the call returns only after the child holds INSTALL_LOCK (or AUTOINSTALL_WAIT passed), so the next call
     sees `installing`. If two children still got started, the second waits for INSTALL_LOCK in `install_marked`, so it
@@ -1683,12 +1697,13 @@ def autoinstall():
             return 'ready', False
         if failed_this_version():
             return 'failed', False
-        if installing():
+        if installing() or started_child_alive():
             return 'installing', False
         with open(INSTALL_LOG, 'ab') as log:
             child = subprocess.Popen([sys.executable, '-u', '-I', os.path.realpath(__file__), 'install'],
                                      stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True,
                                      close_fds=True)
+        write_atomic(AUTOINSTALL_PID, str(child.pid))  # still under the gate: the next call sees a slow child alive
         deadline = time.time() + AUTOINSTALL_WAIT
         while time.time() < deadline and child.poll() is None and not installing():
             time.sleep(0.05)
@@ -1823,6 +1838,12 @@ def _drop_copied_fields_once():
     done = os.path.join(STATE, 'scope')
     if os.path.exists(done):
         return
+    with queue_lock():  # two sessions that start together: the second waits, then finds the mark and does nothing
+        if not os.path.exists(done):
+            _drop_copied_fields_locked(done)
+
+
+def _drop_copied_fields_locked(done):
     general = {}  # a missing general file counts as 'full': this describes the old copy model, whose default was full
     for field, path, default in (('mode', MODE_FILE, 'full'), ('size', SIZE_FILE, 'medium')):
         try:
