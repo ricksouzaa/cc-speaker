@@ -54,6 +54,8 @@ Digite `/speak` sozinho. Abre um painel com uma lista por linha, já com o tecla
 | Com o microfone em uso | Espera (padrão), Toca ou Toca nesta reunião (veja [Microfone](#microfone)) |
 | Ouvir de novo | dois botões, Resumo e Resposta inteira: tocam na hora a última fala desta sessão; a linha não guarda valor |
 
+Abaixo da última resposta (só depois que o turno termina) aparecem os mesmos dois botões, `[ ▶ Resumo ]` e `[ ▶ Resposta inteira ]`; sem a linha 🔊 só o segundo. Somem quando começa o turno seguinte. Clicar só funciona no terminal em tela cheia.
+
 Uma linha que só vale nesta sessão leva a marca "· só nesta sessão". O painel responde sem gastar uma resposta do Claude e funciona até no meio de uma resposta.
 
 ### Comandos escritos

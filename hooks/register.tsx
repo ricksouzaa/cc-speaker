@@ -388,8 +388,61 @@ async function openMenu($: Engine, focus: Key): Promise<boolean> {
   return (await $.ui.open({ id: PANE, title: 'Voz', focus: true, closeOnEscape: true })).isPlaced
 }
 
+// Botões abaixo da última resposta. `lastAnswer` é o texto final do último turno que fechou (turn.complete); fica vazio
+// enquanto um turno corre (turn.start) e no começo da sessão. O bloco é o último quando o texto dele é igual a esse
+// texto: o motor não diz qual bloco é o último, e o texto final é o que sobrou de mais estável. Se uma resposta
+// antiga tiver texto idêntico (ex.: "Pronto."), ela mostra os botões também; é o preço de não varrer a conversa.
+let lastAnswer = ''
+const hasSummaryLine = (text: string) =>
+  text.split('\n').some(l => l.trim().replace(/^[>*_ ]+/, '').startsWith('🔊'))
+
+function drawAgainButtons(el: any, withSummary: boolean, press: (which: string) => unknown) {
+  const { Box, Button } = el
+  return (
+    <Box flexDirection="row">
+      {Object.keys(AGAINS)
+        .filter(v => v === 'full' || withSummary)
+        .map(v => (
+          <Box key={'box-' + v} marginRight={2}>
+            <Button key={'msg-again-' + v} label={`[ ▶ ${AGAINS[v]} ]`} onPress={() => press(v)} />
+          </Box>
+        ))}
+    </Box>
+  )
+}
+
 export const register: Register = on => {
+  on('turn.start', async ($, e, next) => {
+    if (e.agentId === undefined && lastAnswer) {
+      lastAnswer = ''
+      $.ui.invalidate('ui.render')
+    }
+    return next(e)
+  })
+
+  on('turn.complete', async ($, e, next) => {
+    if (e.agentId === undefined) {
+      lastAnswer = e.isAborted ? '' : (e.answer ?? '').trim()
+      $.ui.invalidate('ui.render')
+    }
+    return next(e)
+  })
+
+  // Todas as outras mensagens passam direto: só uma comparação de texto antes do `next`.
+  on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
+    if (!lastAnswer || e.props.isSummary || e.props.text.trim() !== lastAnswer) return next(e)
+    const drawn = await next(e)
+    const { Box } = $.ui.resolve(e)
+    return (
+      <Box flexDirection="column">
+        {drawn}
+        {drawAgainButtons($.ui.resolve(e), hasSummaryLine(lastAnswer), which => enqueue(() => menuAgain($, which)))}
+      </Box>
+    )
+  })
+
   on('session.start', async ($, e, next) => {
+    lastAnswer = ''
     await $.command.register({
       name: 'speak',
       description: 'Ajusta a voz que lê as respostas: ligar, modo, tamanho, microfone, voz; ouve de novo a última fala',

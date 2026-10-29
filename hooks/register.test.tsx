@@ -646,3 +646,68 @@ test('autoinstall ready: nenhuma linha de instalação na conversa', async ($, o
   expect(logs).toEqual([])
 })
 
+
+// Botões "Resumo" e "Resposta inteira" abaixo da última resposta.
+const MSG = { plugin: 'speak', component: 'AssistantMessage', surface: 'terminal' } as const
+const msg = (text: string, extra: Record<string, unknown> = {}) => ({ ...MSG, props: { text, isFirstOfReply: true, ...extra } })
+
+// O motor, por baixo do plugin: desenha o texto da mensagem.
+function engineDraws(on: any) {
+  on('turn.start', (_: unknown, e: any) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: '' }))
+  on('ui.render', ($: any, e: any) => {
+    const { Text } = $.ui.resolve(e)
+    return <Text>{e.props.text}</Text>
+  })
+}
+const finish = ($: any, answer: string, extra: Record<string, unknown> = {}) =>
+  $.turn.complete({ answer, durationMs: 1, isAborted: false, turnId: 't1', reason: 'answered', ...extra })
+const buttons = async (ui: any) => (await ui.findAll({ type: 'Button' })).map((b: any) => b.props.label)
+
+test('depois do turno, o último bloco ganha os dois botões; outro bloco fica sem nada', async ($, on) => {
+  engineDraws(on)
+  const { ran } = await setup($, on)
+  await finish($, 'Feito.\n\n🔊 Resumo falado.')
+  const last = await $.ui.mount(msg('Feito.\n\n🔊 Resumo falado.'))
+  expect(await buttons(last)).toEqual(['[ ▶ Resumo ]', '[ ▶ Resposta inteira ]'])
+  await last.press({ key: 'msg-again-summary' })
+  await last.press({ key: 'msg-again-full' })
+  expect(changes(ran)).toEqual(['again summary', 'again full'])
+  const older = await $.ui.mount(msg('Uma resposta antiga.'))
+  expect(await buttons(older)).toEqual([])
+  const summary = await $.ui.mount(msg('Feito.\n\n🔊 Resumo falado.', { isSummary: true }))
+  expect(await buttons(summary)).toEqual([])
+})
+
+test('sem a linha 🔊 só aparece "Resposta inteira"', async ($, on) => {
+  engineDraws(on)
+  const { ran } = await setup($, on)
+  await finish($, 'Resposta sem resumo.')
+  const ui = await $.ui.mount(msg('Resposta sem resumo.'))
+  expect(await buttons(ui)).toEqual(['[ ▶ Resposta inteira ]'])
+  await ui.press({ key: 'msg-again-full' })
+  expect(changes(ran)).toEqual(['again full'])
+})
+
+test('durante um turno não há botões; no turno novo somem da resposta anterior', async ($, on) => {
+  engineDraws(on)
+  await setup($, on)
+  await finish($, 'Primeira.\n🔊 um')
+  expect(await buttons(await $.ui.mount(msg('Primeira.\n🔊 um')))).toHaveLength(2)
+  await $.turn.start({ text: 'outra', turnId: 't2' })
+  expect(await buttons(await $.ui.mount(msg('Primeira.\n🔊 um')))).toEqual([])
+  expect(await buttons(await $.ui.mount(msg('Parcial')))).toEqual([])
+  await finish($, 'Segunda.', { turnId: 't2' })
+  expect(await buttons(await $.ui.mount(msg('Primeira.\n🔊 um')))).toEqual([])
+  expect(await buttons(await $.ui.mount(msg('Segunda.')))).toEqual(['[ ▶ Resposta inteira ]'])
+})
+
+test('turno de subagente e turno interrompido não mexem nos botões', async ($, on) => {
+  engineDraws(on)
+  await setup($, on)
+  await finish($, 'Final.')
+  await finish($, 'Relatório do agente.', { agentId: 'a1', turnId: 't9' })
+  expect(await buttons(await $.ui.mount(msg('Final.')))).toHaveLength(1)
+  await finish($, 'Cortada.', { isAborted: true, reason: 'aborted', turnId: 't3' })
+  expect(await buttons(await $.ui.mount(msg('Final.')))).toEqual([])
+})
