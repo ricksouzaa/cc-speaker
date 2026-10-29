@@ -62,6 +62,8 @@ Tudo fica na pasta de dados do plugin, em `~/.claude/plugins/data/speak-cc-speak
 
 `python3 -m unittest discover -s tests` (motor e script) e `claude plugin test .` (o comando `/speak`).
 
+Instalação numa máquina nova, num contêiner Ubuntu: `bash tests/docker/instalacao-limpa.sh auto` (ou `visual`, para ver a tela). Veja `tests/docker/README.md`.
+
 Decisões e próximos passos: `docs/proximos-passos.md`.
 
 ## Licença
