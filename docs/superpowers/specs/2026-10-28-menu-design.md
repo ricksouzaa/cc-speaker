@@ -27,3 +27,7 @@ Data: 28/10/2026. Pedido do Ricardo: ao digitar o comando, escolher as opções 
 ## Verificação
 
 `claude plugin validate .` sem erros; `claude plugin test .` com um `hooks/*.test.ts` que cobre: cada ação com escolha completa roda o `speak` certo; sem escolha abre o diálogo e roda o escolhido; cancelado não roda nada; alcance vira `all`. `python3 -m unittest discover -s tests` continua passando (testes das habilidades saem ou viram testes do módulo). Versão 0.3.0. Na sessão do Ricardo: `/speak` abre o menu.
+
+## Motor instalado sozinho (pedido do Ricardo no mesmo dia)
+
+O Claude Code não tem passo de pós-instalação para plugins. Então, no começo de uma sessão sem motor, `hooks/speak-start.py` dispara `speak install` em segundo plano, desligado da sessão (novo processo, saída em `~/.local/state/claude-speak/install.log`), sem perguntar, e só uma instalação por vez (trava de arquivo; outra sessão que abra durante a instalação não dispara outra). O aviso ao modelo passa a dizer que o motor está sendo instalado em segundo plano (cerca de 350 MB) e que a voz começa sozinha quando terminar; se faltar o uv, o aviso diz como instalá-lo (https://docs.astral.sh/uv/) e não dispara nada; se a última tentativa falhou, o aviso diz isso e aponta o log e `/speak install` para tentar de novo. `/speak install` continua, para tentar de novo em primeiro plano. README atualizado.
