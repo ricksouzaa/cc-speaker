@@ -21,6 +21,16 @@
         ]
       }
     ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/speak-end.py\""
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

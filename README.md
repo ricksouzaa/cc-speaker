@@ -44,6 +44,7 @@ Também dá para escrever a ação inteira e pular o menu. Com `all` no fim, val
 - `/speak voice [dora|alex|santa]`: sem nome, abre o menu na linha da voz; com nome, escolhe (dora é feminina; alex e santa são masculinas). Vale para todas as sessões.
 - `/speak status`: mostra o estado atual (voz, modo, tamanho, motor).
 - `/speak stop`: corta a fala que está tocando e esvazia a fila.
+- Sair da sessão corta a fala dela (a que toca e as que esperam); as falas de outras sessões continuam.
 - `/speak install`: instala o motor (ou tenta de novo), em primeiro plano; pode levar minutos.
 
 Se o menu não puder abrir (por exemplo, numa execução sem tela), o comando responde com a forma escrita. Também dá para pedir em palavras ("fala só o resumo", "resumo maior", "troca para a voz do Alex"); o Claude roda o comando por você.

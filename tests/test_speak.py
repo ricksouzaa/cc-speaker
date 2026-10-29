@@ -712,6 +712,37 @@ class Session(unittest.TestCase):
         self.speak('stop', session=self.me)
         self.assertTrue(self.ends(speech))
 
+    def test_fim_corta_so_a_sessao(self):
+        self.queue_setup()
+        playing = self.waiter('a', self.me)
+        self.assertTrue(self.until(lambda: self.started() == ['a']))
+        theirs = self.waiter('b', self.other)
+        mine = self.waiter('c', self.me)
+        self.assertTrue(self.until(lambda: len(self.tickets()) == 2))
+        self.speak('stop', 'here', session=self.me, **{k: v for k, v in self.env.items() if k != 'HOME'})
+        self.assertTrue(self.ends(playing, 5))
+        self.assertTrue(self.ends(mine, 5))
+        self.assertIsNone(theirs.poll())
+        self.assertEqual(len(self.tickets()), 1)  # only the ticket of the other session is left
+        self.assertTrue(self.until(lambda: self.started() == ['a', 'b']))  # and it takes the turn
+        self.let_go('b')
+        self.assertEqual(theirs.wait(timeout=5), 0)
+
+    def test_fim_sem_fala(self):
+        speech = self.speech(self.other)
+        self.speak('status', session=self.me)  # the first call writes the one-time marker `scope`; settle it first
+        before = sorted(os.listdir(self.folder()))
+        r = self.speak('stop', 'here', session=self.me)
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (0, '', ''))
+        self.assertFalse(self.ends(speech, 0.5))
+        self.assertEqual(sorted(os.listdir(self.folder())), before)
+
+    def test_fim_fora_de_sessao_nao_corta_nada(self):
+        speech = self.speech(self.other)
+        r = self.speak('stop', 'here', session='-')
+        self.assertEqual(r.returncode, 0)
+        self.assertFalse(self.ends(speech, 0.5))
+
     def test_stop_mine_is_gone(self):
         speech = self.speech(self.me)
         r = self.speak('stop', '--mine', session=self.me)
@@ -1122,6 +1153,40 @@ class Hook(unittest.TestCase):
                     break
                 time.sleep(0.05)
             return open(seen).read() if os.path.exists(seen) else None
+
+    def end_hook(self, fake_body=None, **env):
+        """Runs hooks/speak-end.py beside a fake `speak`; returns (completed process, what the fake saw, seconds)."""
+        with tempfile.TemporaryDirectory() as home:
+            hook = self.plugin(home, 'speak-end.py')
+            if fake_body is not None:
+                with open(os.path.join(os.path.dirname(os.path.dirname(hook)), 'bin', 'speak'), 'w') as fh:
+                    fh.write(fake_body)
+            started = time.time()
+            r = subprocess.run([sys.executable, '-I', hook], input=json.dumps({'session_id': 'abc', 'reason': 'other'}),
+                               capture_output=True, text=True, env={'HOME': home, 'PATH': '/usr/bin:/bin', **env})
+            took = time.time() - started
+            seen = os.path.join(home, 'seen')
+            return r, (open(seen).read() if os.path.exists(seen) else None), took
+
+    def test_fim_chama_o_corte_da_sessao(self):
+        r, seen, _ = self.end_hook()
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (0, '', ''))
+        self.assertEqual(seen, 'stop here|')
+
+    def test_fim_rapido(self):
+        r, _, took = self.end_hook('import time\ntime.sleep(30)\n')
+        self.assertEqual(r.returncode, 0)
+        self.assertLess(took, 1.5)
+        r, _, took = self.end_hook('raise SystemExit(7)\n')
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (0, '', ''))
+        self.assertLess(took, 1.5)
+
+    def test_fim_sem_speak_sai_com_zero(self):
+        with tempfile.TemporaryDirectory() as home:
+            hook = self.plugin(home, 'speak-end.py', fake=False)
+            r = subprocess.run([sys.executable, '-I', hook], input='não é json', capture_output=True, text=True,
+                               env={'HOME': home, 'PATH': '/usr/bin:/bin'})
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (0, '', ''))
 
     def test_hook_hands_the_reply_to_speak(self):
         self.assertEqual(self.hand_over(), 'say -|' + REPLY)
@@ -2111,7 +2176,8 @@ class Plugin(unittest.TestCase):
 
     def test_hooks_point_to_files_that_exist(self):
         hooks = self.load('hooks', 'hooks.json')['hooks']
-        self.assertEqual(set(hooks), {'SessionStart', 'UserPromptSubmit', 'Stop'})
+        self.assertEqual(set(hooks), {'SessionStart', 'UserPromptSubmit', 'Stop', 'SessionEnd'})
+        self.assertNotIn('matcher', hooks['SessionEnd'][0])
         self.assertEqual(hooks['SessionStart'][0]['matcher'], 'startup|resume|clear|compact')
         for entries in hooks.values():
             for entry in entries:
@@ -2125,7 +2191,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.5.9')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.5.10')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):
