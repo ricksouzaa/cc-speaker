@@ -12,11 +12,17 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 ## Feito
 
 - Plugin `speak` no catálogo `cc-speaker`, com o comando `/speak` e suas caixas de escolha no terminal (ligar, leitura, tamanho, voz, alcance), pedidos em palavras e o motor instalado sozinho na primeira sessão.
+- Mac: o código está pronto (peça por sistema em `lib/speak_os.py`, som pelo `sounddevice` com `afplay` de reserva) e o fluxo do GitHub roda os testes no Ubuntu e no macOS. Falta o teste num Mac de verdade.
 - Tamanho do resumo (pequeno, médio, grande) e escolha da voz (dora, alex, santa).
+
+## Pendências
+
+- **Vazamento de threads nos testes**: `synthesize_ahead.<locals>.work` e `StreamPlayer.bounded.<locals>.work` ficam vivas depois de alguns testes.
+- **Teste no contêiner, modo visual** (`bash tests/docker/instalacao-limpa.sh visual`): a ser feito pelo Ricardo.
+- **Mac de verdade**: confirmar som, microfone e achar a sessão (`speak check`).
 
 ## Pedidos para depois
 
-- **Mac**, pela peça trocável por sistema descrita acima.
 - **Filtrar melhor o que se narra.** Exemplo real: na linha de sincronização do pickup a voz leu "HEAD 93a66bd" e o ramo "fix/fila-da-voz". Não narrar códigos de commit (sequências hexadecimais de 7 a 40 caracteres com dígitos), a palavra HEAD, nomes de ramo com barra e separadores como o ponto médio; revisar as outras regras de limpeza com exemplos de respostas reais.
 - **Outros narradores** pesquisados em 28/10/2026, para escolher o que trazer: uma voz por sessão (do kokoro-tts do voiys); avisos falados durante o trabalho (do claude-voice do adjit).
 - **Voz no estilo do Jarvis**, ideia do Ricardo. Combinado: um estilo inspirado (voz masculina grave e calma, tratamento formal, talvez um leve efeito metálico no áudio), não uma cópia da voz do ator nem o nome como marca.

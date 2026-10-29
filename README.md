@@ -1,12 +1,13 @@
 # cc-speaker
 
-Respostas do Claude Code lidas em voz alta, em português do Brasil, com um motor de voz que roda na sua máquina (Kokoro), sem rede e sem custo. É um plugin do Claude Code chamado `speak`; este repositório é também o catálogo de onde ele se instala. Por enquanto, só Linux.
+Respostas do Claude Code lidas em voz alta, em português do Brasil, com um motor de voz que roda na sua máquina (Kokoro), sem rede e sem custo. É um plugin do Claude Code chamado `speak`; este repositório é também o catálogo de onde ele se instala. Funciona no Linux e no macOS (Windows fica de fora por enquanto).
 
 ## Requisitos
 
-- Linux com `python3`.
+- Linux ou macOS, com `python3`.
 - `uv` (https://docs.astral.sh/uv/), que instala o motor.
-- Um tocador de áudio: `pw-play` (PipeWire 1.1 ou mais novo, que tem `--raw`), `paplay` ou `aplay`. Com um `pw-play` mais velho (Ubuntu 24.04), o speak usa o `paplay` ou o `aplay`.
+- Linux: um tocador de áudio, `pw-play` (PipeWire 1.1 ou mais novo, que tem `--raw`), `paplay` ou `aplay`. Com um `pw-play` mais velho (Ubuntu 24.04), o speak usa o `paplay` ou o `aplay`.
+- Mac: o `afplay`, que já vem no sistema (o speak toca pelo `sounddevice` e cai para o `afplay` se algo falhar). O código do Mac está pronto, mas ainda falta o teste num Mac de verdade.
 - Cerca de 350 MB livres para o motor e o modelo de voz.
 
 ## Instalação
@@ -34,7 +35,7 @@ A voz começa sozinha quando termina. Se algo der errado, `/speak install` é o 
 
 ## O comando /speak
 
-Um comando só, para você digitar. Sem nada depois, abre um painel de voz já com o foco (funciona no terminal e no VS Code): uma lista por linha, e cada escolha vale na hora. Tab troca de linha, Enter escolhe o valor; Esc ou o botão Fechar fecham o painel. As linhas: **Mudar em** (todas as sessões ou só esta; só diz onde as próximas trocas são gravadas, abre sempre em "Todas as sessões" e não roda nada), **Voz** (ligada ou desligada), **Leitura** (resposta inteira ou só o resumo), **Tamanho do resumo** e **Voz de leitura** (vale sempre para todas as sessões). Uma linha que é exceção só desta sessão leva a marca "· só nesta sessão". O rodapé mostra o que passou a valer, ou o erro. Ele responde na hora, sem gastar uma resposta do Claude, e funciona mesmo durante uma resposta (assim `/speak stop` corta a fala já).
+Um comando só, para você digitar. Sem nada depois, abre um painel de voz já com o foco (funciona no terminal e no VS Code): uma lista por linha, e cada escolha vale na hora. Tab troca de linha, Enter escolhe o valor; Esc ou o botão Fechar fecham o painel. As linhas: **Mudar em** (todas as sessões ou só esta; só diz onde as próximas trocas são gravadas, abre sempre em "Todas as sessões" e não roda nada), **Voz** (ligada ou desligada), **Leitura** (resposta inteira ou só o resumo), **Tamanho do resumo** e **Voz de leitura** (vale sempre para todas as sessões). Uma linha que é exceção só desta sessão leva a marca "· só nesta sessão". Pendência conhecida: as sessões que ficaram com o campo `voice` copiado continuam marcadas "· só nesta sessão" até o próximo `speak on all` ou `speak off all`. O rodapé mostra o que passou a valer, ou o erro. Ele responde na hora, sem gastar uma resposta do Claude, e funciona mesmo durante uma resposta (assim `/speak stop` corta a fala já).
 
 Também dá para escrever a ação inteira e pular o menu. Com `all` no fim, vale para todas as sessões; sem ele, só para a sessão atual:
 

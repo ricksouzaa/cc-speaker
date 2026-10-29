@@ -207,10 +207,10 @@ Hoje, ao sair de uma sessão (`exit`) no meio da leitura, a fala continua até o
 - Create: `.github/workflows/tests.yml`
 - Modify: `README.md`, `rules/speak.md`, `docs/proximos-passos.md`, `docs/superpowers/specs/2026-10-28-menu-design.md` (nota no topo), `.claude-plugin/plugin.json`, `tests/test_speak.py` (versão)
 
-- [ ] **Step 1:** Fluxo `tests.yml`: em `push` e `pull_request`, matriz `ubuntu-latest` e `macos-latest`, Python 3.12, `python3 -m unittest discover -s tests`.
-- [ ] **Step 2:** README: requisitos por sistema (Linux: tocador `pw-play`/`paplay`/`aplay`; Mac: `afplay`, já vem), "desinstalar o plugin apaga o motor, as escolhas e o estado, a menos que use `--keep-data`", o menu de setas e a marca `· só nesta sessão`, tira "Por enquanto, só Linux". `rules/speak.md`: `/speak` sozinho abre o menu de setas, que fica aberto até Esc. `proximos-passos.md`: Mac sai dos pedidos para depois; feito atualizado; comandos por ação recusados. Nota no desenho do menu antigo apontando para o novo. Versão 0.6.0.
-- [ ] **Step 3:** `python3 -m unittest discover -s tests` → OK; `claude plugin test .` → todos passam; `claude plugin validate .` → passa.
-- [ ] **Step 4:** Commit `docs: menu de setas, pasta de dados e Mac (0.6.0)`.
+- [x] **Step 1:** Fluxo `tests.yml`: em `push` e `pull_request`, matriz `ubuntu-latest` e `macos-latest`, Python 3.12, `python3 -m unittest discover -s tests`.
+- [x] **Step 2:** README: requisitos por sistema (Linux: tocador `pw-play`/`paplay`/`aplay`; Mac: `afplay`, já vem), "desinstalar o plugin apaga o motor, as escolhas e o estado, a menos que use `--keep-data`", o menu de setas e a marca `· só nesta sessão`, tira "Por enquanto, só Linux". `rules/speak.md`: `/speak` sozinho abre o menu de setas, que fica aberto até Esc. `proximos-passos.md`: Mac sai dos pedidos para depois; feito atualizado; comandos por ação recusados. Nota no desenho do menu antigo apontando para o novo. Versão 0.6.0.
+- [x] **Step 3:** `python3 -m unittest discover -s tests` → OK; `claude plugin test .` → todos passam; `claude plugin validate .` → passa.
+- [x] **Step 4:** Commit `docs: menu de setas, pasta de dados e Mac (0.6.0)`.
 
 ### Task 8: Verificação final
 
