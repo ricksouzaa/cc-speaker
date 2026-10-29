@@ -1,7 +1,8 @@
 """Where `speak` keeps its files, and the one-time move from the former folders. Stdlib only.
 
 Everything lives in one data root, which `claude plugin uninstall` removes with the plugin (unless --keep-data):
-  1. $CLAUDE_PLUGIN_DATA, when set (hooks receive it);
+  1. $CLAUDE_PLUGIN_DATA, when set (hooks receive it), else $CLAUDE_SPEAK_DATA (the session hook exports it to the
+     shell commands of the session, so it does not leak into other plugins' CLAUDE_PLUGIN_DATA);
   2. else derived from where the script is: `.../plugins/cache/<catalog>/<plugin>/<version>/...` gives
      `.../plugins/data/<plugin>-<catalog>`;
   3. else `${CLAUDE_CONFIG_DIR:-~/.claude}/plugins/data/speak-cc-speaker`.
@@ -21,7 +22,7 @@ OLD_KINDS = (('engine', 'XDG_DATA_HOME', '.local/share'),
 
 def root(script):
     """The data root for the plugin script at path `script` (see the module text for the order)."""
-    given = os.environ.get('CLAUDE_PLUGIN_DATA')
+    given = os.environ.get('CLAUDE_PLUGIN_DATA') or os.environ.get('CLAUDE_SPEAK_DATA')
     if given:
         return given
     parts = os.path.abspath(script).split(os.sep)
@@ -52,7 +53,8 @@ def old_folder(kind, name=OLD_NAME):
 
 
 def move_dir(src, dst):
-    """Moves folder `src` to `dst`, which must not exist. True when it moved. Never leaves half a destination."""
+    """Moves folder `src` to `dst`, which must not exist. True when it moved. Never leaves half a destination and never
+    deletes a `dst` it did not create: another session may have moved its own in meanwhile (the lock is not held)."""
     if os.path.lexists(dst):
         return False
     os.makedirs(os.path.dirname(dst), exist_ok=True)
@@ -61,24 +63,27 @@ def move_dir(src, dst):
         return True
     except OSError:
         pass
-    # Another disk: copy, then remove the source. A copy that fails midway leaves a partial `dst`, which this call
-    # created (it did not exist above); remove it and keep `src`, or the partial folder would win next time.
+    if not os.path.isdir(src) or os.path.lexists(dst):
+        return False  # src gone or dst appeared: the other process won; delete nothing
+    # Another disk: copy into a temporary sibling that only this process owns, rename it into place on success.
+    part = '%s.part-%d' % (dst, os.getpid())
     try:
-        shutil.copytree(src, dst, symlinks=True)
+        shutil.copytree(src, part, symlinks=True)
+        if os.path.lexists(dst):
+            raise OSError('destino apareceu')
+        os.rename(part, dst)
     except (OSError, shutil.Error):
-        shutil.rmtree(dst, ignore_errors=True)
+        shutil.rmtree(part, ignore_errors=True)
         return False
     shutil.rmtree(src, ignore_errors=True)
     return True
 
 
 def migrate_old(base):
-    """Moves the former folders into the data root `base`, once: only when `base/engine` does not exist yet, and a
-    destination that already exists wins. Drops the leftover `state/phone` of the removed phone mode. Returns the
-    names ('engine', 'config', 'state') that moved."""
+    """Moves each former folder (engine, config, state) into the data root `base`, independently: a kind moves only
+    when its destination does not exist yet (the new one wins and the old folder stays untouched), so a kind that failed
+    once is retried. Drops the leftover `state/phone` of the removed phone mode. Returns the names that moved."""
     moved = []
-    if os.path.lexists(os.path.join(base, 'engine')):
-        return moved
     for kind, _, _ in OLD_KINDS:
         old = old_folder(kind)
         if old and move_dir(old, os.path.join(base, kind)):

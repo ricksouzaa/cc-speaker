@@ -62,17 +62,17 @@ def start_install():
 
 
 def share_root():
-    """Appends `export CLAUDE_PLUGIN_DATA=<root>` to $CLAUDE_ENV_FILE (once), so the shell commands of the session
+    """Appends `export CLAUDE_SPEAK_DATA=<root>` to $CLAUDE_ENV_FILE (once), so the shell commands of the session
     reach the same data root as the hooks."""
     path = os.environ.get('CLAUDE_ENV_FILE')
     if not path:
         return
-    line = 'export CLAUDE_PLUGIN_DATA=%s\n' % shlex.quote(ROOT)
+    line = 'export CLAUDE_SPEAK_DATA=%s\n' % shlex.quote(ROOT)
     try:
         with open(path) as fh:
             if line in fh.read().splitlines(True):
                 return
-    except OSError:
+    except (OSError, ValueError):
         pass
     with open(path, 'a') as fh:
         fh.write(line)
@@ -82,7 +82,7 @@ def main():
     sys.stdin.read()
     try:
         share_root()
-    except OSError:
+    except (OSError, ValueError):
         pass
     out = run('rule').stdout
     if not out.strip():

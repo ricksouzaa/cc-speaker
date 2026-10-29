@@ -34,7 +34,8 @@ class Base(unittest.TestCase):
         patch = mock.patch.dict(os.environ, {'HOME': self.home})
         patch.start()
         self.addCleanup(patch.stop)
-        for name in ('XDG_DATA_HOME', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'CLAUDE_PLUGIN_DATA', 'CLAUDE_CONFIG_DIR'):
+        for name in ('XDG_DATA_HOME', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'CLAUDE_PLUGIN_DATA', 'CLAUDE_SPEAK_DATA',
+                     'CLAUDE_CONFIG_DIR'):
             os.environ.pop(name, None)
 
     def path(self, *parts):
@@ -43,6 +44,12 @@ class Base(unittest.TestCase):
 
 class Root(Base):
     def test_raiz_pela_variavel(self):
+        os.environ['CLAUDE_PLUGIN_DATA'] = '/x'
+        self.assertEqual(speak_paths.root(self.path('qualquer', 'bin', 'speak')), '/x')
+
+    def test_raiz_pela_variavel_do_speak(self):
+        os.environ['CLAUDE_SPEAK_DATA'] = '/s'
+        self.assertEqual(speak_paths.root(self.path('qualquer', 'bin', 'speak')), '/s')
         os.environ['CLAUDE_PLUGIN_DATA'] = '/x'
         self.assertEqual(speak_paths.root(self.path('qualquer', 'bin', 'speak')), '/x')
 
@@ -90,11 +97,25 @@ class MoveOnce(Base):
         self.old()
         base = self.path(*FALLBACK)
         os.makedirs(os.path.join(base, 'engine'))
-        self.assertEqual(speak_paths.migrate_old(base), [])
+        self.assertEqual(speak_paths.migrate_old(base), ['config', 'state'])
         self.assertTrue(os.path.exists(self.path('.local', 'share', 'claude-speak', 'model.onnx')))
+        self.assertFalse(os.path.exists(os.path.join(base, 'engine', 'model.onnx')))
+        self.assertTrue(os.path.exists(os.path.join(base, 'config', 'voice')))
+
+    def test_destino_existente_deixa_a_pasta_antiga_intacta(self):
+        self.old()
+        base = self.path(*FALLBACK)
+        put(os.path.join(base, 'config', 'voice'), 'nova')
+        self.assertEqual(speak_paths.migrate_old(base), ['engine', 'state'])
         self.assertTrue(os.path.exists(self.path('.config', 'claude-speak', 'voice')))
-        self.assertTrue(os.path.exists(self.path('.local', 'state', 'claude-speak', 'phone', 'x')))
-        self.assertFalse(os.path.exists(os.path.join(base, 'config')))
+        with open(os.path.join(base, 'config', 'voice')) as fh:
+            self.assertEqual(fh.read(), 'nova')
+
+    def test_motor_ja_presente_config_antiga_ainda_muda(self):
+        put(self.path(*FALLBACK, 'engine', 'm'), 'm')
+        put(self.path('.config', 'claude-speak', 'voice'), 'v')
+        self.assertEqual(speak_paths.migrate_old(self.path(*FALLBACK)), ['config'])
+        self.assertTrue(os.path.exists(self.path(*FALLBACK, 'config', 'voice')))
 
     def test_pelo_comando_speak(self):
         self.old()
@@ -118,9 +139,32 @@ class MoveOnce(Base):
         self.assertFalse(os.path.exists(self.path('dst')))
         self.assertTrue(os.path.exists(self.path('src', 'a')) and os.path.exists(self.path('src', 'b')))
 
+    def test_destino_que_aparece_na_corrida_nao_e_apagado(self):
+        put(self.path('src', 'a'), '1')
+        real_rename = os.rename
+
+        def other_wins(src, dst):
+            if dst == self.path('dst'):
+                put(self.path('dst', 'vencedor'), 'w')
+                raise OSError('destino existe')
+            return real_rename(src, dst)
+
+        with mock.patch.object(speak_paths.os, 'rename', side_effect=other_wins):
+            self.assertFalse(speak_paths.move_dir(self.path('src'), self.path('dst')))
+        self.assertTrue(os.path.exists(self.path('dst', 'vencedor')))
+        self.assertTrue(os.path.exists(self.path('src', 'a')))
+        self.assertEqual([n for n in os.listdir(self.home) if '.part' in n], [])
+
     def test_copia_entre_discos_que_funciona_remove_a_origem(self):
         put(self.path('src', 'sub', 'a'), '1')
-        with mock.patch.object(speak_paths.os, 'rename', side_effect=OSError('outro disco')):
+        real_rename = os.rename
+
+        def cross_disk(src, dst):
+            if src == self.path('src'):
+                raise OSError('outro disco')
+            return real_rename(src, dst)
+
+        with mock.patch.object(speak_paths.os, 'rename', side_effect=cross_disk):
             self.assertTrue(speak_paths.move_dir(self.path('src'), self.path('dst')))
         self.assertTrue(os.path.exists(self.path('dst', 'sub', 'a')))
         self.assertFalse(os.path.exists(self.path('src')))
@@ -135,12 +179,12 @@ class EnvFile(Base):
     def test_env_file(self):
         target = self.path('env.sh')
         open(target, 'w').close()
-        r = self.run_hook(target, CLAUDE_PLUGIN_DATA=self.path('dados'))
+        r = self.run_hook(target, CLAUDE_SPEAK_DATA=self.path('dados'))
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.run_hook(target, CLAUDE_PLUGIN_DATA=self.path('dados'))
+        self.run_hook(target, CLAUDE_SPEAK_DATA=self.path('dados'))
         with open(target) as fh:
             lines = fh.read().splitlines()
-        self.assertEqual(lines, ['export CLAUDE_PLUGIN_DATA=%s' % self.path('dados')])
+        self.assertEqual(lines, ['export CLAUDE_SPEAK_DATA=%s' % self.path('dados')])
 
     def test_sem_a_variavel_do_arquivo_nada_e_escrito(self):
         r = subprocess.run([sys.executable, '-I', START], input='{}', capture_output=True, text=True,

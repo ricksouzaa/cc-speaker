@@ -42,14 +42,15 @@ speak_stop = load('speak_stop', HOOK)
 
 def isolate(case, root):
     """Points every path constant of the in-process `speak` module into `root`, and pins HOME (clearing the XDG
-    variables, CLAUDE_PLUGIN_DATA and CLAUDE_CONFIG_DIR) so that the in-process migrate() can only look inside `root`:
+    variables, CLAUDE_PLUGIN_DATA, CLAUDE_SPEAK_DATA and CLAUDE_CONFIG_DIR) so that the in-process migrate() can only look inside `root`:
     no test touches the real plugin data folder or the former ~/.config, ~/.local/share, ~/.local/state.
     Undone at the test's cleanup."""
     from unittest import mock
     env = mock.patch.dict(os.environ, {'HOME': root})
     env.start()
     case.addCleanup(env.stop)
-    for name in ('XDG_DATA_HOME', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'CLAUDE_PLUGIN_DATA', 'CLAUDE_CONFIG_DIR'):
+    for name in ('XDG_DATA_HOME', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'CLAUDE_PLUGIN_DATA', 'CLAUDE_SPEAK_DATA',
+                 'CLAUDE_CONFIG_DIR'):
         os.environ.pop(name, None)
     data = data_dir(root, 'engine')
     conf = data_dir(root, 'config')
@@ -527,7 +528,6 @@ class Session(unittest.TestCase):
         self.assertIn('fora de uma sessão do Claude Code', self.speak('status', session='../x').stdout)
         self.speak('off', session='../x')
         self.assertTrue(os.path.exists(data_dir(self.tmp.name, 'config', 'off')))
-        self.assertFalse(os.path.exists(data_dir(self.tmp.name, 'state', 'x')))
         self.assertFalse(os.path.exists(data_dir(self.tmp.name, 'state', 'x')))
         self.assertEqual(os.listdir(self.state) if os.path.isdir(self.state) else [], [])
 
