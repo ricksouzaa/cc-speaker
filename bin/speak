@@ -562,17 +562,23 @@ def stop_current():
 
 def stop_if_mine(session):
     """Ends the speeches of this session: the waiting ones, and the one playing if it owns it. A session of None
-    owns nothing."""
+    owns nothing. Owner and pid are read and the cut is signalled under the queue lock, where `wait_turn` swaps both,
+    so a speech that took over meanwhile is never mistaken for the old owner's (the signal does not wait for the
+    process to die, so the lock is held only a moment)."""
     if not session:
         return
     stop_waiting(session)
-    try:
-        with open(OWNER) as fh:
-            owner = fh.read().strip()
-    except OSError:
-        return
-    if owner == session:
-        stop_playing()
+    with queue_lock():
+        try:
+            with open(OWNER) as fh:
+                owner = fh.read().strip()
+            with open(PID) as fh:
+                pid = int(fh.read().strip())
+        except (OSError, ValueError):
+            return
+        if owner == session and pid > 1 and is_speech(pid):
+            terminate(pid)
+            clear_speech(pid)
 
 
 def speak_background(text, session):

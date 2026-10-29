@@ -719,23 +719,66 @@ class Session(unittest.TestCase):
         theirs = self.waiter('b', self.other)
         mine = self.waiter('c', self.me)
         self.assertTrue(self.until(lambda: len(self.tickets()) == 2))
-        self.speak('stop', 'here', session=self.me, **{k: v for k, v in self.env.items() if k != 'HOME'})
+        self.speak('stop', 'here', session=self.me, **self.env)
         self.assertTrue(self.ends(playing, 5))
         self.assertTrue(self.ends(mine, 5))
         self.assertIsNone(theirs.poll())
-        self.assertEqual(len(self.tickets()), 1)  # only the ticket of the other session is left
-        self.assertTrue(self.until(lambda: self.started() == ['a', 'b']))  # and it takes the turn
+        # B was neither cut nor dropped: it takes the turn (its ticket goes when it does, so counting tickets here
+        # races with the player) and keeps running until released.
+        self.assertTrue(self.until(lambda: self.started() == ['a', 'b']))
+        self.assertIsNone(theirs.poll())
         self.let_go('b')
         self.assertEqual(theirs.wait(timeout=5), 0)
+
+    def cut_while_locked(self, change):
+        """Runs stop_if_mine(me) in a thread while this test holds the queue lock, applies `change` (a swap of the
+        speech files) under that lock, and releases it. Passes only if the cut reads the files under the lock."""
+        import threading
+        with speak.queue_lock():
+            thread = threading.Thread(target=speak.stop_if_mine, args=(self.me,))
+            thread.start()
+            time.sleep(0.3)  # it is waiting for the lock (or, if the lock is missing, has already read the old files)
+            change()
+        thread.join(timeout=5)
+        self.assertFalse(thread.is_alive())
+
+    def write_state(self, name, text):
+        with open(os.path.join(self.folder(), name), 'w') as fh:
+            fh.write(text)
+
+    def test_corte_com_troca_de_dono_entre_leitura_e_corte(self):
+        mine = self.speech(self.me)
+        theirs = self.speech(self.other)  # leaves the files naming `other` and its pid
+        self.write_state('speech.pid', str(mine.pid))
+        self.write_state('speech.owner', self.me)
+
+        def swap():
+            self.write_state('speech.pid', str(theirs.pid))
+            self.write_state('speech.owner', self.other)
+        self.cut_while_locked(swap)
+        self.assertFalse(self.ends(theirs, 0.5))  # the speech that took over is spared
+        self.assertIsNone(mine.poll())  # and the old one is not cut by mistake either
+
+    def test_corte_com_dono_velho_e_pid_novo(self):
+        theirs = self.speech(self.other)
+        self.write_state('speech.owner', self.me)  # stale owner: the old speech died without clearing it
+        self.write_state('speech.pid', '0')
+
+        def take_over():  # wait_turn writes the pid first, then the owner
+            self.write_state('speech.pid', str(theirs.pid))
+            time.sleep(0.2)
+            self.write_state('speech.owner', self.other)
+        self.cut_while_locked(take_over)
+        self.assertFalse(self.ends(theirs, 0.5))
 
     def test_fim_sem_fala(self):
         speech = self.speech(self.other)
         self.speak('status', session=self.me)  # the first call writes the one-time marker `scope`; settle it first
-        before = sorted(os.listdir(self.folder()))
+        before = sorted(n for n in os.listdir(self.folder()) if n != 'queue.lock')  # the lock file is empty bookkeeping
         r = self.speak('stop', 'here', session=self.me)
         self.assertEqual((r.returncode, r.stdout, r.stderr), (0, '', ''))
         self.assertFalse(self.ends(speech, 0.5))
-        self.assertEqual(sorted(os.listdir(self.folder())), before)
+        self.assertEqual(sorted(n for n in os.listdir(self.folder()) if n != 'queue.lock'), before)
 
     def test_fim_fora_de_sessao_nao_corta_nada(self):
         speech = self.speech(self.other)
