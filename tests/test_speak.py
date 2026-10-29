@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -1155,14 +1156,14 @@ class Session(unittest.TestCase):
         from unittest import mock
         heard = []
         with mock.patch.dict(os.environ), \
-                mock.patch.object(speak, 'speak_background', lambda text, session: heard.append(text) or 0), \
+                mock.patch.object(speak, 'speak_background', lambda text, session, how=None: heard.append((text, how)) or 0), \
                 mock.patch.object(speak.sys, 'stdin', io.StringIO(REPLY)):
             for name in ('CLAUDE_SPEAK', 'CLAUDE_SPEAK_MODE'):
                 os.environ.pop(name, None)
             os.environ['CLAUDE_SPEAK_SESSION'] = self.me
             speak.set_session(self.me, mode='summary')
             speak.main(['say', '-'])
-        self.assertEqual(heard, ['Terminei a voz; falta você testar.'])
+        self.assertEqual(heard, [('Terminei a voz; falta você testar.', 'summary')])  # the mode goes with the speech
 
     def test_on_off_keep_the_session_mode(self):
         self.speak('mode', 'summary', session=self.me)
@@ -1836,6 +1837,334 @@ class Session(unittest.TestCase):
         with mock.patch.object(speak, 'STATE', folder):
             speak.write_atomic(os.path.join(folder, 'alvo'), 'oi')
         self.assertEqual([os.path.exists(p) for p in (dead, live, odd)], [False, True, True])
+
+
+class Pause(unittest.TestCase):
+    """Pausing and resuming: real waiting processes (the fake driver of the queue tests, which runs speak's own
+    wait_turn) frozen and continued by `speak pause` and `speak resume`. Nothing plays; sleep-like processes only."""
+    DRIVER = Session.DRIVER
+    speak = Session.speak
+    folder = Session.folder
+    queue_setup = Session.queue_setup
+    waiter = Session.waiter
+    started = Session.started
+    until = Session.until
+    tickets = Session.tickets
+    let_go = Session.let_go
+    ends = Session.ends
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.env = {'HOME': self.tmp.name, 'PATH': '/usr/bin:/bin'}
+        self.state = isolate(self, self.tmp.name)['SESSIONS']
+        self.sleep = subprocess.Popen(['sleep', '60'])
+        self.addCleanup(self.sleep.wait)
+        self.addCleanup(self.sleep.kill)
+        self.me = speak.session_key(os.getpid())
+        self.other = speak.session_key(self.sleep.pid)
+        self.queue_setup()
+        self.addCleanup(self.cleanup_stop)  # helpers that wait for a turn must not outlive the test
+
+    def cleanup_stop(self):
+        self.speak('stop', session=self.me)
+
+    def json(self):
+        try:
+            with open(os.path.join(self.folder(), 'speech.json')) as fh:
+                return json.load(fh)
+        except (OSError, ValueError):
+            return None
+
+    def stopped(self, pid):
+        out = subprocess.run(['ps', '-o', 'stat=', '-p', str(pid)], capture_output=True, text=True).stdout.strip()
+        return out.startswith('T')
+
+    def children(self, pid):
+        out = subprocess.run(['ps', '-axo', 'pid=,ppid='], capture_output=True, text=True).stdout
+        return [int(a) for a, b in (line.split() for line in out.splitlines()) if int(b) == pid]
+
+    def playing_pid(self):
+        try:
+            with open(os.path.join(self.folder(), 'speech.pid')) as fh:
+                return int(fh.read())
+        except (OSError, ValueError):
+            return None
+
+    def test_the_turn_is_written_with_session_folder_and_mode(self):
+        proc = self.waiter('a', self.me, CLAUDE_SPEAK_DIR='/home/x/projeto', CLAUDE_SPEAK_HOW='summary')
+        self.assertTrue(self.until(lambda: self.started() == ['a']))
+        self.assertEqual(self.json(), {'playing': {'pid': proc.pid, 'session': self.me, 'dir': '/home/x/projeto',
+                                                   'how': 'summary'}, 'paused': []})
+        self.let_go('a')
+        self.assertEqual(proc.wait(timeout=5), 0)
+        self.assertIsNone(self.json())  # nothing playing, nothing paused: no file
+
+    def test_the_folder_comes_from_the_session_file_when_the_environment_has_none(self):
+        speak.set_session(self.me, dir='/home/x/outro')
+        self.waiter('a', self.me)
+        self.assertTrue(self.until(lambda: self.started() == ['a']))
+        self.assertEqual(self.json()['playing']['dir'], '/home/x/outro')
+
+    def test_pause_freezes_the_whole_group_and_frees_the_turn(self):
+        script = os.path.join(tempfile.mkdtemp(dir=self.tmp.name), 'speak')
+        with open(script, 'w') as fh:
+            fh.write('import subprocess, time\nsubprocess.Popen(["sleep", "60"])\ntime.sleep(60)\n')
+        proc = subprocess.Popen([sys.executable, '-I', script, '_play'], start_new_session=True)
+        self.addCleanup(proc.wait)
+        self.addCleanup(lambda: os.killpg(proc.pid, signal.SIGKILL))
+        self.assertTrue(self.until(lambda: self.children(proc.pid)))
+        child = self.children(proc.pid)[0]
+        os.makedirs(self.folder(), exist_ok=True)
+        for name, text in (('speech.pid', str(proc.pid)), ('speech.owner', self.me)):
+            with open(os.path.join(self.folder(), name), 'w') as fh:
+                fh.write(text)
+        r = self.speak('pause', session=self.other)  # any session may pause
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, 'Fala pausada.'))
+        self.assertTrue(self.until(lambda: self.stopped(proc.pid) and self.stopped(child)))
+        for name in ('speech.pid', 'speech.owner'):
+            self.assertFalse(os.path.exists(os.path.join(self.folder(), name)))
+        paused = self.json()['paused']
+        self.assertEqual([(p['pid'], p['session']) for p in paused], [(proc.pid, self.me)])
+        self.assertIsNone(self.json()['playing'])
+
+    def test_pause_with_nothing_playing_says_so(self):
+        r = self.speak('pause', session=self.me)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('não há fala tocando', r.stderr)
+
+    def test_pause_does_not_freeze_a_process_that_is_not_a_speech(self):
+        other = subprocess.Popen(['sleep', '60'], start_new_session=True)
+        self.addCleanup(other.wait)
+        self.addCleanup(other.kill)
+        os.makedirs(self.folder(), exist_ok=True)
+        with open(os.path.join(self.folder(), 'speech.pid'), 'w') as fh:
+            fh.write(str(other.pid))
+        self.assertEqual(self.speak('pause', session=self.me).returncode, 1)
+        time.sleep(0.2)
+        self.assertFalse(self.stopped(other.pid))
+
+    def test_pause_refuses_arguments(self):
+        for cmd in ('pause', 'resume'):
+            r = self.speak(cmd, 'x', session=self.me)
+            self.assertEqual(r.returncode, 2)
+            self.assertIn('speak %s' % cmd, r.stderr)
+
+    def test_the_next_speech_plays_while_the_first_is_paused(self):
+        first = self.waiter('a', self.me)
+        self.assertTrue(self.until(lambda: self.started() == ['a']))
+        second = self.waiter('b', self.other)
+        self.assertTrue(self.until(lambda: len(self.tickets()) == 1))
+        time.sleep(0.4)
+        self.assertEqual(self.started(), ['a'])
+        self.speak('pause', session=self.me)
+        self.assertTrue(self.until(lambda: self.stopped(first.pid)))
+        self.assertTrue(self.until(lambda: self.started() == ['a', 'b']))
+        self.assertEqual(self.json()['playing']['pid'], second.pid)
+        self.assertEqual([p['pid'] for p in self.json()['paused']], [first.pid])
+        self.let_go('b')
+        self.assertEqual(second.wait(timeout=5), 0)
+        self.assertIsNone(first.poll())  # nobody continues it by itself
+        self.assertTrue(self.stopped(first.pid))
+        self.assertEqual(self.json()['playing'], None)
+
+    def test_resume_with_the_turn_free_continues_at_once(self):
+        first = self.waiter('a', self.me)
+        self.assertTrue(self.until(lambda: self.started() == ['a']))
+        self.speak('pause', session=self.me)
+        self.assertTrue(self.until(lambda: self.stopped(first.pid)))
+        r = self.speak('resume', session=self.me)
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, 'Continuando a fala.'))
+        self.assertTrue(self.until(lambda: not self.stopped(first.pid)))
+        self.assertEqual(self.playing_pid(), first.pid)
+        with open(os.path.join(self.folder(), 'speech.owner')) as fh:
+            self.assertEqual(fh.read(), self.me)
+        self.assertEqual((self.json()['playing']['pid'], self.json()['paused']), (first.pid, []))
+        self.let_go('a')
+        self.assertEqual(first.wait(timeout=5), 0)
+        self.assertIsNone(self.json())
+
+    def test_resume_with_nothing_paused_says_so(self):
+        r = self.speak('resume', session=self.me)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('não há fala pausada', r.stderr)
+
+    def test_resume_behind_a_speech_playing_waits_for_it_and_goes_before_the_queue(self):
+        first = self.waiter('a', self.me)
+        self.assertTrue(self.until(lambda: self.started() == ['a']))
+        second = self.waiter('b', self.other)
+        self.assertTrue(self.until(lambda: len(self.tickets()) == 1))
+        self.speak('pause', session=self.me)
+        self.assertTrue(self.until(lambda: self.started() == ['a', 'b']))
+        third = self.waiter('c', self.other)
+        self.assertTrue(self.until(lambda: len(self.tickets()) == 1))
+        r = self.speak('resume', session=self.me)
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, 'Continuando a fala assim que for a vez dela.'))
+        self.assertTrue(self.until(lambda: len(self.tickets()) == 2))
+        self.assertEqual(sorted(self.tickets(), key=lambda n: int(n.split('-')[0]))[-1].split('-')[1], str(third.pid))
+        time.sleep(0.6)
+        self.assertTrue(self.stopped(first.pid))  # the speech playing is not cut, and a stays frozen
+        self.assertEqual(self.started(), ['a', 'b'])
+        self.assertIsNone(second.poll())
+        self.let_go('b')
+        self.assertEqual(second.wait(timeout=5), 0)
+        self.assertTrue(self.until(lambda: not self.stopped(first.pid)))  # before c
+        self.assertEqual(self.playing_pid(), first.pid)
+        self.assertEqual(self.started(), ['a', 'b'])
+        self.assertIsNone(third.poll())
+        self.let_go('a')
+        self.assertEqual(first.wait(timeout=5), 0)
+        self.assertTrue(self.until(lambda: self.started() == ['a', 'b', 'c']))
+        self.let_go('c')
+        self.assertEqual(third.wait(timeout=5), 0)
+        self.assertEqual(self.tickets(), [])
+
+    def test_resume_twice_while_waiting_starts_one_helper_only(self):
+        first = self.waiter('a', self.me)
+        self.assertTrue(self.until(lambda: self.started() == ['a']))
+        second = self.waiter('b', self.other)
+        self.assertTrue(self.until(lambda: len(self.tickets()) == 1))
+        self.speak('pause', session=self.me)
+        self.assertTrue(self.until(lambda: self.started() == ['a', 'b']))
+        self.speak('resume', session=self.me)
+        self.assertTrue(self.until(lambda: len(self.tickets()) == 1))
+        r = self.speak('resume', session=self.me)
+        self.assertEqual(r.returncode, 0)
+        self.assertIn('já está esperando a vez', r.stdout)
+        time.sleep(0.4)
+        self.assertEqual(len(self.tickets()), 1)
+
+    def test_resume_waits_for_the_microphone_like_any_speech(self):
+        first = self.waiter('a', self.me)
+        self.assertTrue(self.until(lambda: self.started() == ['a']))
+        self.speak('pause', session=self.me)
+        self.assertTrue(self.until(lambda: self.stopped(first.pid)))
+        open(self.busy, 'w').close()
+        r = self.speak('resume', session=self.me)
+        self.assertEqual(r.returncode, 0)
+        self.assertIn('assim que', r.stdout)
+        time.sleep(1.5)
+        self.assertTrue(self.stopped(first.pid))  # the microphone is busy: it stays frozen
+        os.remove(self.busy)
+        self.assertTrue(self.until(lambda: not self.stopped(first.pid), 6))
+        self.assertEqual(self.playing_pid(), first.pid)
+
+    def two_paused(self):
+        """a (other session) is paused, then b (me) is paused: the most recent pause is b's."""
+        first = self.waiter('a', self.other)
+        self.assertTrue(self.until(lambda: self.started() == ['a']))
+        second = self.waiter('b', self.me)
+        self.assertTrue(self.until(lambda: len(self.tickets()) == 1))
+        self.speak('pause', session=self.me)
+        self.assertTrue(self.until(lambda: self.started() == ['a', 'b']))
+        self.speak('pause', session=self.me)
+        self.assertTrue(self.until(lambda: self.stopped(second.pid) and self.stopped(first.pid)))
+        return first, second
+
+    def test_resume_takes_the_pause_of_this_session_first(self):
+        first, second = self.two_paused()
+        self.speak('resume', session=self.other)
+        self.assertTrue(self.until(lambda: not self.stopped(first.pid)))
+        self.assertTrue(self.stopped(second.pid))
+        self.assertEqual([p['pid'] for p in self.json()['paused']], [second.pid])
+
+    def test_resume_of_a_session_without_pause_takes_the_most_recent(self):
+        first, second = self.two_paused()
+        r = subprocess.run([sys.executable, '-I', SPEAK, 'resume'], capture_output=True, text=True,
+                           env={**self.env, 'CLAUDE_SPEAK_SESSION': 'terceira'})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(self.until(lambda: not self.stopped(second.pid)))
+        self.assertTrue(self.stopped(first.pid))
+
+    def test_stop_ends_the_paused_ones(self):
+        first, second = self.two_paused()
+        self.assertEqual(self.speak('stop', session=self.me).returncode, 0)
+        self.assertTrue(self.ends(first, 5))
+        self.assertTrue(self.ends(second, 5))
+        self.assertIsNone(self.json())
+
+    def test_stop_here_ends_only_the_paused_ones_of_this_session(self):
+        first, second = self.two_paused()
+        self.speak('stop', 'here', session=self.me)
+        self.assertTrue(self.ends(second, 5))
+        self.assertIsNone(first.poll())
+        self.assertTrue(self.stopped(first.pid))
+        self.assertEqual([p['pid'] for p in self.json()['paused']], [first.pid])
+
+    def test_a_dead_session_loses_its_paused_speech_on_the_next_look(self):
+        first = self.waiter('a', 'morta-1')
+        self.assertTrue(self.until(lambda: self.started() == ['a']))
+        # 99999999-1: no such process, so the session is dead
+        dead = '99999999-1'
+        os.remove(os.path.join(self.folder(), 'speech.json'))
+        with open(os.path.join(self.folder(), 'speech.json'), 'w') as fh:
+            json.dump({'playing': None, 'paused': [{'pid': first.pid, 'session': dead, 'dir': '', 'how': ''}]}, fh)
+        os.kill(first.pid, signal.SIGSTOP)
+        self.assertTrue(self.until(lambda: self.stopped(first.pid)))
+        self.speak('status', session=self.me)
+        self.assertTrue(self.ends(first, 5))
+        self.assertIsNone(self.json())
+
+    def test_pruning_sessions_ends_the_paused_one_of_a_dead_session(self):
+        first = self.waiter('a', self.me)
+        self.assertTrue(self.until(lambda: self.started() == ['a']))
+        dead = '99999999-1'
+        self.speak('pause', session=self.me)
+        self.assertTrue(self.until(lambda: self.stopped(first.pid)))
+        data = self.json()
+        data['paused'][0]['session'] = dead
+        with open(os.path.join(self.folder(), 'speech.json'), 'w') as fh:
+            json.dump(data, fh)
+        self.speak('mode', 'full', session=self.me)  # writes a session file: that prunes
+        self.assertTrue(self.ends(first, 5))
+
+    def test_a_dead_speech_is_swept_from_the_file(self):
+        gone = subprocess.Popen(['true'])
+        gone.wait()
+        os.makedirs(self.folder(), exist_ok=True)
+        with open(os.path.join(self.folder(), 'speech.json'), 'w') as fh:
+            json.dump({'playing': {'pid': gone.pid, 'session': self.me, 'dir': '', 'how': ''},
+                       'paused': [{'pid': gone.pid, 'session': self.me, 'dir': '', 'how': ''}]}, fh)
+        data = json.loads(self.speak('status', '--json', session=self.me).stdout)
+        self.assertEqual((data['speaking'], data['paused']), (None, []))
+        self.assertIsNone(self.json())
+
+    def test_status_json_tells_who_speaks_and_what_is_paused(self):
+        first = self.waiter('a', self.other, CLAUDE_SPEAK_DIR='/x/um', CLAUDE_SPEAK_HOW='full')
+        self.assertTrue(self.until(lambda: self.started() == ['a']))
+        second = self.waiter('b', self.me, CLAUDE_SPEAK_DIR='/x/dois', CLAUDE_SPEAK_HOW='summary')
+        self.assertTrue(self.until(lambda: len(self.tickets()) == 1))
+        self.speak('pause', session=self.me)
+        self.assertTrue(self.until(lambda: self.started() == ['a', 'b']))
+        data = json.loads(self.speak('status', '--json', session=self.me).stdout)
+        self.assertEqual(data['session'], self.me)
+        self.assertEqual(data['stateDir'], self.folder())
+        self.assertEqual((data['speaking']['session'], data['speaking']['dir'], data['speaking']['how']),
+                         (self.me, '/x/dois', 'summary'))
+        self.assertEqual([(p['session'], p['dir'], p['how']) for p in data['paused']], [(self.other, '/x/um', 'full')])
+        text = self.speak('status', session=self.me).stdout
+        self.assertIn('fala: tocando agora', text)
+        self.assertIn('pausada', text)
+
+    def test_background_speech_records_folder_and_mode(self):
+        from unittest import mock
+        calls = []
+        with mock.patch.object(speak.subprocess, 'Popen', lambda cmd, **k: calls.append(k)), \
+                mock.patch.object(speak, 'engine_ready', lambda: True), \
+                mock.patch.dict(os.environ, {'CLAUDE_SPEAK_CWD': '/x/projeto'}):
+            speak.speak_background('oi', self.me, how='full')
+        self.assertEqual(calls[0]['env']['CLAUDE_SPEAK_DIR'], '/x/projeto')
+        self.assertEqual(calls[0]['env']['CLAUDE_SPEAK_HOW'], 'full')
+        self.assertEqual(speak.read_session(self.me).get('dir'), '/x/projeto')
+
+    def test_the_stop_hook_hands_over_its_folder(self):
+        from unittest import mock
+        calls = []
+        data = {'last_assistant_message': 'oi', 'cwd': '/x/projeto'}
+        with mock.patch.object(speak_stop.subprocess, 'run', lambda cmd, **k: calls.append(k)), \
+                mock.patch.object(speak_stop.sys, 'stdin', io.StringIO(json.dumps(data))):
+            speak_stop.main()
+        self.assertEqual(calls[0]['env']['CLAUDE_SPEAK_CWD'], '/x/projeto')
 
 
 class Hook(unittest.TestCase):
@@ -3128,7 +3457,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.12.0')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.13.0')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

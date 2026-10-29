@@ -68,7 +68,7 @@ def differences(before, after):
 # queue, its lock, the speech owner and pid, the session files (pruned), the error log, the microphone mark. These
 # names count as noise only below a `state` folder (or the former `claude-speak` state folder) and only while such a
 # process is alive; everything else (engine, config, install files) is always reported.
-SPEECH_NAMES = ('queue', 'queue.lock', 'speech.pid', 'speech.owner', 'sessions', 'error.log', 'mic-seen')
+SPEECH_NAMES = ('queue', 'queue.lock', 'speech.pid', 'speech.owner', 'speech.json', 'sessions', 'error.log', 'mic-seen')
 SPEECH_SUBCOMMANDS = ('_play', 'say')
 
 

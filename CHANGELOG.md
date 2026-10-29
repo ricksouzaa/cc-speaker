@@ -7,6 +7,14 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.13.0] - 2026-10-29
+
+### Adicionado
+- `/speak pause` congela a fala que está tocando, de qualquer sessão, no ponto exato; enquanto ela fica pausada, a próxima fala da fila toca. `/speak resume` (ou, em palavras, "continua", "continuar de onde parou") a retoma: na hora, se nada toca, ou na frente da fila, assim que a que toca terminar. `/speak stop`, sair da sessão e o fim de uma sessão encerram as falas pausadas.
+- O botão que deu o play (Resumo ou Resposta inteira, sob a última resposta e na linha "Ouvir de novo" do painel) vira "⏸ Pausar" enquanto a fala desta sessão toca e "▶ Continuar" quando ela está pausada.
+- A linha de status sob o campo de texto avisa, em todas as sessões, quem está falando: "🔊 falando agora" na sessão dona da fala, "🔊 falando: <pasta do projeto>" nas outras e "⏸ fala pausada" na dona quando pausada. A linha da instalação da voz continua vencendo.
+- `/speak status` mostra o que toca agora e o que está pausado.
+
 ## [0.12.0] - 2026-10-29
 
 ### Adicionado
@@ -213,7 +221,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.12.0...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.13.0
 [0.12.0]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.12.0
 [0.11.1]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.11.1
 [0.11.0]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.11.0

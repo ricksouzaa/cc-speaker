@@ -3,7 +3,7 @@ import { expect, mock, test } from 'claude-code/testing'
 // Nada aqui toca o motor, o áudio nem as pastas reais: `process.run` é respondido pelo teste, que guarda o estado
 // do speak numa variável. O menu é montado no painel `speak` da superfície `terminal` e operado pela escolha nas listas.
 
-type Opts = { autoinstall?: string; fail?: boolean; statusFails?: boolean; scope?: Record<string, string>; placed?: boolean; again?: string; surface?: string; init?: Record<string, unknown> }
+type Opts = { noFile?: boolean; proc?: boolean; autoinstall?: string; fail?: boolean; statusFails?: boolean; scope?: Record<string, string>; placed?: boolean; again?: string; surface?: string; init?: Record<string, unknown> }
 
 async function setup($: any, on: any, opts: Opts = {}) {
   const ran: string[][] = []
@@ -18,8 +18,23 @@ async function setup($: any, on: any, opts: Opts = {}) {
   const st: any = {
     on: true, mode: 'summary', size: 'medium', mic: 'wait', engine: true, voice: 'dora',
     scope: { on: 'all', mode: 'all', size: 'all', mic: 'all', ...(opts.scope ?? {}) },
+    session: 'S-1', stateDir: '/estado',
     ...(opts.init ?? {}),
   }
+  // O arquivo state/speech.json do speak e os processos vivos (/proc/<pid>): o módulo os lê sem abrir processo.
+  const speech: { playing: any; paused: any[] } = { playing: null, paused: [] }
+  const gone = new Set<number>()
+  const reads: string[] = []
+  on('fs.read', (_: unknown, e: any) => {
+    reads.push(e.path)
+    if (e.path !== '/estado/speech.json') throw new Error('ENOENT')
+    if (opts.noFile) throw new Error('ENOENT')
+    return { value: JSON.stringify(speech) }
+  })
+  on('fs.exists', (_: unknown, e: any) => {
+    if (e.path === '/proc/self') return { value: opts.proc !== false }
+    return { value: !gone.has(Number(e.path.split('/').pop())) }
+  })
   on('command.register', () => ({ value: { command: 'speak' } }))
   on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
   on('session.surfaces', () => ({ value: [opts.surface ?? 'terminal'] }))
@@ -33,7 +48,21 @@ async function setup($: any, on: any, opts: Opts = {}) {
     const done = (exitCode: number, stdout: string, stderr = '') =>
       ({ value: { exitCode, stdout, stderr, isStdoutTruncated: false, isStderrTruncated: false } })
     if (args[0] === 'autoinstall') return done(0, (opts.autoinstall ?? 'ready') + '\n')
-    if (args[0] === 'status' && args[1] === '--json') return opts.statusFails || st.__fail ? done(1, '', 'sem estado') : done(0, JSON.stringify(st))
+    if (args[0] === 'status' && args[1] === '--json') {
+      return opts.statusFails || st.__fail ? done(1, '', 'sem estado')
+        : done(0, JSON.stringify({ ...st, speaking: speech.playing, paused: speech.paused }))
+    }
+    if (args[0] === 'pause') {
+      if (!speech.playing) return done(1, '', 'voz: não há fala tocando agora\n')
+      speech.paused.push(speech.playing)
+      speech.playing = null
+      return done(0, 'Fala pausada.\n')
+    }
+    if (args[0] === 'resume') {
+      if (speech.paused.length === 0) return done(1, '', 'voz: não há fala pausada\n')
+      speech.playing = speech.paused.pop()
+      return done(0, 'Continuando a fala.\n')
+    }
     if (args[0] === 'again') {
       if (opts.again === 'none') return done(1, '', 'voz: ainda não há uma resposta desta sessão para ouvir de novo\n')
       return done(0, args[1] === 'full' ? 'Lendo de novo a última resposta inteira.\n'
@@ -50,7 +79,7 @@ async function setup($: any, on: any, opts: Opts = {}) {
   })
   await $.session.start({ cwd: '/', surface: opts.surface ?? 'terminal', isInteractive: true })
   await clock.advance(0) // deixa o autoinstall do começo (em segundo plano) terminar
-  return { ran, opened, st, lines, toasts, clock, logs }
+  return { ran, opened, st, lines, toasts, clock, logs, speech, gone, reads }
 }
 
 const PANE = {
@@ -710,4 +739,211 @@ test('turno de subagente e turno interrompido não mexem nos botões', async ($,
   expect(await buttons(await $.ui.mount(msg('Final.')))).toHaveLength(1)
   await finish($, 'Cortada.', { isAborted: true, reason: 'aborted', turnId: 't3' })
   expect(await buttons(await $.ui.mount(msg('Final.')))).toEqual([])
+})
+
+
+// Quem fala: a linha de status de todas as sessões e os botões Pausar/Continuar.
+const OWN = { pid: 10, session: 'S-1', dir: '/home/r/meu-projeto', how: 'summary' }
+const OTHER = { pid: 20, session: 'S-2', dir: '/home/r/outro-projeto', how: 'full' }
+
+test('a fala desta sessão: "falando agora"; a de outra sessão: "falando: pasta"; sem pasta, aviso geral', async ($, on) => {
+  const { lines, clock, speech } = await setup($, on)
+  speech.playing = OWN
+  await clock.advance(500)
+  expect(lines.at(-1)).toBe('🔊 falando agora')
+  speech.playing = OTHER
+  await clock.advance(500)
+  expect(lines.at(-1)).toBe('🔊 falando: outro-projeto')
+  speech.playing = { ...OTHER, dir: '' }
+  await clock.advance(500)
+  expect(lines.at(-1)).toBe('🔊 outra sessão está falando')
+  speech.playing = null
+  await clock.advance(500)
+  expect(lines.at(-1)).toBeUndefined()
+})
+
+test('fala pausada: a sessão dona vê "fala pausada"; as outras não veem nada', async ($, on) => {
+  const { lines, clock, speech } = await setup($, on)
+  speech.paused = [OWN]
+  await clock.advance(500)
+  expect(lines.at(-1)).toBe('⏸ fala pausada')
+  speech.paused = [OTHER]
+  await clock.advance(500)
+  expect(lines.at(-1)).toBeUndefined()
+  speech.paused = [OWN]
+  speech.playing = OTHER
+  await clock.advance(500)
+  expect(lines.at(-1)).toBe('🔊 falando: outro-projeto · ⏸ sua fala pausada')
+})
+
+test('o relógio da fala lê o arquivo e não abre processo nenhum a cada volta', async ($, on) => {
+  const { ran, clock, speech, reads } = await setup($, on)
+  speech.playing = OTHER
+  await clock.advance(500)
+  const before = ran.length
+  const readsBefore = reads.length
+  await clock.advance(20000)
+  expect(ran.length).toBe(before)
+  expect(reads.length).toBeGreaterThan(readsBefore + 30)
+})
+
+test('a linha só é redesenhada quando o estado muda', async ($, on) => {
+  const { lines, clock, speech } = await setup($, on)
+  speech.playing = OTHER
+  await clock.advance(500)
+  const count = lines.length
+  await clock.advance(10000)
+  expect(lines.length).toBe(count)
+})
+
+test('processo que morreu sem limpar o arquivo some do aviso', async ($, on) => {
+  const { lines, clock, speech, gone } = await setup($, on)
+  speech.playing = OTHER
+  await clock.advance(500)
+  expect(lines.at(-1)).toBe('🔊 falando: outro-projeto')
+  gone.add(20) // o processo da fala morreu sem limpar o arquivo
+  await clock.advance(500)
+  expect(lines.at(-1)).toBeUndefined()
+})
+
+test('arquivo que falta é "ninguém fala"', async ($, on) => {
+  const { lines, clock } = await setup($, on, { noFile: true })
+  await clock.advance(2000)
+  expect(lines.filter(l => l !== undefined)).toEqual([])
+})
+
+test('sem /proc (Mac), confere pelo speak status --json a cada 10 s, só havendo fala', async ($, on) => {
+  const { ran, clock, speech } = await setup($, on, { proc: false })
+  const statuses = () => ran.filter(a => a[0] === 'status').length
+  await clock.advance(30000)
+  const idle = statuses()
+  await clock.advance(30000)
+  expect(statuses()).toBe(idle) // nada fala: nenhum processo
+  speech.playing = OTHER
+  await clock.advance(30000)
+  expect(statuses() - idle).toBeGreaterThanOrEqual(2)
+  expect(statuses() - idle).toBeLessThanOrEqual(4)
+})
+
+test('sem ler o estado do speak, o relógio da fala desiste depois de algumas tentativas', async ($, on) => {
+  const { ran, clock, reads } = await setup($, on, { statusFails: true })
+  await clock.advance(200000)
+  const tries = ran.filter(a => a[0] === 'status').length
+  await clock.advance(200000)
+  expect(ran.filter(a => a[0] === 'status').length).toBe(tries)
+  expect(reads).toEqual([])
+})
+
+test('a linha de status da instalação vence a do aviso de fala, que volta ao fim', async ($, on) => {
+  const { lines, clock, st, speech } = await setup($, on, {
+    init: { engine: false, installing: true, install: { fase: 'dependências' } },
+  })
+  speech.playing = OTHER
+  await clock.advance(2000)
+  expect(lines.at(-1)).toBe('🔊 Instalando a voz: dependências')
+  expect(lines).not.toContain('🔊 falando: outro-projeto')
+  st.engine = true
+  st.installing = false
+  st.install = null
+  await clock.advance(2000)
+  expect(lines.at(-1)).toBe('🔊 falando: outro-projeto')
+})
+
+test('o aviso fixo (sem uv) também vence a do aviso de fala', async ($, on) => {
+  const { lines, clock, speech } = await setup($, on, { autoinstall: 'no-uv', init: { engine: false } })
+  speech.playing = OTHER
+  await clock.advance(10000)
+  expect(lines).not.toContain('🔊 falando: outro-projeto')
+  expect(lines.at(-1)).toBe('🔊 Voz não instalada: falta o uv; instale-o e rode /speak install')
+})
+
+test('o botão do modo da fala que toca vira Pausar; pausada, Continuar; o outro botão não muda', async ($, on) => {
+  engineDraws(on)
+  const { clock, speech } = await setup($, on)
+  await finish($, 'Feito.\n\n🔊 Resumo falado.')
+  const draw = async () => buttons(await $.ui.mount(msg('Feito.\n\n🔊 Resumo falado.')))
+  expect(await draw()).toEqual(['▶ Resumo', '▶ Resposta inteira'])
+  speech.playing = OWN
+  await clock.advance(500)
+  expect(await draw()).toEqual(['⏸ Pausar', '▶ Resposta inteira'])
+  speech.playing = { ...OWN, how: 'full' }
+  await clock.advance(500)
+  expect(await draw()).toEqual(['▶ Resumo', '⏸ Pausar'])
+  speech.playing = null
+  speech.paused = [OWN]
+  await clock.advance(500)
+  expect(await draw()).toEqual(['▶ Continuar', '▶ Resposta inteira'])
+  speech.paused = []
+  await clock.advance(500)
+  expect(await draw()).toEqual(['▶ Resumo', '▶ Resposta inteira'])
+})
+
+test('a fala de outra sessão não troca os botões desta', async ($, on) => {
+  engineDraws(on)
+  const { clock, speech } = await setup($, on)
+  await finish($, 'Feito.\n\n🔊 Resumo falado.')
+  speech.playing = { ...OTHER, how: 'summary' }
+  speech.paused = [{ ...OTHER, pid: 21, how: 'full' }]
+  await clock.advance(500)
+  expect(await buttons(await $.ui.mount(msg('Feito.\n\n🔊 Resumo falado.')))).toEqual(['▶ Resumo', '▶ Resposta inteira'])
+})
+
+test('apertar o botão que virou Pausar roda speak pause; o que virou Continuar roda speak resume; troca o rótulo na hora', async ($, on) => {
+  engineDraws(on)
+  const { ran, clock, speech } = await setup($, on)
+  await finish($, 'Feito.\n\n🔊 Resumo falado.')
+  speech.playing = OWN
+  await clock.advance(500)
+  const ui = await $.ui.mount(msg('Feito.\n\n🔊 Resumo falado.'))
+  await ui.press({ key: 'msg-again-summary' })
+  expect(changes(ran)).toEqual(['pause'])
+  expect(await buttons(await $.ui.mount(msg('Feito.\n\n🔊 Resumo falado.')))).toEqual(['▶ Continuar', '▶ Resposta inteira'])
+  await (await $.ui.mount(msg('Feito.\n\n🔊 Resumo falado.'))).press({ key: 'msg-again-summary' })
+  expect(changes(ran)).toEqual(['pause', 'resume'])
+  expect(await buttons(await $.ui.mount(msg('Feito.\n\n🔊 Resumo falado.')))).toEqual(['⏸ Pausar', '▶ Resposta inteira'])
+  await (await $.ui.mount(msg('Feito.\n\n🔊 Resumo falado.'))).press({ key: 'msg-again-full' })
+  expect(changes(ran)).toEqual(['pause', 'resume', 'again full'])
+})
+
+test('a linha "Ouvir de novo" do painel segue os mesmos rótulos e comandos', async ($, on) => {
+  const { ran, clock, speech } = await setup($, on)
+  const { ui } = await openMenu($)
+  expect(await buttons(ui)).toContain('Resumo')
+  speech.playing = OWN
+  await clock.advance(500)
+  expect(await buttons(ui)).toEqual(['⏸ Pausar', 'Resposta inteira', 'Fechar'])
+  await ui.press({ key: 'again-summary' })
+  expect(changes(ran)).toEqual(['pause'])
+  expect(await footer(ui)).toBe('Fala pausada.')
+  expect(await buttons(ui)).toEqual(['▶ Continuar', 'Resposta inteira', 'Fechar'])
+})
+
+test('o botão mostra o erro do speak quando não há o que pausar', async ($, on) => {
+  engineDraws(on)
+  const { ran, clock, speech } = await setup($, on)
+  await finish($, 'Feito.')
+  speech.playing = { ...OWN, how: 'full' }
+  await clock.advance(500)
+  speech.playing = null // acabou entre a leitura e o toque: o speak diz que nada toca
+  const ui = await $.ui.mount(msg('Feito.'))
+  await ui.press({ key: 'msg-again-full' })
+  expect(changes(ran)).toEqual(['pause'])
+})
+
+test('/speak pause e /speak resume rodam direto e dizem a frase do speak; com "all" ou sobra, mostram o uso', async ($, on) => {
+  const { ran, speech, opened } = await setup($, on)
+  speech.playing = OWN
+  expect((await $.command.run({ command: 'speak', args: 'pause' })).text).toBe('Fala pausada.')
+  expect((await $.command.run({ command: 'speak', args: 'resume' })).text).toBe('Continuando a fala.')
+  expect((await $.command.run({ command: 'speak', args: 'resume' })).text).toBe('voz: não há fala pausada')
+  expect((await $.command.run({ command: 'speak', args: 'pause all' })).text).toMatch(/\/speak pause/)
+  expect((await $.command.run({ command: 'speak', args: 'pause x' })).text).toMatch(/\/speak resume/)
+  expect(changes(ran)).toEqual(['pause', 'resume', 'resume'])
+  expect(opened).toEqual([])
+})
+
+test('/speak stop diz que as pausadas também acabaram', async ($, on) => {
+  await setup($, on)
+  expect((await $.command.run({ command: 'speak', args: 'stop' })).text).toBe(
+    'A fala foi cortada, a fila esvaziada e as pausadas encerradas.')
 })

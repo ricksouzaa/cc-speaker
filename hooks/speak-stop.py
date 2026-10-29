@@ -3,7 +3,8 @@
 speaks it in the background. Waits (at most 4 s) for `speak say -` to return, which is quick because the speech
 itself runs detached inside it: `speak` must still find this hook alive to locate its session (the nearest `claude`
 ancestor). Fail-open: exits 0 in every case. Always hands the reply over (also with CLAUDE_SPEAK=0): `speak` decides,
-per session, whether to speak. Silent when `speak` (../bin/speak, never the PATH) is missing.
+per session, whether to speak. Passes the `cwd` of the hook input on (CLAUDE_SPEAK_CWD), so the other sessions can be
+told which folder speaks. Silent when `speak` (../bin/speak, never the PATH) is missing.
 """
 import json
 import os
@@ -45,7 +46,10 @@ def main():
     message = last_message(data)
     if not message.strip():
         return
-    subprocess.run([sys.executable, '-I', speak, 'say', '-'], input=message.encode('utf-8'),
+    env = dict(os.environ)
+    if isinstance(data.get('cwd'), str) and data['cwd']:
+        env['CLAUDE_SPEAK_CWD'] = data['cwd']  # the folder the other sessions are told this one speaks from
+    subprocess.run([sys.executable, '-I', speak, 'say', '-'], input=message.encode('utf-8'), env=env,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=4)
 
 

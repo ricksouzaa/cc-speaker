@@ -3,6 +3,8 @@
 // A primeira linha, "Mudar em", só diz onde as próximas trocas são gravadas (todas as sessões ou só esta); abre sempre
 // em "Todas as sessões" e trocá-la não roda nada. Responde sozinho, sem o modelo. Com a escolha escrita
 // (/speak voice alex), roda direto, sem menu, e responde uma linha.
+// Também mostra, na linha de status de todas as sessões, quem está falando (lido de state/speech.json, sem abrir processo),
+// e troca o rótulo do botão que deu o play por Pausar/Continuar (/speak pause, /speak resume).
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
 type Engine = EngineInterface
@@ -13,7 +15,12 @@ type State = {
   scope?: { on?: string; mode?: string; size?: string; mic?: string }
   installing?: boolean
   install?: { fase?: string; arquivo?: string; feito?: number; total?: number } | null
+  session?: string | null; stateDir?: string
+  speaking?: Speech | null; paused?: Speech[]
 }
+// Uma fala, como o speak a anota em state/speech.json: a sessão dona, a pasta dela e o modo (summary ou full).
+type Speech = { pid: number; session: string; dir: string; how: string; waiting?: number }
+type Heard = { playing: Speech | null; paused: Speech[] }
 
 const MODES: Record<string, string> = { full: 'Resposta inteira', summary: 'Só o resumo' }
 const SIZES: Record<string, string> = { small: 'Pequeno', medium: 'Médio', large: 'Grande' }
@@ -23,7 +30,8 @@ const READERS: Record<string, string> = { dora: 'Dora', alex: 'Alex', santa: 'Sa
 const POWER: Record<string, string> = { on: 'Ligada', off: 'Desligada' }
 const USAGE =
   'Escreva a ação: /speak on, /speak off, /speak mode full|summary, /speak size small|medium|large, /speak mic wait|play|auto, ' +
-  '/speak voice dora|alex|santa, /speak again [summary|full], /speak status, /speak stop, /speak install, /speak update ' +
+  '/speak voice dora|alex|santa, /speak again [summary|full], /speak pause, /speak resume, /speak status, /speak stop, ' +
+  '/speak install, /speak update ' +
   '(com "all" no fim, vale para todas as sessões).'
 const where = (all: boolean) => (all ? 'em todas as sessões' : 'nesta sessão')
 const speakArgv = ($: Engine, args: string[]) => ['python3', '-I', `${$.plugin.root}/bin/speak`, ...args]
@@ -72,13 +80,17 @@ let watching = false
 let hurry = false // um /speak install com o relógio já rodando: a próxima leitura não espera
 let live: State | undefined // a última leitura do relógio, só para o progresso do rodapé
 let footLine = '' // a linha de progresso já desenhada no rodapé
+let installShowing = false // a linha de status está com a instalação do motor: ela vence a do aviso de fala
 
 function stopWatch($: Engine) {
   watch?.cancel()
   watch = undefined
   watching = false
   live = undefined
+  installShowing = false
+  shownSpeech = undefined // a linha foi limpa: o aviso de fala, se houver, volta a ser desenhado
   $.ui.status(undefined)
+  paintSpeech($)
 }
 
 // `why` vem do `speak autoinstall`: com `no-uv`, `failed` ou `off` e o motor faltando, o relógio não desiste em
@@ -113,6 +125,7 @@ function startWatch($: Engine, why?: Why) {
         seen = true
         shown = ''
         const line = installLine(now)
+        installShowing = true
         $.ui.status(line)
         // O menu aberto só troca o progresso do rodapé, e só quando o texto muda; as linhas não são tocadas.
         if (view && line !== footLine) {
@@ -129,6 +142,7 @@ function startWatch($: Engine, why?: Why) {
         }
         if (shown !== warn) {
           shown = warn
+          installShowing = true
           $.ui.status(warn)
         }
         return
@@ -147,6 +161,132 @@ function startWatch($: Engine, why?: Why) {
   }
   watch = $.clock.every(WATCH_MS, () => void tick())
   void tick()
+}
+
+// O aviso de quem fala e os botões Pausar/Continuar. O relógio lê `state/speech.json` (o speak o mantém) com
+// `$.fs.read`: nenhuma volta abre processo. O caminho da pasta e a chave desta sessão vêm de UMA leitura de
+// `speak status --json` no começo da sessão. Só quando o arquivo muda é que o desenho é invalidado.
+const SPEECH_MS = 500
+const SPEECH_TRIES = 5 // leituras do estado que falham antes de desistir do aviso
+const SPEECH_RETRY = 20 // voltas entre uma tentativa e outra (10 s)
+const SPEECH_CHECK = 20 // voltas entre as conferências por `speak status --json` onde não há /proc (10 s)
+let speechClock: Timer | undefined
+let speechBusy = false
+let speechFile = '' // state/speech.json, absoluto; vazio até a primeira leitura do estado
+let me = '' // a chave desta sessão, como o speak a chama
+let tries = 0
+let wait = 0 // voltas até a próxima tentativa
+let check = 0
+let hasProc: boolean | undefined
+let heard: Heard = { playing: null, paused: [] }
+let heardKey = ''
+let shownSpeech: string | undefined // a última linha de status do aviso de fala
+
+const folderOf = (x: Speech) => (x.dir || '').replace(/\/+$/, '').split('/').pop() || ''
+const mine = (x: Speech | null | undefined) => !!x && !!me && x.session === me
+
+function speechLine(h: Heard): string | undefined {
+  const ownPaused = h.paused.some(mine)
+  if (h.playing) {
+    if (mine(h.playing)) return '🔊 falando agora'
+    const other = folderOf(h.playing) ? `🔊 falando: ${folderOf(h.playing)}` : '🔊 outra sessão está falando'
+    return ownPaused ? `${other} · ⏸ sua fala pausada` : other
+  }
+  return ownPaused ? '⏸ fala pausada' : undefined
+}
+
+// Desenha a linha de aviso na linha de status, a menos que a instalação do motor a esteja usando.
+function paintSpeech($: Engine) {
+  if (installShowing) return
+  const line = speechLine(heard)
+  if (line === shownSpeech) return
+  shownSpeech = line
+  $.ui.status(line)
+}
+
+// O que o botão de cada modo faz agora: pausar a fala desta sessão que toca nesse modo, continuar a que está pausada
+// nesse modo, ou tocar de novo a última resposta.
+type Role = 'play' | 'pause' | 'continue'
+function role(which: string): Role {
+  if (mine(heard.playing) && heard.playing!.how === which) return 'pause'
+  if (heard.paused.some(x => mine(x) && x.how === which)) return 'continue'
+  return 'play'
+}
+const labelOf = (which: string, plain: string) => {
+  const r = role(which)
+  return r === 'pause' ? '⏸ Pausar' : r === 'continue' ? '▶ Continuar' : plain
+}
+
+function parseHeard(raw: string): Heard {
+  const empty: Heard = { playing: null, paused: [] }
+  try {
+    const data = JSON.parse(raw)
+    const ok = (x: any): x is Speech => !!x && typeof x === 'object' && Number.isInteger(x.pid)
+    return {
+      playing: ok(data?.playing) ? data.playing : null,
+      paused: Array.isArray(data?.paused) ? data.paused.filter(ok) : [],
+    }
+  } catch {
+    return empty
+  }
+}
+
+// O que está de pé de verdade: no Linux, o processo da fala existe em /proc; sem /proc (Mac), vale o arquivo e, de tempos
+// em tempos, uma conferência pelo `speak status --json`, que também limpa o arquivo.
+async function speechTick($: Engine): Promise<void> {
+  if (speechBusy) return
+  speechBusy = true
+  try {
+    if (!speechFile) {
+      if (tries >= SPEECH_TRIES || wait-- > 0) return
+      const s = await state($)
+      if (!s?.stateDir) {
+        wait = SPEECH_RETRY
+        if (++tries >= SPEECH_TRIES) { speechClock?.cancel(); speechClock = undefined }
+        return
+      }
+      speechFile = `${s.stateDir}/speech.json`
+      me = s.session ?? ''
+    }
+    let raw = ''
+    try { raw = String(await $.fs.read(speechFile)) } catch { raw = '' }
+    let now = parseHeard(raw)
+    if (now.playing || now.paused.length > 0) {
+      if (hasProc === undefined) hasProc = await $.fs.exists('/proc/self').catch(() => false)
+      if (hasProc) {
+        const live = async (x: Speech) => await $.fs.exists(`/proc/${x.pid}`).catch(() => true)
+        const playing = now.playing && (await live(now.playing)) ? now.playing : null
+        const paused: Speech[] = []
+        for (const x of now.paused) if (await live(x)) paused.push(x)
+        now = { playing, paused }
+      } else if (check++ % SPEECH_CHECK === 0) {
+        const s = await state($)
+        if (s) now = { playing: s.speaking ?? null, paused: s.paused ?? [] }
+      }
+    }
+    const key = JSON.stringify([me, now.playing, now.paused])
+    if (key === heardKey) return
+    heardKey = key
+    heard = now
+    paintSpeech($)
+    $.ui.invalidate('ui.render')
+  } finally {
+    speechBusy = false
+  }
+}
+
+function startSpeech($: Engine) {
+  speechClock?.cancel()
+  speechFile = ''
+  me = ''
+  tries = 0
+  wait = 0
+  check = 0
+  heard = { playing: null, paused: [] }
+  heardKey = ''
+  shownSpeech = undefined
+  speechClock = $.clock.every(SPEECH_MS, () => void speechTick($))
+  void speechTick($)
 }
 
 // Começa a instalação do motor (a mesma regra do gancho de começo da sessão; ver `speak autoinstall`) e liga o
@@ -232,6 +372,13 @@ async function direct($: Engine, body: string[], all: boolean): Promise<Reply | 
       const r = await run($, body)
       return { text: r.out || (r.ok ? 'Pronto.' : 'O speak falhou.') }
     }
+    case 'pause':
+    case 'resume': {
+      if (all || value) return { text: USAGE }
+      const text = await speechCommand($, action)
+      void speechTick($)
+      return { text }
+    }
     case 'status':
     case 'stop':
     case 'install': {
@@ -239,7 +386,8 @@ async function direct($: Engine, body: string[], all: boolean): Promise<Reply | 
       const r = await run($, body)
       if (!r.ok) return { text: r.out || 'O speak falhou.' }
       if (action === 'status') return { text: r.out }
-      return { text: action === 'stop' ? 'A fala foi cortada e a fila esvaziada.' : r.out || 'Motor instalado.' }
+      if (action === 'stop') void speechTick($)
+      return { text: action === 'stop' ? 'A fala foi cortada, a fila esvaziada e as pausadas encerradas.' : r.out || 'Motor instalado.' }
     }
     default:
       return { text: `Não conheço "${action}". ${USAGE}` }
@@ -248,8 +396,14 @@ async function direct($: Engine, body: string[], all: boolean): Promise<Reply | 
 
 // Ouvir de novo a última fala desta sessão (o speak diz a frase do que vai tocar, ou por que não tocou).
 async function again($: Engine, which?: string): Promise<string> {
-  const r = await run($, which ? ['again', which] : ['again'])
-  return r.out.split('\n').map(l => l.trim()).filter(Boolean).join(' ') || (r.ok ? 'Pronto.' : 'O speak falhou.')
+  return oneLine(await run($, which ? ['again', which] : ['again']))
+}
+const oneLine = (r: { ok: boolean; out: string }) =>
+  r.out.split('\n').map(l => l.trim()).filter(Boolean).join(' ') || (r.ok ? 'Pronto.' : 'O speak falhou.')
+
+// Pausar ou continuar a fala (o speak diz a frase, ou por que não deu).
+async function speechCommand($: Engine, cmd: string): Promise<string> {
+  return oneLine(await run($, [cmd]))
 }
 
 async function runChoice($: Engine, cmd: string, value: string, valid: Record<string, string>, tail: string[]) {
@@ -312,10 +466,13 @@ async function menuChange($: Engine, key: Key, value: string): Promise<void> {
   $.ui.invalidate('ui.render')
 }
 
-// "Ouvir de novo": toca na hora e guarda a frase (ou o erro) para o rodapé; a linha não guarda valor.
+// "Ouvir de novo": toca na hora e guarda a frase (ou o erro) para o rodapé; a linha não guarda valor. Enquanto a fala
+// desta sessão toca nesse modo, o mesmo botão pausa; pausada, continua (ver `role`).
 async function menuAgain($: Engine, which: string): Promise<void> {
   if (!(which in AGAINS)) return
-  await $.state.set(NOTE, await again($, which))
+  const r = role(which)
+  await $.state.set(NOTE, r === 'play' ? await again($, which) : await speechCommand($, r === 'pause' ? 'pause' : 'resume'))
+  await speechTick($) // o botão troca de rótulo na hora, sem esperar o relógio
   $.ui.invalidate('ui.render')
 }
 
@@ -349,7 +506,7 @@ function drawMenu(el: any, m: Menu) {
         <Text>{AGAIN_LABEL.padEnd(width)}</Text>
         {Object.keys(AGAINS).map(v => (
           <Box key={v} marginRight={2}>
-            <Button key={'again-' + v} label={AGAINS[v]!} onPress={() => m.again(v)} />
+            <Button key={'again-' + v} label={labelOf(v, AGAINS[v]!)} onPress={() => m.again(v)} />
           </Box>
         ))}
       </Box>
@@ -404,7 +561,7 @@ function drawAgainButtons(el: any, withSummary: boolean, press: (which: string) 
         .filter(v => v === 'full' || withSummary)
         .map(v => (
           <Box key={'box-' + v} marginRight={2}>
-            <Button key={'msg-again-' + v} label={`▶ ${AGAINS[v]}`} onPress={() => press(v)} />
+            <Button key={'msg-again-' + v} label={labelOf(v, `▶ ${AGAINS[v]}`)} onPress={() => press(v)} />
           </Box>
         ))}
     </Box>
@@ -445,11 +602,12 @@ export const register: Register = on => {
     lastAnswer = ''
     await $.command.register({
       name: 'speak',
-      description: 'Ajusta a voz que lê as respostas: ligar, modo, tamanho, microfone, voz; ouve de novo a última fala',
-      argumentHint: '[on|off|mode|size|mic|voice|again|status|stop|install|update] [all]',
+      description: 'Ajusta a voz que lê as respostas: ligar, modo, tamanho, microfone, voz; ouve de novo, pausa e continua a fala',
+      argumentHint: '[on|off|mode|size|mic|voice|again|pause|resume|status|stop|install|update] [all]',
       immediate: true,
     })
     void kick($) // em segundo plano: não atrasa o registro da sessão
+    startSpeech($)
     return next(e)
   })
 

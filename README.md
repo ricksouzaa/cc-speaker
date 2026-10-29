@@ -56,6 +56,10 @@ Digite `/speak` sozinho. Abre um painel com uma lista por linha, já com o tecla
 
 Abaixo da última resposta (só depois que o turno termina) aparecem os mesmos dois botões, `[ ▶ Resumo ]` e `[ ▶ Resposta inteira ]`; sem a linha 🔊 só o segundo. Somem quando começa o turno seguinte. Clicar só funciona no terminal em tela cheia.
 
+Enquanto a fala desta sessão toca, o botão do modo dela (Resumo ou Resposta inteira, tanto sob a resposta quanto na linha do painel) vira `[ ⏸ Pausar ]`; pausada, vira `[ ▶ Continuar ]`; ao acabar, volta ao normal. A linha de status sob o campo de texto, em todas as sessões, diz quem fala: "🔊 falando agora" na sessão dona da fala, "🔊 falando: <pasta do projeto>" nas outras, e "⏸ fala pausada" na dona, quando pausada. Enquanto a instalação do motor usa essa linha, ela vence o aviso.
+
+A pausa congela o tocador e a síntese (o sinal SIGSTOP no grupo de processos da fala) e continua com SIGCONT. Foi testada no Linux com o `pw-play`; com `paplay`, `aplay` e no Mac (`afplay`) o código é o mesmo, mas não foi testado num Mac de verdade.
+
 Uma linha que só vale nesta sessão leva a marca "· só nesta sessão". O painel responde sem gastar uma resposta do Claude e funciona até no meio de uma resposta.
 
 ### Comandos escritos
@@ -70,16 +74,18 @@ Para pular o painel, escreva a ação. Com `all` no fim, vale para todas as sess
 | `/speak voice dora` · `alex` · `santa` | troca a voz, sempre em todas as sessões (padrão: `dora`) |
 | `/speak mic wait` · `play` · `auto` | o que fazer com o microfone em uso (padrão: `wait`) |
 | `/speak again` · `again summary` · `again full` | ouve de novo a última fala desta sessão, mesmo com a voz desligada: do jeito em que tocou, só o resumo ou a resposta inteira |
+| `/speak pause` | congela a fala que está tocando, de qualquer sessão, no ponto exato; a vez passa para a próxima da fila, e a pausada espera você pedir |
+| `/speak resume` | continua a fala pausada desta sessão (ou a pausada mais recente); se outra fala toca, a pausada vai para a frente da fila e continua quando essa acabar |
 | `/speak status` | mostra a versão do plugin e como está tudo: voz, leitura, tamanho, microfone e motor |
-| `/speak stop` | corta a fala que está tocando e esvazia a fila |
+| `/speak stop` | corta a fala que está tocando, esvazia a fila e encerra as falas pausadas |
 | `/speak install` | instala o motor de novo, em primeiro plano |
 | `/speak update` | atualiza o plugin para a versão mais nova do catálogo; vale depois de `/reload-plugins` ou numa sessão nova |
 
-Sem o valor (`/speak mode`, `/speak voice`…), o painel abre já na linha certa. Sair de uma sessão corta as falas dela, e as de outras sessões continuam.
+Sem o valor (`/speak mode`, `/speak voice`…), o painel abre já na linha certa. Sair de uma sessão corta as falas dela (tocando, na fila ou pausadas), e as de outras sessões continuam.
 
 ### Em palavras
 
-Também dá para pedir ao Claude, escrevendo ou ditando: "fala só o resumo", "resumo maior", "troca para a voz do Alex", "para de falar", "silêncio em todas as sessões". Para ouvir de novo: "repete", "não entendi, repete", "lê a resposta inteira", "lê só o resumo de novo". Ele roda o comando e confirma o que passou a valer.
+Também dá para pedir ao Claude, escrevendo ou ditando: "fala só o resumo", "resumo maior", "troca para a voz do Alex", "para de falar", "silêncio em todas as sessões". Para pausar: "pausa"; para seguir: "continua" ou "continuar de onde parou". Para ouvir de novo: "repete", "não entendi, repete", "lê a resposta inteira", "lê só o resumo de novo". Ele roda o comando e confirma o que passou a valer.
 
 ## Microfone
 

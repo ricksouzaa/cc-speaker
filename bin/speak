@@ -36,10 +36,16 @@
                            /speak module when the plugin is turned on in the middle of a session)
   speak say [text | -]     speak in the background and return at once; `-` reads the reply from stdin and applies
                            the mode (used by hooks/speak-stop.py)
-  speak stop               cut the speech playing now, whoever's it is, and drop every speech waiting its turn; the
-                           voice stays on
-  speak stop here          cut only the speeches of this session (playing or waiting); other sessions' speeches stay
-                           (used by hooks/speak-end.py when the session ends)
+  speak stop               cut the speech playing now, whoever's it is, drop every speech waiting its turn and end the
+                           paused ones; the voice stays on
+  speak stop here          cut only the speeches of this session (playing, waiting or paused); other sessions' speeches
+                           stay (used by hooks/speak-end.py when the session ends)
+  speak pause              freeze the speech playing now, whoever's it is, at the exact point (SIGSTOP to its whole
+                           process group); the turn passes to the next speech in the queue, and the paused one waits
+                           until `speak resume` (or `speak stop`) asks for it
+  speak resume             continue a paused speech: this session's (else the most recent pause); at once when
+                           nothing plays, else it goes before the queue and continues when the speech playing ends
+                           (a short helper process waits the turn for it, honouring the microphone choice)
   speak again [summary|full]  speak the last reply of this session again, even with the voice off: as it played
                            (no word), only its 🔊 line (`summary`; the whole reply when it had none) or the whole
                            reply (`full`); `speak say -` keeps the last reply of each session for this
@@ -59,7 +65,9 @@ CLAUDE_SPEAK_SESSION forces the session key ('-' means none; for tests and to fo
 CLAUDE_SPEAK_MODE overrides the mode; CLAUDE_SPEAK_SIZE the size; CLAUDE_SPEAK_MIC the microphone choice; CLAUDE_SPEAK_VOICE the voice (default pf_dora);
 CLAUDE_SPEAK_SPEED (default 1.1).
 Files live in the plugin's data folder (CLAUDE_SPEAK_DATA or CLAUDE_PLUGIN_DATA; see lib/speak_paths.py): engine/, config/, state/.
-Errors of a background speech go to state/error.log there.
+Errors of a background speech go to state/error.log there. state/speech.json says what plays now and what is paused
+(the /speak module reads it without running a process); CLAUDE_SPEAK_CWD (set by the Stop hook) is the folder of the
+session shown to the other sessions.
 """
 import fcntl
 import json
@@ -113,6 +121,7 @@ PID = os.path.join(STATE, 'speech.pid')
 OWNER = os.path.join(STATE, 'speech.owner')  # key of the session that owns the speech playing ('' = none)
 LOCK = os.path.join(STATE, 'queue.lock')  # flock'ed while a speech joins the queue or takes its turn
 QUEUE = os.path.join(STATE, 'queue')  # one ticket per speech waiting: name '<time_ns>-<pid>', content = session key
+NOW = os.path.join(STATE, 'speech.json')  # what plays now and what is paused: {"playing": {...}|null, "paused": [{...}]}
 LOG = os.path.join(STATE, 'error.log')
 RATE = speak_os.RATE  # Kokoro's output, mono float32
 MARK = '🔊'
@@ -286,7 +295,8 @@ def read_session(key):
         return {}
     return {k: v for k, v in data.items() if (k == 'voice' and v in ('muted', 'speaking'))
             or (k == 'mode' and v in MODES) or (k == 'size' and v in SIZES)
-            or (k == 'told' and v in MODES) or (k == 'mic' and v in MICS) or (k == 'micseen' and v is True)}
+            or (k == 'told' and v in MODES) or (k == 'mic' and v in MICS) or (k == 'micseen' and v is True)
+            or (k == 'dir' and isinstance(v, str) and v)}
 
 
 def session_mode(key):
@@ -321,7 +331,7 @@ def asked_after_start(key):
 
 
 def set_session(key, **fields):
-    """Updates only the given fields (voice=, mode=, size=, mic=) of a session file, keeping the others; a field
+    """Updates only the given fields (voice=, mode=, size=, mic=, dir=) of a session file, keeping the others; a field
     given as None is removed."""
     os.makedirs(SESSIONS, exist_ok=True)
     prune_sessions()
@@ -345,6 +355,7 @@ def own_field(session, field):
 
 
 def prune_sessions():
+    end_dead_paused()
     for folder in (SESSIONS, LAST):
         for key in os.listdir(folder) if os.path.isdir(folder) else ():
             if not session_alive(key):
@@ -601,18 +612,120 @@ def is_speech(pid):
 
 
 def clear_speech(pid):
-    """Removes the speech files, only if PID still holds `pid` (a newer speech keeps its own)."""
+    """Removes the speech files, only if PID still holds `pid` (a newer speech keeps its own), and takes the speech
+    out of speech.json. Under the queue lock (reentrant for the thread that already holds it)."""
+    with queue_lock():
+        try:
+            with open(PID) as fh:
+                if int(fh.read().strip()) != pid:
+                    return
+        except (OSError, ValueError):
+            return
+        for path in (PID, OWNER):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        now = read_now()
+        if now['playing'] and now['playing'].get('pid') == pid:
+            write_now(None, now['paused'])
+
+
+def read_now():
+    """speech.json as {'playing': dict or None, 'paused': [dict, ...]} (the paused ones in the order of the pauses);
+    an empty state when the file is missing or unreadable."""
+    try:
+        with open(NOW) as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        data = None
+    if not isinstance(data, dict):
+        data = {}
+    playing = data.get('playing')
+    paused = data.get('paused')
+    return {'playing': playing if isinstance(playing, dict) and isinstance(playing.get('pid'), int) else None,
+            'paused': [p for p in paused if isinstance(p, dict) and isinstance(p.get('pid'), int)]
+            if isinstance(paused, list) else []}
+
+
+def write_now(playing, paused):
+    """Writes speech.json (atomically; call it under the queue lock); with nothing playing and nothing paused the
+    file goes away."""
+    if playing is None and not paused:
+        drop(NOW)
+        return
+    write_atomic(NOW, json.dumps({'playing': playing, 'paused': paused}))
+
+
+def speech_facts(session, pid=None):
+    """What the other sessions are told about a speech: its pid, session key ('' = none), the folder of that session
+    and the mode it reads in ('' = unknown)."""
+    folder = os.environ.get('CLAUDE_SPEAK_DIR') or read_session(session).get('dir') or ''
+    how = os.environ.get('CLAUDE_SPEAK_HOW')
+    return {'pid': pid or os.getpid(), 'session': session or '', 'dir': folder, 'how': how if how in MODES else ''}
+
+
+def is_helper(pid):
+    """True for the short process that waits the turn for a paused speech (`speak _play --resume <pid>`)."""
+    argv = speak_os.argv(pid)
+    return is_speech(pid) and len(argv) > 4 and argv[4] == '--resume'
+
+
+def sweep_now():
+    """Takes out of speech.json what is not there any more: a speech that died, a paused one whose process is gone,
+    and the paused ones of a session that ended. Returns the cleaned state. Under the queue lock."""
+    if not os.path.exists(NOW):
+        return {'playing': None, 'paused': []}
+    with queue_lock():
+        now = read_now()
+        playing = now['playing']
+        if playing and not (playing['pid'] == read_pid() and (playing['pid'] == os.getpid() or is_speech(playing['pid']))):
+            playing = None
+        paused = [entry for entry in now['paused'] if is_speech(entry['pid'])]
+        for entry in [e for e in paused if e.get('session') and e['session'] != '-' and not session_alive(e['session'])]:
+            end_paused(entry['pid'])
+            paused.remove(entry)
+        if playing != now['playing'] or paused != now['paused']:
+            write_now(playing, paused)
+        return {'playing': playing, 'paused': paused}
+
+
+def end_dead_paused():
+    """Ends the paused speeches whose session is gone (the frozen process would stay forever otherwise)."""
+    now = read_now()
+    if any(e.get('session') and e['session'] != '-' and not session_alive(e['session']) for e in now['paused']):
+        sweep_now()
+
+
+def read_pid():
     try:
         with open(PID) as fh:
-            if int(fh.read().strip()) != pid:
-                return
+            return int(fh.read().strip())
     except (OSError, ValueError):
-        return
-    for path in (PID, OWNER):
+        return None
+
+
+def signal_group(pid, sig):
+    """Sends `sig` to the process group of `pid` (a speech leads its own, with its player); to the process alone if
+    there is no such group. True if something received it."""
+    try:
+        os.killpg(pid, sig)
+        return True
+    except ProcessLookupError:
         try:
-            os.remove(path)
+            os.kill(pid, sig)
+            return True
         except OSError:
-            pass
+            return False
+    except OSError:
+        return False
+
+
+def end_paused(pid):
+    """Ends a frozen speech for good: SIGKILL (a SIGTERM would only be delivered after a SIGCONT) to its whole group,
+    only if the pid is still a speech of ours."""
+    if is_speech(pid):
+        signal_group(pid, signal.SIGKILL)
 
 
 def terminate(pid):
@@ -694,20 +807,36 @@ def stop_playing():
         pass
 
 
+def stop_paused(session=None):
+    """Ends the paused speeches: all of them, or only those of `session`."""
+    with queue_lock():
+        now = read_now()
+        keep = []
+        for entry in now['paused']:
+            if session is None or entry.get('session') == session:
+                end_paused(entry['pid'])
+            else:
+                keep.append(entry)
+        if keep != now['paused']:
+            write_now(now['playing'], keep)
+
+
 def stop_current():
-    """Ends every speech: the waiting ones first (so none takes the turn), then the one playing."""
+    """Ends every speech: the waiting ones first (so none takes the turn), the paused ones, then the one playing."""
     stop_waiting()
+    stop_paused()
     stop_playing()
 
 
 def stop_if_mine(session):
-    """Ends the speeches of this session: the waiting ones, and the one playing if it owns it. A session of None
+    """Ends the speeches of this session: the waiting and the paused ones, and the one playing if it owns it. A session of None
     owns nothing. Owner and pid are read and the cut is signalled under the queue lock, where `wait_turn` swaps both,
     so a speech that took over meanwhile is never mistaken for the old owner's (the signal does not wait for the
     process to die, so the lock is held only a moment)."""
     if not session:
         return
     stop_waiting(session)
+    stop_paused(session)
     with queue_lock():
         try:
             with open(OWNER) as fh:
@@ -721,46 +850,153 @@ def stop_if_mine(session):
             clear_speech(pid)
 
 
-def speak_background(text, session, force=False):
+def pause():
+    """Freezes the speech playing now, whoever's it is: SIGSTOP to its whole process group, at the exact point. The
+    turn is freed (speech.pid and speech.owner go) and the speech is registered as paused, last in the order of the
+    pauses. Done under the queue lock, where `wait_turn` and the cuts swap the turn. Returns its facts; None when no
+    speech of ours plays (the short helper that waits a paused speech's turn is not frozen)."""
+    with queue_lock():
+        pid = read_pid()
+        if not pid or pid <= 1 or pid == os.getpid() or not is_speech(pid) or is_helper(pid):
+            return None
+        now = read_now()
+        facts = now['playing'] if now['playing'] and now['playing']['pid'] == pid else None
+        if facts is None:
+            try:
+                with open(OWNER) as fh:
+                    owner = fh.read().strip()
+            except OSError:
+                owner = ''
+            facts = {'pid': pid, 'session': owner, 'dir': '', 'how': ''}
+        if not signal_group(pid, signal.SIGSTOP):
+            return None
+        drop(PID)
+        drop(OWNER)
+        write_now(None, now['paused'] + [facts])
+        return facts
+
+
+def resume(session):
+    """Continues a paused speech: the one of `session`, else the most recent pause. Returns (what, entry): 'now' (the
+    turn was free and the speech was continued), 'later' (another speech plays, or the microphone holds it: a helper
+    process waits the turn at the front of the queue and continues it), 'waiting' (a helper already does) or
+    (None, None) when nothing is paused."""
+    paused = sweep_now()['paused']
+    mine = [e for e in paused if e.get('session') == (session or '')]
+    chosen = (mine or paused)[-1] if paused else None
+    if chosen is None:
+        return None, None
+    held = holds_for_microphone(chosen.get('session') or None)  # read outside the lock: pw-dump is slow
+    with queue_lock():
+        now = read_now()
+        entry = next((e for e in now['paused'] if e['pid'] == chosen['pid']), None)
+        if entry is None or not is_speech(entry['pid']):
+            return None, None
+        if isinstance(entry.get('waiting'), int) and is_helper(entry['waiting']):
+            return 'waiting', entry
+        rest = [e for e in now['paused'] if e is not entry]
+        if playing() is None and not held:
+            write_atomic(PID, str(entry['pid']))
+            write_atomic(OWNER, entry.get('session') or '')
+            write_now({k: v for k, v in entry.items() if k != 'waiting'}, rest)
+            signal_group(entry['pid'], signal.SIGCONT)
+            return 'now', entry
+        os.makedirs(STATE, exist_ok=True)
+        with open(LOG, 'a') as log:
+            helper = subprocess.Popen([sys.executable, '-I', os.path.realpath(__file__), '_play', '--resume',
+                                       str(entry['pid'])], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                      stderr=log, start_new_session=True,
+                                      env={**os.environ, 'CLAUDE_SPEAK_SESSION': entry.get('session') or '-'})
+        entry['waiting'] = helper.pid
+        write_now(now['playing'], now['paused'])
+        return 'later', entry
+
+
+def resume_wait(pid):
+    """The helper of `resume`: runs in a process of its own because the frozen speech cannot act. Waits the turn for
+    the paused speech `pid` (at the front of the queue, honouring the microphone choice of its session like any
+    speech), hands the turn over to it and continues it."""
+    session = current_session()
+    try:
+        watch = speak_os.SYSTEM == 'mac' or bool(shutil.which('pw-dump'))
+        if not wait_turn(session, watch, front=True):
+            return 0
+        with queue_lock():
+            now = read_now()
+            entry = next((e for e in now['paused'] if e['pid'] == pid), None)
+            if entry is not None and is_speech(pid):
+                write_atomic(PID, str(pid))
+                write_atomic(OWNER, entry.get('session') or '')
+                write_now({k: v for k, v in entry.items() if k != 'waiting'}, [e for e in now['paused'] if e is not entry])
+                signal_group(pid, signal.SIGCONT)
+        return 0
+    finally:
+        drop_own_tickets()
+        clear_speech(os.getpid())  # still holding the turn only when something went wrong above
+
+
+def speak_background(text, session, force=False, how=None):
     """Speaks `text` for `session`, in order of arrival: the speech process joins the queue and waits its turn
     (it never cuts the speech playing). A muted session does not speak, unless `force` (an explicit request)."""
     if not text.strip() or not (force or is_on(session)) or not engine_ready():
         return 0
     os.makedirs(STATE, exist_ok=True)
+    folder = os.environ.get('CLAUDE_SPEAK_CWD') or os.getcwd()
+    try:
+        if session and read_session(session).get('dir') != folder:
+            set_session(session, dir=folder)  # the other sessions are told where this one works
+    except OSError:
+        pass
     with open(LOG, 'a') as log:
         subprocess.Popen([VENV_PY, '-I', os.path.realpath(__file__), '_play', text],
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=log,
                          start_new_session=True, env={**os.environ, 'CLAUDE_SPEAK_SESSION': session or '-',
+                                     'CLAUDE_SPEAK_DIR': folder,
+                                     **({'CLAUDE_SPEAK_HOW': how} if how in MODES else {}),
                                      **({'CLAUDE_SPEAK_AGAIN': '1'} if force else {})})
     return 0
 
 
+_held = threading.local()  # the queue lock is reentrant for the thread that holds it
+
+
 def queue_lock():
     """Context manager: an exclusive lock on LOCK, so that joining the queue and taking the turn are never interleaved
-    between speech processes (the kernel frees it if the holder dies)."""
+    between speech processes (the kernel frees it if the holder dies). A thread that already holds it passes through."""
     import contextlib
-    import fcntl
 
     @contextlib.contextmanager
     def locked():
+        if getattr(_held, 'depth', 0):
+            _held.depth += 1
+            try:
+                yield
+            finally:
+                _held.depth -= 1
+            return
         os.makedirs(STATE, exist_ok=True)
         with open(LOCK, 'a') as fh:
             fcntl.flock(fh, fcntl.LOCK_EX)
-            yield
+            _held.depth = 1
+            try:
+                yield
+            finally:
+                _held.depth = 0
     return locked()
 
 
-def wait_turn(session, watch):
+def wait_turn(session, watch, front=False):
     """Joins the queue and waits to be the first that can play, with no speech playing; then takes the turn (writes
     speech.pid and speech.owner, drops the ticket). A speech whose session waits for a busy microphone does not
     count as first: the ones behind it may go. False if the ticket was dropped meanwhile (stopped).
     The ticket's name is taken and written, and the turn checked and taken, each under the queue lock. The queue is
     looked at every QUEUE_POLL, the microphone only every MIC_WAIT_POLL (the last reading is reused between looks);
     but before taking the turn it is read again, so a recording that began meanwhile does not let the speech start
-    only to be cut."""
+    only to be cut. With `front` the ticket goes before every ordinary one (a paused speech that was resumed: its
+    name starts with the time in milliseconds, which sorts before any in nanoseconds)."""
     import time
     with queue_lock():
-        ticket = os.path.join(QUEUE, '%d-%d' % (time.time_ns(), os.getpid()))
+        ticket = os.path.join(QUEUE, '%d-%d' % (int(time.time() * 1000) if front else time.time_ns(), os.getpid()))
         write_atomic(ticket, session or '-')
     recs = None
     read_at = None  # monotonic time of the last reading of the microphone
@@ -788,6 +1024,7 @@ def wait_turn(session, watch):
                 if head == ticket and playing() is None:
                     write_atomic(PID, str(os.getpid()))
                     write_atomic(OWNER, session or '')
+                    write_now(speech_facts(session), read_now()['paused'])
                     drop(ticket)
                     return True
         elif not any(path == ticket for path, _, _ in tickets()):
@@ -1501,7 +1738,16 @@ def again(which):
         return 1
     print('Lendo de novo o resumo da última resposta.' if how == 'summary'
           else 'Lendo de novo a última resposta inteira.')
-    return speak_background(said, session, force=True)
+    return speak_background(said, session, force=True, how=how)
+
+
+def speech_text(entry, session):
+    """Where a speech comes from and how it reads, for `speak status`: 'esta sessão', or the folder of the session."""
+    folder = os.path.basename((entry.get('dir') or '').rstrip('/'))
+    who = 'esta sessão' if session and entry.get('session') == session else (
+        'pasta %s' % folder if folder else 'outra sessão')
+    how = {'summary': ', resumo', 'full': ', resposta inteira'}.get(entry.get('how'), '')
+    return who + how
 
 
 def status():
@@ -1524,6 +1770,11 @@ def status():
     print('  microfone em uso: %s%s' % (MIC_TEXT[mic(session)], here if own_field(session, 'mic') else ''))
     print('  motor: %s' % engine_text())
     print('  voz: %s, velocidade %s' % (voice(), speed()))
+    now = sweep_now()
+    if now['playing']:
+        print('  fala: tocando agora (%s)' % speech_text(now['playing'], session))
+    for entry in now['paused']:
+        print('  fala pausada: %s' % speech_text(entry, session))
     return 0
 
 
@@ -1620,7 +1871,9 @@ def status_json():
     """The state in force here as one JSON line, for the /speak pane (hooks/register.tsx) to mark what is current."""
     session = current_session()
     now = voice()
-    print(json.dumps({'version': plugin_version(), 'on': is_on(session), 'mode': mode(session), 'size': summary_size(session), 'mic': mic(session),
+    heard = sweep_now()
+    print(json.dumps({'version': plugin_version(), 'session': session, 'stateDir': STATE,
+                      'speaking': heard['playing'], 'paused': heard['paused'], 'on': is_on(session), 'mode': mode(session), 'size': summary_size(session), 'mic': mic(session),
                       'scope': {f: 'session' if own_field(session, g) else 'all'
                                 for f, g in (('on', 'voice'), ('mode', 'mode'), ('size', 'size'), ('mic', 'mic'))},
                       'engine': engine_ready(), 'installing': not engine_ready() and installing(),
@@ -1667,6 +1920,23 @@ def main(argv):
             stop_if_mine(current_session())
         else:
             stop_current()
+        return 0
+    if cmd in ('pause', 'resume'):
+        if text:
+            print('voz: use "speak %s"' % cmd, file=sys.stderr)
+            return 2
+        if cmd == 'pause':
+            if pause() is None:
+                print('voz: não há fala tocando agora', file=sys.stderr)
+                return 1
+            print('Fala pausada.')
+            return 0
+        what, _ = resume(current_session())
+        if what is None:
+            print('voz: não há fala pausada', file=sys.stderr)
+            return 1
+        print({'now': 'Continuando a fala.', 'later': 'Continuando a fala assim que for a vez dela.',
+               'waiting': 'A fala pausada já está esperando a vez.'}[what])
         return 0
     if cmd == 'mode':
         wanted, _, scope = text.partition(' ')
@@ -1781,7 +2051,7 @@ def main(argv):
         if text == '-':
             message, how = sys.stdin.read(), mode(session)
             save_last(session, message, how)  # kept also with the voice off or without the engine
-            return speak_background(to_speak(message, how, summary_size(session)), session)
+            return speak_background(to_speak(message, how, summary_size(session)), session, how=how)
         return speak_background(text, session)
     if cmd == 'update':
         return speak_update.update(os.path.realpath(__file__), plugin_version())
@@ -1798,6 +2068,8 @@ def main(argv):
                                 text or 'Olá! A voz do Claude Code está funcionando.'],
                                env={**os.environ, 'CLAUDE_SPEAK_TEST': '1'})
     if cmd == '_play':
+        if rest[:1] == ['--resume'] and len(rest) == 2 and rest[1].isdigit():
+            return resume_wait(int(rest[1]))
         return play(text)
     print(__doc__.strip(), file=sys.stderr if cmd not in ('-h', '--help') else sys.stdout)
     return 0 if cmd in ('-h', '--help') else 2
