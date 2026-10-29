@@ -10,9 +10,9 @@ class Diag(unittest.TestCase):
         a = os.path.join(d, 'claude'); os.symlink(sys.executable, a); cands['symlink-exe'] = a
         real = os.path.realpath(sys.executable)
         b = os.path.join(d, 'claude2'); os.symlink(real, b); cands['symlink-real'] = b
-        c = os.path.join(d, 'c3', 'claude'); os.makedirs(os.path.dirname(c)); shutil.copy2(sys.executable, c); cands['copy-exe'] = c
-        e = os.path.join(d, 'c4', 'claude'); os.makedirs(os.path.dirname(e)); shutil.copy2('/bin/sleep', e); cands['copy-sleep'] = e
-        f = os.path.join(d, 'c5', 'claude'); os.makedirs(os.path.dirname(f)); shutil.copy2('/bin/sh', f); cands['copy-sh'] = f
+        c = os.path.join(d, 'c3', 'claude'); os.makedirs(os.path.dirname(c)); shutil.copy(sys.executable, c); cands['copy-exe'] = c
+        e = os.path.join(d, 'c4', 'claude'); os.makedirs(os.path.dirname(e)); shutil.copy('/bin/sleep', e); cands['copy-sleep'] = e
+        f = os.path.join(d, 'c5', 'claude'); os.makedirs(os.path.dirname(f)); shutil.copy('/bin/sh', f); cands['copy-sh'] = f
         print('\nDIAG platform', sys.platform, 'executable', sys.executable, 'real', real)
         for k, p in cands.items():
             if k == 'copy-sleep':

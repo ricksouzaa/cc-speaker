@@ -204,6 +204,8 @@ class Ahead(unittest.TestCase):
         gen.close()  # the player was cut: the background synthesis must not keep the program alive
 
 
+@unittest.skipUnless(sys.platform.startswith('linux'),
+                     'pw-play, paplay and aplay are the Linux players; the Mac plays with afplay')
 class Player(unittest.TestCase):
     """The player is the first one on PATH that takes raw samples: `pw-play --raw` came with PipeWire 1.1, so an
     older pw-play (1.0.x, Ubuntu 24.04) is skipped in favour of paplay or aplay."""
@@ -914,9 +916,11 @@ class Session(unittest.TestCase):
         'loader = importlib.machinery.SourceFileLoader("speak", os.environ["REAL_SPEAK"])\n'
         'm = importlib.util.module_from_spec(importlib.util.spec_from_loader("speak", loader)); loader.exec_module(m)\n'
         'name = sys.argv[2]\n'
+        'if sys.platform == "darwin":  # the Mac asks CoreAudio, not pw-dump: the same busy file stands in for it\n'
+        '    m.current_recordings = lambda: {9} if os.path.exists(os.environ["BUSY_FILE"]) else set()\n'
         'if os.environ.get("DRIVER") == "play":\n'
         '    sys.exit(m.main(["_play", name]))\n'
-        'if not m.wait_turn(m.current_session(), bool(m.shutil.which("pw-dump"))):\n'
+        'if not m.wait_turn(m.current_session(), sys.platform == "darwin" or bool(m.shutil.which("pw-dump"))):\n'
         '    sys.exit(3)\n'
         'with open(os.environ["LOG_FILE"], "a") as fh:\n'
         '    fh.write(name + "\\n")\n'
@@ -946,7 +950,7 @@ class Session(unittest.TestCase):
                      '"Stream/Input/Audio"}}}]\'; else echo \'[]\'; fi\n' % self.busy)
         os.chmod(dump, 0o755)
         self.env = {'HOME': root, 'PATH': fakebin + ':/usr/bin:/bin', 'REAL_SPEAK': SPEAK,
-                    'LOG_FILE': self.logfile, 'RELEASE': self.release}
+                    'LOG_FILE': self.logfile, 'RELEASE': self.release, 'BUSY_FILE': self.busy}
 
     def waiter(self, name, session, kind='hold', **extra):
         proc = subprocess.Popen([sys.executable, '-I', self.driver, '_play', name], start_new_session=True,
