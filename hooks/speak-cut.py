@@ -3,7 +3,8 @@
 waits its turn in the queue (only dictation cuts the one playing). When this session will not speak (`speak silent`,
 or `speak` missing), or reads the whole reply (`mode full`), it prints a note that Claude reads with the message:
 leave out the 🔊 line. The rule is injected once, at the start, so the hook remembers (`speak told`) which mode the
-model was last told; when the mode goes back to summary it says once to write the line again. Fail-open: exits 0."""
+model was last told; when the mode goes back to summary it says once to write the line again. The note says why the
+session is silent (`speak silent` prints it): voice off, engine being installed, or engine missing. Fail-open: exits 0."""
 import json
 import os
 import subprocess
@@ -11,12 +12,24 @@ import sys
 
 SPEAK = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'bin', 'speak')
 NOTE = 'speak: a voz está desligada nesta sessão; não termine esta resposta com a linha 🔊.'
+NOTE_MISSING = 'speak: o motor de voz não está instalado (rode /speak install); não termine esta resposta com a linha 🔊.'
 NOTE_FULL = 'speak: a leitura é da resposta inteira; não termine esta resposta com a linha 🔊.'
 NOTE_BACK = 'speak: a leitura voltou a ser só o resumo; termine esta resposta com a linha 🔊.'
 
 
 def speak(*args):
     return subprocess.run([sys.executable, '-I', SPEAK, *args], capture_output=True, text=True, timeout=10).stdout
+
+
+def silent_note(why):
+    """The note for the reason `speak silent` printed."""
+    word, _, percent = why.partition(' ')
+    if word == 'installing':
+        pct = ' (%s%%)' % percent if percent.isdigit() else ''
+        return 'speak: o motor de voz ainda está sendo instalado%s; não termine esta resposta com a linha 🔊.' % pct
+    if word == 'missing':
+        return NOTE_MISSING
+    return NOTE
 
 
 def mode_note():
@@ -37,9 +50,12 @@ def mode_note():
 
 def main():
     sys.stdin.read()
-    if not os.path.exists(SPEAK) or subprocess.run([sys.executable, '-I', SPEAK, 'silent'], capture_output=True,
-                                                   timeout=10).returncode == 0:
+    if not os.path.exists(SPEAK):
         print(NOTE)
+        return
+    r = subprocess.run([sys.executable, '-I', SPEAK, 'silent'], capture_output=True, text=True, timeout=10)
+    if r.returncode == 0:
+        print(silent_note(r.stdout.strip()))
     else:
         note = mode_note()
         if note:

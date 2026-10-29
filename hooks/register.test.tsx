@@ -1,16 +1,22 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 
 // Nada aqui toca o motor, o áudio nem as pastas reais: `process.run` é respondido pelo teste, que guarda o estado
 // do speak numa variável. O menu é montado no painel `speak` da superfície `terminal` e operado pela escolha nas listas.
 
-type Opts = { fail?: boolean; statusFails?: boolean; scope?: Record<string, string>; placed?: boolean; surface?: string }
+type Opts = { fail?: boolean; statusFails?: boolean; scope?: Record<string, string>; placed?: boolean; surface?: string; init?: Record<string, unknown> }
 
 async function setup($: any, on: any, opts: Opts = {}) {
   const ran: string[][] = []
   const opened: any[] = []
+  const lines: (string | undefined)[] = []
+  const toasts: string[] = []
+  const clock = mock.clock(on)
+  on('ui.status', (_: unknown, e: any) => { lines.push(e.text); return { value: undefined } })
+  on('ui.toast', (_: unknown, e: any) => { toasts.push(e.text); return { value: undefined } })
   const st: any = {
     on: true, mode: 'full', size: 'medium', engine: true, voice: 'dora',
     scope: { on: 'all', mode: 'all', size: 'all', ...(opts.scope ?? {}) },
+    ...(opts.init ?? {}),
   }
   on('command.register', () => ({ value: { command: 'speak' } }))
   on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
@@ -33,7 +39,7 @@ async function setup($: any, on: any, opts: Opts = {}) {
     return done(0, 'ok\n')
   })
   await $.session.start({ cwd: '/', surface: opts.surface ?? 'terminal', isInteractive: true })
-  return { ran, opened, st }
+  return { ran, opened, st, lines, toasts, clock }
 }
 
 const PANE = {
@@ -245,4 +251,63 @@ test('ação desconhecida explica as formas escritas', async ($, on) => {
   const r = await $.command.run({ command: 'speak', args: 'dance' })
   expect(r.text).toContain('/speak voice')
   expect(changes(ran)).toEqual([])
+})
+
+test('sem instalação à vista, o relógio desiste depois de alguns toques e não mostra nada', async ($, on) => {
+  const { lines, toasts, clock, st } = await setup($, on)
+  st.engine = false
+  await clock.advance(30000)
+  expect(lines.filter(l => l !== undefined)).toEqual([])
+  expect(toasts).toEqual([])
+})
+
+test('instalando: linha de status com o progresso; ao fim, limpa e avisa Voz pronta', async ($, on) => {
+  const { lines, toasts, clock, st } = await setup($, on, {
+    init: { engine: false, installing: true, install: { fase: 'dependências' } },
+  })
+  await clock.advance(2000)
+  expect(lines.at(-1)).toBe('🔊 Instalando a voz: dependências')
+  st.install = { fase: 'baixando', arquivo: 'kokoro-v1.0.onnx', feito: 252698624, total: 325532232 }
+  await clock.advance(2000)
+  expect(lines.at(-1)).toBe('🔊 Instalando a voz: 78% (253 de 326 MB)')
+  st.engine = true
+  st.installing = false
+  st.install = null
+  await clock.advance(2000)
+  expect(lines.at(-1)).toBeUndefined()
+  expect(toasts).toEqual(['Voz pronta'])
+  const count = lines.length
+  await clock.advance(20000)
+  expect(lines.length).toBe(count) // o relógio foi cancelado
+})
+
+test('instalação que termina sem motor avisa a falha e o /speak install', async ($, on) => {
+  const { lines, toasts, clock, st } = await setup($, on, { init: { engine: false, installing: true } })
+  await clock.advance(2000)
+  expect(lines.at(-1)).toBe('🔊 Instalando a voz...')
+  st.installing = false
+  await clock.advance(2000)
+  expect(lines.at(-1)).toBeUndefined()
+  expect(toasts.length).toBe(1)
+  expect(toasts[0]).toMatch(/\/speak install/)
+})
+
+test('o relógio começa também ao rodar /speak install', async ($, on) => {
+  const { lines, clock, st } = await setup($, on)
+  await clock.advance(30000) // o relógio do começo já desistiu: motor pronto
+  st.engine = false
+  st.installing = true
+  await $.command.run({ command: 'speak', args: 'install' })
+  await clock.advance(2000)
+  expect(lines.at(-1)).toBe('🔊 Instalando a voz...')
+})
+
+test('o rodapé do menu mostra o progresso enquanto instala', async ($, on) => {
+  const { st } = await setup($, on)
+  st.engine = false
+  st.installing = true
+  st.install = { fase: 'baixando', arquivo: 'kokoro-v1.0.onnx', feito: 1000000, total: 4000000 }
+  const { ui } = await openMenu($)
+  expect(await footer(ui)).toBe('🔊 Instalando a voz: 25% (1 de 4 MB)')
+  await ui.unmount()
 })

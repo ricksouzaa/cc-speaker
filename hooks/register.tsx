@@ -3,13 +3,15 @@
 // A primeira linha, "Mudar em", só diz onde as próximas trocas são gravadas (todas as sessões ou só esta); abre sempre
 // em "Todas as sessões" e trocá-la não roda nada. Responde sozinho, sem o modelo. Com a escolha escrita
 // (/speak voice alex), roda direto, sem menu, e responde uma linha.
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, Timer } from 'claude-code'
 
 type Engine = EngineInterface
 type Reply = { text?: string }
 type State = {
   on: boolean; mode: string; size: string; voice: string; engine: boolean
   scope?: { on?: string; mode?: string; size?: string }
+  installing?: boolean
+  install?: { fase?: string; arquivo?: string; feito?: number; total?: number } | null
 }
 
 const MODES: Record<string, string> = { full: 'Resposta inteira', summary: 'Só o resumo' }
@@ -36,6 +38,68 @@ async function state($: Engine): Promise<State | undefined> {
   } catch {
     return undefined
   }
+}
+
+// O andamento da instalação do motor, em uma linha: `78% (253 de 326 MB)`, `dependências` ou vazio (instalando, sem dado).
+function progress(s: State | undefined): string {
+  const p = s?.install
+  if (!p) return ''
+  if (p.fase !== 'baixando' || !p.total) return p.fase === 'dependências' ? 'dependências' : ''
+  const mb = (n: number) => Math.round(n / 1e6)
+  return `${Math.min(100, Math.round((100 * (p.feito ?? 0)) / p.total))}% (${mb(p.feito ?? 0)} de ${mb(p.total)} MB)`
+}
+const isInstalling = (s: State | undefined) => !!s && !s.engine && (!!s.install || !!s.installing)
+const installLine = (s: State | undefined) => `🔊 Instalando a voz${progress(s) ? ': ' + progress(s) : '...'}`
+
+// A linha de status sob o campo de texto enquanto o motor se instala. O relógio só roda enquanto houver instalação
+// (ou nos primeiros segundos da sessão, à espera do gancho que a inicia) e é cancelado ao fim.
+const WATCH_MS = 2000
+const WATCH_GRACE = 5 // consultas sem instalação à vista antes de desistir, se nunca se viu uma
+let watch: Timer | undefined
+let watching = false
+
+function stopWatch($: Engine) {
+  watch?.cancel()
+  watch = undefined
+  watching = false
+  $.ui.status(undefined)
+}
+
+function startWatch($: Engine) {
+  if (watching) return
+  watching = true
+  let seen = false
+  let idle = 0
+  let busy = false
+  const tick = async () => {
+    if (busy || !watching) return
+    busy = true
+    try {
+      const now = await state($)
+      if (!watching) return
+      if (isInstalling(now)) {
+        seen = true
+        $.ui.status(installLine(now))
+        if (view) {
+          view = { now }
+          $.ui.invalidate('ui.render')
+        }
+        return
+      }
+      if (!seen && now && !now.engine && ++idle <= WATCH_GRACE) return
+      stopWatch($)
+      if (seen) {
+        $.ui.toast(
+          now?.engine ? 'Voz pronta' : 'A instalação da voz não terminou; rode /speak install',
+          { timeoutMs: 8000 },
+        )
+      }
+    } finally {
+      busy = false
+    }
+  }
+  watch = $.clock.every(WATCH_MS, () => void tick())
+  void tick()
 }
 
 const cap = (word: string) => word.charAt(0).toUpperCase() + word.slice(1)
@@ -85,6 +149,7 @@ async function direct($: Engine, body: string[], all: boolean): Promise<Reply | 
     case 'status':
     case 'stop':
     case 'install': {
+      if (action === 'install') startWatch($)
       const r = await run($, body)
       if (!r.ok) return { text: r.out || 'O speak falhou.' }
       if (action === 'status') return { text: r.out }
@@ -174,7 +239,7 @@ function drawMenu(el: any, m: Menu) {
         )
       })}
       <Button key="fechar" label="Fechar" onPress={m.close} />
-      <Text dimColor>{m.note || (m.now ? HELP : UNREAD)}</Text>
+      <Text dimColor>{m.note || (isInstalling(m.now) ? installLine(m.now) : m.now ? HELP : UNREAD)}</Text>
     </Box>
   )
 }
@@ -209,6 +274,7 @@ export const register: Register = on => {
       argumentHint: '[on|off|mode|size|voice|status|stop|install] [all]',
       immediate: true,
     })
+    startWatch($)
     return next(e)
   })
 

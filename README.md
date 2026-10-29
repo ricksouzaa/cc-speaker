@@ -18,10 +18,16 @@ Respostas do Claude Code lidas em voz alta, em português do Brasil, com um moto
 
 ## O motor, instalado sozinho
 
-O Claude Code não tem passo de instalação para plugins. Por isso, ao abrir uma sessão sem o motor, o plugin dispara a instalação em segundo plano (cerca de 350 MB, sem perguntar), e o Claude avisa você em uma frase. A voz começa sozinha quando termina. Detalhes:
+O Claude Code não tem passo de instalação para plugins. Por isso a voz se instala sozinha na primeira sessão depois de instalar o plugin (ou depois de `/reload-plugins`): ao abrir a sessão sem o motor, o plugin dispara a instalação em segundo plano, sem perguntar. São cerca de 350 MB (o modelo de voz e as bibliotecas), sem sudo. Você é avisado na própria tela, sem depender do Claude. Para acompanhar:
+
+- uma linha embaixo do campo de texto (`🔊 Instalando a voz: 78% (253 de 326 MB)`), que some quando termina, com o aviso "Voz pronta" (ou o de falha);
+- `/speak status`, que mostra a etapa e a porcentagem na linha do motor;
+- o rodapé do menu do `/speak`.
+
+A voz começa sozinha quando termina. Se algo der errado, `/speak install` é o plano B: instala (ou tenta de novo) em primeiro plano. Enquanto o motor falta, o Claude não escreve a linha 🔊 e a nota de cada mensagem diz isso (instalando, com a porcentagem, ou não instalado), nunca "voz desligada". Detalhes:
 
 - Só uma instalação roda por vez: outra sessão que abra nesse meio tempo não começa outra.
-- O andamento fica em `state/install.log`, dentro da pasta de dados do plugin (veja "Pastas").
+- O registro fica em `state/install.log` (cada etapa aparece na hora em que começa), dentro da pasta de dados do plugin (veja "Pastas").
 - Se faltar o `uv`, nada é instalado; o Claude diz como instalá-lo (https://docs.astral.sh/uv/).
 - Se a instalação falhar, ela não tenta de novo sozinha: o Claude aponta o registro e você roda `/speak install` para tentar outra vez, em primeiro plano.
 - `CLAUDE_SPEAK_AUTOINSTALL=0` desliga a instalação automática.

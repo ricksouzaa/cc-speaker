@@ -25,8 +25,9 @@
                            voice stays on
   speak told [full|summary] print, or record, the mode last told to the model in this session (`rule` records it;
                            used by hooks/speak-cut.py to say when the mode changes)
-  speak silent             exit 0 when this session will not speak (voice off here, or no engine), else 1; prints
-                           nothing; used by hooks/speak-cut.py to tell Claude to leave out the 🔊 line
+  speak silent             exit 0 when this session will not speak, else 1; when it will not, prints why: `off` (voice
+                           off here), `installing [percent]` (engine being installed) or `missing` (no engine, no
+                           install running); used by hooks/speak-cut.py to tell Claude to leave out the 🔊 line
 
 The speech starts after its first short piece is ready and goes on while the rest is synthesized. A new speech, from
 any session, never cuts the one playing: it waits its turn in a queue (arrival order, one at a time, and only while no
@@ -897,12 +898,58 @@ def venv_works():
         return False
 
 
+def write_progress(**fields):
+    """Writes INSTALL_PROGRESS atomically (a temporary file beside it, then os.replace). Cosmetic: errors are ignored."""
+    tmp = '%s.tmp-%d' % (INSTALL_PROGRESS, os.getpid())
+    try:
+        os.makedirs(STATE, exist_ok=True)
+        with open(tmp, 'w') as fh:
+            json.dump(fields, fh)
+        os.replace(tmp, INSTALL_PROGRESS)
+    except OSError:
+        remove_quietly(tmp)
+
+
+def remove_quietly(path):
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+def progress_hook(name, step, steps):
+    """The reporthook of urlretrieve: writes the bytes so far, at most every PROGRESS_EVERY seconds."""
+    last = [None]
+
+    def hook(blocks, size, total):
+        now = time.monotonic()
+        if last[0] is not None and now - last[0] < PROGRESS_EVERY:
+            return
+        last[0] = now
+        total = max(total, 0)
+        done = blocks * size
+        write_progress(fase='baixando', arquivo=name, feito=min(done, total) if total else done, total=total,
+                       passo=step, passos=steps)
+    return hook
+
+
 def install():
     uv = shutil.which('uv') or os.path.join(HOME, '.local', 'bin', 'uv')
     if not os.path.exists(uv):
         print('voz: o uv não foi encontrado; instale-o (%s) e rode de novo' % speak_os.notice_uv(), file=sys.stderr)
         return 1
+    try:
+        return install_steps(uv)
+    finally:
+        remove_quietly(INSTALL_PROGRESS)
+        remove_quietly('%s.tmp-%d' % (INSTALL_PROGRESS, os.getpid()))
+
+
+def install_steps(uv):
     os.makedirs(DATA, exist_ok=True)
+    files = [path for path in (MODEL, VOICES) if not os.path.exists(path)]
+    steps = 1 + len(files)  # the dependencies, then each file still missing
+    write_progress(fase='dependências', passo=1, passos=steps)
     if not venv_works():
         venv = os.path.join(DATA, '.venv')  # rebuilt alone: the model and voices beside it are not downloaded again
         if os.path.islink(venv):
@@ -917,22 +964,26 @@ def install():
         except OSError:
             ok = False
         if not ok:
-            print('voz: sounddevice não instalou; o Mac toca pelo afplay')
-    for path in (MODEL, VOICES):
-        if not os.path.exists(path):
-            print('voz: baixando %s' % os.path.basename(path))
-            part = '%s.part-%d' % (path, os.getpid())  # one per process: two installs never share a file
-            try:
-                urllib.request.urlretrieve(MODEL_URL + os.path.basename(path), part)
-                os.replace(part, path)
-            finally:
-                if os.path.exists(part):
-                    os.remove(part)
-    print('voz: motor instalado em %s' % DATA)
+            print('voz: sounddevice não instalou; o Mac toca pelo afplay', flush=True)
+    for step, path in enumerate(files, 2):
+        name = os.path.basename(path)
+        print('voz: baixando %s' % name, flush=True)
+        write_progress(fase='baixando', arquivo=name, feito=0, total=0, passo=step, passos=steps)
+        part = '%s.part-%d' % (path, os.getpid())  # one per process: two installs never share a file
+        try:
+            urllib.request.urlretrieve(MODEL_URL + name, part, progress_hook(name, step, steps))
+            os.replace(part, path)
+        finally:
+            if os.path.exists(part):
+                os.remove(part)
+    print('voz: motor instalado em %s' % DATA, flush=True)
     return 0
 
 
 INSTALL_LOCK = os.path.join(STATE, 'install.lock')  # flock'ed by `speak install` for as long as it runs
+INSTALL_PROGRESS = os.path.join(STATE, 'install.progress')  # JSON of the step in course; counts only with INSTALL_LOCK held
+PROGRESS_EVERY = 0.5  # seconds between two writes of INSTALL_PROGRESS while downloading
+WAIT_POLL = 1.0  # seconds between two looks of an install that waits for another
 INSTALL_LOG = os.path.join(STATE, 'install.log')  # where the SessionStart hook sends the background install's output
 INSTALL_FAILED = os.path.join(STATE, 'install.failed')  # present after a failed install, holding the plugin version; speak-start.py reads it
 
@@ -962,25 +1013,82 @@ def installing():
     return False
 
 
+def install_progress():
+    """The dict in INSTALL_PROGRESS while an install holds INSTALL_LOCK, else None. A file left by an install that
+    died is removed (with the lock taken for the moment, so a new install is never caught in the middle)."""
+    try:
+        probe = open(INSTALL_LOCK, 'a+')
+    except OSError:
+        return None
+    try:
+        try:
+            fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            try:
+                with open(INSTALL_PROGRESS) as fh:
+                    data = json.load(fh)
+            except (OSError, ValueError):
+                return None
+            return data if isinstance(data, dict) else None
+        remove_quietly(INSTALL_PROGRESS)
+        return None
+    finally:
+        probe.close()
+
+
+def progress_percent(progress):
+    """0 to 100 for a download of known size, else None."""
+    if not progress or progress.get('fase') != 'baixando' or not progress.get('total'):
+        return None
+    return min(100, round(100 * progress.get('feito', 0) / progress['total']))
+
+
+def progress_text(progress):
+    """The step in words (`baixando o modelo de voz: 253 de 326 MB (78%)`), or None without progress."""
+    if not progress:
+        return None
+    if progress.get('fase') == 'dependências':
+        return 'instalando as dependências'
+    if progress.get('fase') != 'baixando':
+        return None
+    what = 'as vozes' if progress.get('arquivo') == os.path.basename(VOICES) else 'o modelo de voz'
+    done, total, pct = round(progress.get('feito', 0) / 1e6), round(progress.get('total', 0) / 1e6), progress_percent(progress)
+    if pct is None:
+        return 'baixando %s: %d MB' % (what, done)
+    return 'baixando %s: %d de %d MB (%d%%)' % (what, done, total, pct)
+
+
 def engine_text():
     """The status line about the engine."""
     if engine_ready():
         return 'instalado em %s' % DATA
     if installing():
-        return 'sendo instalado em segundo plano (registro em %s)' % INSTALL_LOG
+        text = progress_text(install_progress())
+        return 'sendo instalado em segundo plano%s (registro em %s)' % (': ' + text if text else '', INSTALL_LOG)
     return 'não instalado (rode: speak install)'
 
 
 def install_marked():
-    """install() alone at a time: it waits for a running install (INSTALL_LOCK), then leaves INSTALL_FAILED behind
-    when it fails (so the SessionStart hook does not retry by itself) and removes it when it works."""
+    """install() alone at a time: it waits for a running install (INSTALL_LOCK), printing its progress, then leaves
+    INSTALL_FAILED behind when it fails (so the SessionStart hook does not retry by itself) and removes it when it
+    works."""
     os.makedirs(STATE, exist_ok=True)
     lock = open(INSTALL_LOCK, 'a+')  # closed (and so unlocked) when the process ends
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         print('voz: outra instalação está em andamento; esperando ela terminar', flush=True)
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        shown = None
+        while True:
+            text = progress_text(install_progress())
+            if text and text != shown:
+                print('voz: %s' % text, flush=True)
+                shown = text
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError:
+                time.sleep(WAIT_POLL)
     try:
         return install_unlocked()
     finally:
@@ -1125,6 +1233,18 @@ def _translate_config():
         pass
 
 
+def silent_reason():
+    """Why this session will not speak: `off`, `installing [percent]`, `missing`; None when it will."""
+    if not is_on(current_session()):
+        return 'off'
+    if engine_ready():
+        return None
+    if installing():
+        pct = progress_percent(install_progress())
+        return 'installing' if pct is None else 'installing %d' % pct
+    return 'missing'
+
+
 def status_json():
     """The state in force here as one JSON line, for the /speak pane (hooks/register.tsx) to mark what is current."""
     session = current_session()
@@ -1133,6 +1253,7 @@ def status_json():
                       'scope': {f: 'session' if own_field(session, g) else 'all'
                                 for f, g in (('on', 'voice'), ('mode', 'mode'), ('size', 'size'))},
                       'engine': engine_ready(), 'installing': not engine_ready() and installing(),
+                      'install': None if engine_ready() else install_progress(),
                       'voice': next((short for short, (full, _) in PT_VOICES.items() if full == now), now)}))
     return 0
 
@@ -1246,7 +1367,10 @@ def main(argv):
               file=sys.stderr)
         return 1 if gone else 0
     if cmd == 'silent':
-        return 1 if is_on(current_session()) and engine_ready() else 0
+        why = silent_reason()
+        if why:
+            print(why)
+        return 0 if why else 1
     if cmd == 'install':
         return install_marked()
     if cmd == 'say':

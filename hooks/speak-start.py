@@ -30,6 +30,15 @@ NOTICE = {
     'player': 'speak: nenhum tocador de áudio (%s) foi encontrado; sem ele a voz não toca. '
               'Avise o humano na primeira resposta.' % speak_os.player_names(),
 }
+# What the person reads on screen (systemMessage), without depending on Claude to pass it on.
+SCREEN = {
+    'installing': 'speak: instalando a voz em segundo plano (cerca de 350 MB, sem sudo). O progresso aparece na linha '
+                  'embaixo do campo de texto, em /speak status e no menu do /speak; se falhar, rode /speak install.',
+    'no-uv': 'speak: falta o uv, que instala a voz. Instale-o (%s) e rode /speak install.' % speak_os.notice_uv(),
+    'failed': 'speak: a última instalação da voz falhou; o registro está em %s. Rode /speak install para tentar '
+              'de novo.' % INSTALL_LOG,
+    'player': 'speak: nenhum tocador de áudio (%s) foi encontrado; sem ele a voz não toca.' % speak_os.player_names(),
+}
 
 
 def plugin_version():
@@ -84,7 +93,7 @@ def start_install():
         return 'installing'
     lock.close()  # only a probe: `speak install` takes the lock itself (and waits if another one got it first)
     with open(INSTALL_LOG, 'ab') as log:
-        subprocess.Popen([sys.executable, '-I', SPEAK, 'install'], stdin=subprocess.DEVNULL, stdout=log,
+        subprocess.Popen([sys.executable, '-u', '-I', SPEAK, 'install'], stdin=subprocess.DEVNULL, stdout=log,
                          stderr=log, start_new_session=True, close_fds=True)
     return 'installing'
 
@@ -116,14 +125,22 @@ def main():
     if not out.strip():
         return
     missing = run('check').stdout.split()
-    notes = []
+    keys = []
     if 'engine' not in missing:
         drop_failed()
     else:
         why = start_install()
-        notes.append(NOTICE[why]) if why else None
-    notes += [NOTICE['player']] if 'player' in missing else []
-    print('\n'.join([out.rstrip()] + notes))
+        if why:
+            keys.append(why)
+    if 'player' in missing:
+        keys.append('player')
+    if not keys:
+        print(out.rstrip())  # nothing for the person to read: the rules alone, as plain text
+        return
+    print(json.dumps({'systemMessage': '\n'.join(SCREEN[k] for k in keys),
+                      'hookSpecificOutput': {'hookEventName': 'SessionStart',
+                                             'additionalContext': '\n'.join([out.rstrip()] + [NOTICE[k] for k in keys])}},
+                     ensure_ascii=False))
 
 
 if __name__ == '__main__':

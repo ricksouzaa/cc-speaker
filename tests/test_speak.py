@@ -63,7 +63,8 @@ def isolate(case, root):
              'QUEUE': os.path.join(state, 'queue'), 'LOCK': os.path.join(state, 'queue.lock'),
              'LOG': os.path.join(state, 'error.log'), 'VENV_PY': os.path.join(data, '.venv', 'bin', 'python'),
              'MODEL': os.path.join(data, 'kokoro-v1.0.onnx'), 'VOICES': os.path.join(data, 'voices-v1.0.bin'),
-             'INSTALL_LOCK': os.path.join(state, 'install.lock'), 'INSTALL_LOG': os.path.join(state, 'install.log')}
+             'INSTALL_LOCK': os.path.join(state, 'install.lock'), 'INSTALL_LOG': os.path.join(state, 'install.log'),
+             'INSTALL_PROGRESS': os.path.join(state, 'install.progress')}
     for name, value in paths.items():
         patcher = mock.patch.object(speak, name, value)
         patcher.start()
@@ -1178,7 +1179,7 @@ class Silent(unittest.TestCase):
         self.engine()
         subprocess.run([sys.executable, '-I', SPEAK, 'off'], capture_output=True, env=self.env)
         r = self.silent()
-        self.assertEqual((r.returncode, r.stdout), (0, ''))
+        self.assertEqual((r.returncode, r.stdout), (0, 'off\n'))
         note = self.cut()
         self.assertIn('🔊', note)
         self.assertIn('desligada', note)
@@ -1193,6 +1194,30 @@ class Silent(unittest.TestCase):
     def test_without_engine_is_silent(self):
         self.assertEqual(self.silent().returncode, 0)
         self.assertIn('🔊', self.cut())
+
+    def test_a_missing_engine_is_not_a_voice_turned_off(self):
+        self.assertEqual(subprocess.run([sys.executable, '-I', SPEAK, 'on'], capture_output=True, env=self.env).returncode, 0)
+        note = self.cut()
+        self.assertIn('/speak install', note)
+        self.assertIn('🔊', note)
+        self.assertNotIn('desligada', note)
+
+    def test_an_engine_being_installed_says_so_with_the_percentage(self):
+        import fcntl
+        folder = data_dir(self.home, 'state')
+        os.makedirs(folder)
+        with open(os.path.join(folder, 'install.lock'), 'a+') as held:
+            fcntl.flock(held, fcntl.LOCK_EX)
+            note = self.cut()
+            self.assertEqual(note, 'speak: o motor de voz ainda está sendo instalado; não termine esta resposta com a linha 🔊.\n')
+            with open(os.path.join(folder, 'install.progress'), 'w') as fh:
+                json.dump({'fase': 'baixando', 'arquivo': 'kokoro-v1.0.onnx', 'feito': 78, 'total': 100, 'passo': 2,
+                           'passos': 3}, fh)
+            self.assertEqual(self.cut(), 'speak: o motor de voz ainda está sendo instalado (78%); não termine esta resposta com a linha 🔊.\n')
+
+    def test_voice_off_with_the_engine_missing_keeps_todays_note(self):
+        subprocess.run([sys.executable, '-I', SPEAK, 'off'], capture_output=True, env=self.env)
+        self.assertIn('desligada', self.cut())
 
     def test_new_message_does_not_cut_any_speech_even_this_sessions(self):
         self.engine()
@@ -1466,7 +1491,7 @@ class AutoInstall(unittest.TestCase):
         self.have_uv()
         self.assertEqual(START_MOD.start_install(), 'installing')
         args, kwargs = self.popen.call_args
-        self.assertEqual(args[0][1:], ['-I', START_MOD.SPEAK, 'install'])
+        self.assertEqual(args[0][1:], ['-u', '-I', START_MOD.SPEAK, 'install'])
         self.assertTrue(kwargs['start_new_session'])
         self.assertEqual(kwargs['stdin'], START_MOD.subprocess.DEVNULL)
         self.assertEqual(kwargs['stdout'].name, START_MOD.INSTALL_LOG)
@@ -1545,9 +1570,47 @@ class AutoInstall(unittest.TestCase):
         with mock.patch.object(START_MOD, 'run', fake_run), mock.patch.object(START_MOD.sys, 'stdin', io.StringIO('{}')), \
                 mock.patch.object(START_MOD.sys, 'stdout', out):
             START_MOD.main()
-        self.assertIn('sendo instalado em segundo plano', out.getvalue())
-        self.assertIn('350 MB', out.getvalue())
+        out = json.loads(out.getvalue())
+        context = out['hookSpecificOutput']['additionalContext']
+        self.assertIn('regra 🔊', context)
+        self.assertIn('sendo instalado em segundo plano', context)
+        self.assertIn('350 MB', context)
         self.popen.assert_called_once()
+
+    def main_out(self, check, rule='regra 🔊\n', started=None):
+        from unittest import mock
+        fake = lambda *a: mock.Mock(stdout={'rule': rule, 'check': check}[a[0]])
+        out = io.StringIO()
+        with mock.patch.object(START_MOD, 'run', fake), mock.patch.object(START_MOD.sys, 'stdin', io.StringIO('{}')), \
+                mock.patch.object(START_MOD.sys, 'stdout', out):
+            START_MOD.main()
+        return out.getvalue()
+
+    def test_a_warning_for_the_person_goes_in_system_message_and_the_rules_in_the_context(self):
+        self.have_uv()
+        out = json.loads(self.main_out('engine\n'))
+        self.assertIn('instalando a voz', out['systemMessage'])
+        self.assertIn('/speak install', out['systemMessage'])
+        self.assertEqual(out['hookSpecificOutput']['hookEventName'], 'SessionStart')
+        self.assertTrue(out['hookSpecificOutput']['additionalContext'].startswith('regra 🔊'))
+
+    def test_each_warning_reaches_the_person(self):
+        out = json.loads(self.main_out('engine\n'))  # no uv
+        self.assertIn('uv', out['systemMessage'])
+        self.assertIn('docs.astral.sh/uv', out['systemMessage'])
+        os.makedirs(self.state)
+        self.have_uv()
+        with open(START_MOD.INSTALL_FAILED, 'w') as fh:
+            fh.write(START_MOD.plugin_version())
+        out = json.loads(self.main_out('engine\n'))
+        self.assertIn('falhou', out['systemMessage'])
+        self.assertIn('/speak install', out['systemMessage'])
+        out = json.loads(self.main_out('player\n'))
+        self.assertIn('tocador', out['systemMessage'])
+        self.assertIn('tocador', out['hookSpecificOutput']['additionalContext'])
+
+    def test_without_a_warning_the_rules_stay_plain_text(self):
+        self.assertEqual(self.main_out(''), 'regra 🔊\n')
 
 
 class InstallMark(unittest.TestCase):
@@ -1679,7 +1742,7 @@ class InstallLock(unittest.TestCase):
     def test_download_uses_a_part_file_per_process(self):
         seen = []
 
-        def fake(url, dest):
+        def fake(url, dest, reporthook=None):
             seen.append(dest)
             open(dest, 'w').close()
         self.assertEqual(self._install_with_fakes(fake), 0)
@@ -1688,7 +1751,7 @@ class InstallLock(unittest.TestCase):
         self.assertEqual([n for n in os.listdir(speak.DATA) if '.part' in n], [])
 
     def test_failed_download_removes_its_part_file(self):
-        def fake(url, dest):
+        def fake(url, dest, reporthook=None):
             open(dest, 'w').close()
             raise OSError('rede caiu')
         with self.assertRaises(OSError):
@@ -1705,6 +1768,198 @@ class InstallLock(unittest.TestCase):
         self.assertNotIn('engine', err.getvalue())
         self.assertIn('tres\nquatro\ncinco', err.getvalue())
         self.assertNotIn('dois', err.getvalue())
+
+
+class InstallProgress(unittest.TestCase):
+    """The install writes state/install.progress while it works; it counts only while the install lock is held."""
+
+    def setUp(self):
+        import fcntl
+        from unittest import mock
+        self.fcntl, self.mock = fcntl, mock
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        isolate(self, self.tmp.name)
+        os.makedirs(speak.STATE)
+        for name, value in (('CLAUDE_SPEAK_SESSION', '-'),):
+            patcher = mock.patch.dict(os.environ, {name: value})
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        for name, value in (('PROGRESS_EVERY', 0), ('WAIT_POLL', 0.02)):
+            patcher = mock.patch.object(speak, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def hold(self):
+        held = open(speak.INSTALL_LOCK, 'a+')
+        self.fcntl.flock(held, self.fcntl.LOCK_EX)
+        self.addCleanup(held.close)
+        return held
+
+    def put(self, **fields):
+        with open(speak.INSTALL_PROGRESS, 'w') as fh:
+            json.dump(fields, fh)
+
+    def install_with(self, urlretrieve, calls=None):
+        uv = os.path.join(self.tmp.name, 'uv')
+        open(uv, 'w').close()
+        out = io.StringIO()
+        with self.mock.patch.object(speak.shutil, 'which', return_value=uv), \
+                self.mock.patch.object(speak, 'venv_works', return_value=True), \
+                self.mock.patch.object(speak.subprocess, 'check_call', side_effect=lambda *a, **k: calls.append(a) if calls is not None else None), \
+                self.mock.patch.object(speak.urllib.request, 'urlretrieve', side_effect=urlretrieve), \
+                self.mock.patch('sys.stdout', out):
+            return speak.install()
+
+    def test_the_download_reports_the_file_and_the_bytes_and_the_file_goes_away_after(self):
+        seen = []
+
+        def fake(url, dest, reporthook=None):
+            reporthook(0, 1000, 5000)
+            reporthook(2, 1000, 5000)
+            with open(speak.INSTALL_PROGRESS) as fh:
+                seen.append(json.load(fh))
+            open(dest, 'w').close()
+        self.assertEqual(self.install_with(fake), 0)
+        self.assertEqual(seen[0], {'fase': 'baixando', 'arquivo': 'kokoro-v1.0.onnx', 'feito': 2000, 'total': 5000,
+                                   'passo': 2, 'passos': 3})
+        self.assertEqual((seen[1]['arquivo'], seen[1]['passo'], seen[1]['passos']), ('voices-v1.0.bin', 3, 3))
+        self.assertFalse(os.path.exists(speak.INSTALL_PROGRESS))
+        self.assertEqual([n for n in os.listdir(speak.STATE) if 'progress' in n], [])
+
+    def test_the_dependencies_step_is_reported_before_the_download(self):
+        phases = []
+
+        def check_call(*a, **k):
+            with open(speak.INSTALL_PROGRESS) as fh:
+                phases.append(json.load(fh))
+        uv = os.path.join(self.tmp.name, 'uv')
+        open(uv, 'w').close()
+        with self.mock.patch.object(speak.shutil, 'which', return_value=uv), \
+                self.mock.patch.object(speak, 'venv_works', return_value=True), \
+                self.mock.patch.object(speak.subprocess, 'check_call', side_effect=check_call), \
+                self.mock.patch.object(speak.urllib.request, 'urlretrieve', side_effect=lambda u, d, reporthook=None: open(d, 'w').close()), \
+                self.mock.patch('sys.stdout', io.StringIO()):
+            speak.install()
+        self.assertEqual(phases[0]['fase'], 'dependências')
+        self.assertEqual((phases[0]['passo'], phases[0]['passos']), (1, 3))
+
+    def test_the_progress_file_is_written_at_most_every_half_second(self):
+        writes = []
+        real = speak.write_progress
+
+        def fake(url, dest, reporthook=None):
+            for blocks in range(5):
+                reporthook(blocks, 1000, 5000)
+            open(dest, 'w').close()
+        with self.mock.patch.object(speak, 'PROGRESS_EVERY', 60), \
+                self.mock.patch.object(speak, 'write_progress', side_effect=lambda **f: writes.append(f) or real(**f)):
+            self.install_with(fake)
+        downloads = [w for w in writes if w.get('fase') == 'baixando' and w['arquivo'] == 'kokoro-v1.0.onnx']
+        self.assertLessEqual(len(downloads), 2)  # the one at the start of the file and the first call of the hook
+
+    def test_a_failed_download_also_removes_the_progress_file(self):
+        def fake(url, dest, reporthook=None):
+            reporthook(1, 1000, 5000)
+            raise OSError('rede caiu')
+        with self.assertRaises(OSError):
+            self.install_with(fake)
+        self.assertFalse(os.path.exists(speak.INSTALL_PROGRESS))
+
+    def test_the_install_log_gets_every_line_at_once(self):
+        class Recording(io.StringIO):
+            flushes = []
+
+            def flush(self):
+                self.flushes.append(self.getvalue())
+        out = Recording()
+        uv = os.path.join(self.tmp.name, 'uv')
+        open(uv, 'w').close()
+        with self.mock.patch.object(speak.shutil, 'which', return_value=uv), \
+                self.mock.patch.object(speak, 'venv_works', return_value=True), \
+                self.mock.patch.object(speak.subprocess, 'check_call'), \
+                self.mock.patch.object(speak.urllib.request, 'urlretrieve', side_effect=lambda u, d, reporthook=None: open(d, 'w').close()), \
+                self.mock.patch('sys.stdout', out):
+            speak.install()
+        self.assertTrue(any(f.endswith('voz: baixando kokoro-v1.0.onnx\n') for f in out.flushes))
+        self.assertTrue(out.flushes[-1].endswith('voz: motor instalado em %s\n' % speak.DATA))
+
+    def test_a_leftover_file_with_the_lock_free_is_ignored_and_removed(self):
+        self.put(fase='baixando', arquivo='kokoro-v1.0.onnx', feito=10, total=100, passo=2, passos=3)
+        self.assertIsNone(speak.install_progress())
+        self.assertFalse(os.path.exists(speak.INSTALL_PROGRESS))
+
+    def test_with_the_lock_held_the_progress_is_read(self):
+        self.hold()
+        self.assertIsNone(speak.install_progress())  # no file yet
+        self.put(fase='baixando', arquivo='kokoro-v1.0.onnx', feito=10, total=100, passo=2, passos=3)
+        self.assertEqual(speak.install_progress()['feito'], 10)
+        with open(speak.INSTALL_PROGRESS, 'w') as fh:
+            fh.write('{ruim')
+        self.assertIsNone(speak.install_progress())
+
+    def test_the_text(self):
+        text = speak.progress_text
+        self.assertEqual(text({'fase': 'dependências'}), 'instalando as dependências')
+        self.assertEqual(text({'fase': 'baixando', 'arquivo': 'kokoro-v1.0.onnx', 'feito': 252698624, 'total': 325532232}),
+                         'baixando o modelo de voz: 253 de 326 MB (78%)')
+        self.assertEqual(text({'fase': 'baixando', 'arquivo': 'voices-v1.0.bin', 'feito': 1000000, 'total': 2000000}),
+                         'baixando as vozes: 1 de 2 MB (50%)')
+        self.assertEqual(text({'fase': 'baixando', 'arquivo': 'kokoro-v1.0.onnx', 'feito': 5000000, 'total': 0}),
+                         'baixando o modelo de voz: 5 MB')
+        self.assertIsNone(text(None))
+
+    def test_status_and_json_show_the_progress(self):
+        self.hold()
+        self.put(fase='baixando', arquivo='kokoro-v1.0.onnx', feito=500000, total=1000000, passo=2, passos=3)
+        out = io.StringIO()
+        with self.mock.patch('sys.stdout', out):
+            speak.main(['status'])
+        self.assertIn('baixando o modelo de voz: 0 de 1 MB (50%)', out.getvalue())
+        self.assertIn('install.log', out.getvalue())
+        out = io.StringIO()
+        with self.mock.patch('sys.stdout', out):
+            speak.main(['status', '--json'])
+        data = json.loads(out.getvalue())
+        self.assertEqual((data['installing'], data['install']['feito']), (True, 500000))
+
+    def test_json_has_no_install_when_nothing_runs(self):
+        self.put(fase='dependências')  # a leftover of a dead install
+        out = io.StringIO()
+        with self.mock.patch('sys.stdout', out):
+            speak.main(['status', '--json'])
+        self.assertIsNone(json.loads(out.getvalue())['install'])
+
+    def test_the_second_install_prints_the_progress_while_it_waits(self):
+        import threading
+        held = self.hold()
+        out = io.StringIO()
+        with self.mock.patch.object(speak, 'install', return_value=0), self.mock.patch('sys.stdout', out):
+            t = threading.Thread(target=speak.install_marked)
+            t.start()
+            self.put(fase='baixando', arquivo='kokoro-v1.0.onnx', feito=2000000, total=4000000, passo=2, passos=3)
+            deadline = time.time() + 5
+            while '50%' not in out.getvalue() and time.time() < deadline:
+                time.sleep(0.02)
+            self.assertIn('voz: baixando o modelo de voz: 2 de 4 MB (50%)', out.getvalue())
+            self.fcntl.flock(held, self.fcntl.LOCK_UN)
+            t.join(10)
+        self.assertFalse(t.is_alive())
+
+    def test_silent_says_why(self):
+        def why():
+            out = io.StringIO()
+            with self.mock.patch('sys.stdout', out):
+                code = speak.main(['silent'])
+            return code, out.getvalue()
+        self.assertEqual(why(), (0, 'missing\n'))
+        held = self.hold()
+        self.assertEqual(why(), (0, 'installing\n'))
+        self.put(fase='baixando', arquivo='kokoro-v1.0.onnx', feito=77, total=100, passo=2, passos=3)
+        self.assertEqual(why(), (0, 'installing 77\n'))
+        self.fcntl.flock(held, self.fcntl.LOCK_UN)
+        with self.mock.patch.object(speak, 'is_on', return_value=False):
+            self.assertEqual(why(), (0, 'off\n'))
 
 
 class Scope(unittest.TestCase):
@@ -1856,7 +2111,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.5.8')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.5.9')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):
