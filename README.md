@@ -124,7 +124,7 @@ Quando o plugin é ativado com uma sessão já aberta, a instalação começa al
 
 ### Pastas
 
-Tudo fica na pasta de dados do plugin, `~/.claude/plugins/data/speak-cc-speaker` (ou onde `CLAUDE_PLUGIN_DATA` mandar): o motor em `engine/`, as escolhas em `config/` e o estado em `state/`.
+Tudo fica na pasta de dados do plugin, `~/.claude/plugins/data/speak-cc-speaker` (ou onde `CLAUDE_SPEAK_DATA` mandar): o motor em `engine/`, as escolhas em `config/` e o estado em `state/`.
 
 Desinstalar o plugin apaga essa pasta inteira, a menos que você use `--keep-data`. Quem usava uma versão antiga, com as pastas `~/.local/share/claude-speak`, `~/.config/claude-speak` e `~/.local/state/claude-speak`, as vê movidas para lá na primeira vez, sem baixar o motor de novo.
 

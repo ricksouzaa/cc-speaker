@@ -7,6 +7,14 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.14.1] - 2026-10-29
+
+### Alterado
+- Quem apontava a pasta de dados com `CLAUDE_PLUGIN_DATA` deve usar `CLAUDE_SPEAK_DATA`.
+
+### Corrigido
+- O painel do `/speak` e os ganchos sempre usam a mesma pasta de dados. Numa cópia de desenvolvimento (`--plugin-dir`) eles podiam usar pastas diferentes, porque só os ganchos recebiam a variável `CLAUDE_PLUGIN_DATA` do Claude Code. Ela deixou de ser lida: a pasta vem de `CLAUDE_SPEAK_DATA`, se existir, ou de onde o plugin está instalado. Numa instalação normal nada muda.
+
 ## [0.14.0] - 2026-10-29
 
 ### Adicionado
@@ -234,7 +242,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.14.0...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.14.1...HEAD
+[0.14.1]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.14.1
 [0.14.0]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.14.0
 [0.13.1]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.13.1
 [0.13.0]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.13.0

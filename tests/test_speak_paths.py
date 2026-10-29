@@ -46,14 +46,20 @@ class Base(unittest.TestCase):
 
 class Root(Base):
     def test_raiz_pela_variavel(self):
-        os.environ['CLAUDE_PLUGIN_DATA'] = '/x'
+        os.environ['CLAUDE_SPEAK_DATA'] = '/x'
         self.assertEqual(speak_paths.root(self.path('qualquer', 'bin', 'speak')), '/x')
+
+    def test_a_variavel_do_claude_code_nao_conta(self):
+        """The panel module never gets it, the hooks do: reading it would give them two folders."""
+        os.environ['CLAUDE_PLUGIN_DATA'] = '/x'
+        script = self.path('dev', 'cc-speaker', 'bin', 'speak')
+        self.assertEqual(speak_paths.root(script), self.path(*FALLBACK))
+        cached = self.path('.claude', 'plugins', 'cache', 'cat', 'plug', '1.0', 'bin', 'speak')
+        self.assertEqual(speak_paths.root(cached), self.path('.claude', 'plugins', 'data', 'plug-cat'))
 
     def test_raiz_pela_variavel_do_speak(self):
         os.environ['CLAUDE_SPEAK_DATA'] = '/s'
         self.assertEqual(speak_paths.root(self.path('qualquer', 'bin', 'speak')), '/s')
-        os.environ['CLAUDE_PLUGIN_DATA'] = '/x'
-        self.assertEqual(speak_paths.root(self.path('qualquer', 'bin', 'speak')), '/s')  # the speak's own wins
 
     def test_raiz_pelo_lugar_do_script(self):
         script = self.path('.claude', 'plugins', 'cache', 'cat', 'plug', '1.0', 'bin', 'speak')
@@ -66,7 +72,7 @@ class Root(Base):
         self.assertEqual(speak_paths.root(script), '/c/plugins/data/speak-cc-speaker')
 
     def test_subpastas(self):
-        os.environ['CLAUDE_PLUGIN_DATA'] = '/x'
+        os.environ['CLAUDE_SPEAK_DATA'] = '/x'
         self.assertEqual(speak_paths.paths('/y/bin/speak'), ('/x/engine', '/x/config', '/x/state'))
 
 
@@ -253,12 +259,12 @@ class EnvFile(Base):
             lines = fh.read().splitlines()
         self.assertEqual(lines, ['export CLAUDE_SPEAK_DATA=%s' % self.path('dados')])
 
-    def test_so_com_a_variavel_do_claude_code_ela_e_exportada(self):
+    def test_a_variavel_do_claude_code_nao_muda_a_pasta_exportada(self):
         target = self.path('env.sh')
         open(target, 'w').close()
         self.run_hook(target, CLAUDE_PLUGIN_DATA=self.path('dados'))
         with open(target) as fh:
-            self.assertEqual(fh.read().splitlines(), ['export CLAUDE_SPEAK_DATA=%s' % self.path('dados')])
+            self.assertNotIn(self.path('dados'), fh.read())
 
     def test_a_variavel_herdada_do_speak_vence_a_de_outro_plugin(self):
         target = self.path('env.sh')

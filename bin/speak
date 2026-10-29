@@ -64,7 +64,7 @@ Env: CLAUDE_SPEAK=0 silences one session (a first choice that a later `speak on`
 CLAUDE_SPEAK_SESSION forces the session key ('-' means none; for tests and to force a key);
 CLAUDE_SPEAK_MODE overrides the mode; CLAUDE_SPEAK_SIZE the size; CLAUDE_SPEAK_MIC the microphone choice; CLAUDE_SPEAK_VOICE the voice (default pf_dora);
 CLAUDE_SPEAK_SPEED (default 1.1; 1.05 for alice).
-Files live in the plugin's data folder (CLAUDE_SPEAK_DATA or CLAUDE_PLUGIN_DATA; see lib/speak_paths.py): engine/, config/, state/.
+Files live in the plugin's data folder (CLAUDE_SPEAK_DATA, else where the script is; see lib/speak_paths.py): engine/, config/, state/.
 Errors of a background speech go to state/error.log there. state/speech.json says what plays now and what is paused
 (the /speak module reads it without running a process); CLAUDE_SPEAK_CWD (set by the Stop hook) is the folder of the
 session shown to the other sessions.

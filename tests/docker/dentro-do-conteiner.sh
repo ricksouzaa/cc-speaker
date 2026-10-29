@@ -27,7 +27,7 @@ if [ "$MODO" = visual ]; then
     exec bash
 fi
 
-export CLAUDE_PLUGIN_ROOT="$RAIZ" CLAUDE_PLUGIN_DATA="$DADOS"
+export CLAUDE_PLUGIN_ROOT="$RAIZ" CLAUDE_SPEAK_DATA="$DADOS"
 ESTADO="$DADOS/state"
 FALHAS=()
 falhou() { FALHAS+=("$1"); echo "   FALHA: $1"; }

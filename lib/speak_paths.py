@@ -1,8 +1,8 @@
 """Where `speak` keeps its files, and the one-time move from the former folders. Stdlib only.
 
 Everything lives in one data root, which `claude plugin uninstall` removes with the plugin (unless --keep-data):
-  1. $CLAUDE_SPEAK_DATA, when set (the session hook exports it to the shell commands of the session, so another
-     plugin's CLAUDE_PLUGIN_DATA in that shell does not win), else $CLAUDE_PLUGIN_DATA (hooks receive it);
+  1. $CLAUDE_SPEAK_DATA, when set (the session hook exports it to the shell commands of the session). $CLAUDE_PLUGIN_DATA
+     is not read: the hooks receive it but the panel module does not, so reading it would split them in two folders;
   2. else derived from where the script is: `.../plugins/cache/<catalog>/<plugin>/<version>/...` gives
      `.../plugins/data/<plugin>-<catalog>`;
   3. else `${CLAUDE_CONFIG_DIR:-~/.claude}/plugins/data/speak-cc-speaker`.
@@ -22,7 +22,7 @@ OLD_KINDS = (('engine', 'XDG_DATA_HOME', '.local/share'),
 
 def root(script):
     """The data root for the plugin script at path `script` (see the module text for the order)."""
-    given = os.environ.get('CLAUDE_SPEAK_DATA') or os.environ.get('CLAUDE_PLUGIN_DATA')
+    given = os.environ.get('CLAUDE_SPEAK_DATA')
     if given:
         return given
     parts = os.path.abspath(script).split(os.sep)
