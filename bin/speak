@@ -709,10 +709,6 @@ def play_files(command, chunks, watch):
     return code
 
 
-def player_names():
-    return 'afplay' if speak_os.SYSTEM == 'mac' else 'pw-play, paplay ou aplay'
-
-
 def play(text):
     """Runs inside the engine's Python: waits its turn in the queue, then synthesizes piece by piece into the
     player's stdin. The turn comes only while the microphone is free (no dictation in progress)."""
@@ -725,7 +721,7 @@ def play(text):
         from kokoro_onnx import Kokoro
         player = player_command()
         if player is None:
-            print('voz: nenhum tocador de áudio (%s)' % player_names(), file=sys.stderr)
+            print('voz: nenhum tocador de áudio (%s)' % speak_os.player_names(), file=sys.stderr)
             return 1
         kokoro = Kokoro(MODEL, VOICES)
 
@@ -763,9 +759,7 @@ def venv_works():
 def install():
     uv = shutil.which('uv') or os.path.join(HOME, '.local', 'bin', 'uv')
     if not os.path.exists(uv):
-        how = ('com `brew install uv` ou o instalador de https://docs.astral.sh/uv/' if speak_os.SYSTEM == 'mac'
-               else 'https://docs.astral.sh/uv/')
-        print('voz: o uv não foi encontrado; instale-o (%s) e rode de novo' % how, file=sys.stderr)
+        print('voz: o uv não foi encontrado; instale-o (%s) e rode de novo' % speak_os.notice_uv(), file=sys.stderr)
         return 1
     os.makedirs(DATA, exist_ok=True)
     if not venv_works():

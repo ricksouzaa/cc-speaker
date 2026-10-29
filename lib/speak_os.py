@@ -211,6 +211,7 @@ class _CoreAudio:
 
     SYSTEM_OBJECT = 1  # kAudioObjectSystemObject
     DEVICES = _fourcc('dev#')  # kAudioHardwarePropertyDevices
+    DEFAULT_OUTPUTS = (_fourcc('dOut'), _fourcc('sOut'))  # ...DefaultOutputDevice, ...DefaultSystemOutputDevice
     STREAM_CONFIG = _fourcc('slay')  # kAudioDevicePropertyStreamConfiguration
     RUNNING_SOMEWHERE = _fourcc('gone')  # kAudioDevicePropertyDeviceIsRunningSomewhere
     GLOBAL, INPUT = _fourcc('glob'), _fourcc('inpt')  # kAudioObjectPropertyScopeGlobal, ...ScopeInput
@@ -241,6 +242,11 @@ class _CoreAudio:
         raw = self._read(self.SYSTEM_OBJECT, self.DEVICES, self.GLOBAL)
         return [int.from_bytes(raw[i:i + 4], sys.byteorder) for i in range(0, len(raw) - 3, 4)]
 
+    def default_outputs(self):
+        """Ids of the default output device and of the default system output device."""
+        return [int.from_bytes(self._read(self.SYSTEM_OBJECT, selector, self.GLOBAL)[:4], sys.byteorder)
+                for selector in self.DEFAULT_OUTPUTS]
+
     def input_channels(self, dev):
         """Channels of the input scope, summed over the AudioBufferList (a UInt32 count, padded to 8 bytes, then
         16-byte AudioBuffers whose first field is the channel count)."""
@@ -252,29 +258,62 @@ class _CoreAudio:
         return int.from_bytes(self._read(dev, self.RUNNING_SOMEWHERE, self.GLOBAL)[:4], sys.byteorder) != 0
 
 
+_core = None  # the loaded CoreAudio wrapper (the CDLL and the Address class), made once
+
+
 def _coreaudio():
     """The CoreAudio wrapper, or None when this is not a Mac or the framework does not load. Never attempted on
     another system."""
+    global _core
     if sys.platform != 'darwin':
         return None
-    try:
-        import ctypes
-        lib = ctypes.CDLL('/System/Library/Frameworks/CoreAudio.framework/CoreAudio')
-        for fn in (lib.AudioObjectGetPropertyDataSize, lib.AudioObjectGetPropertyData):
-            fn.restype = ctypes.c_int32  # OSStatus
-        return _CoreAudio(lib)
-    except (OSError, AttributeError, ImportError):
-        return None
+    if _core is None:
+        try:
+            import ctypes
+            lib = ctypes.CDLL('/System/Library/Frameworks/CoreAudio.framework/CoreAudio')
+            for fn in (lib.AudioObjectGetPropertyDataSize, lib.AudioObjectGetPropertyData):
+                fn.restype = ctypes.c_int32  # OSStatus
+            _core = _CoreAudio(lib)
+        except (OSError, AttributeError, ImportError):
+            return None
+    return _core
 
 
 def _mac_mic_busy():
+    """True when an input device is running, False when none is, None when it cannot be told.
+
+    `DeviceIsRunningSomewhere` is true for the whole device, so on a headset, AirPods or a monitor with a microphone
+    (input and output in one device) our own `afplay` would make it look like a recording. The default output
+    devices are therefore left out. Known limit: dictating into the microphone of the same device the voice plays
+    on does not cut the speech on the Mac. A device that errors (aggregate or virtual) is skipped."""
     try:
         core = _coreaudio()
         if core is None:
             return None
-        return any(core.input_channels(dev) > 0 and core.running(dev) for dev in core.devices())
+        ours = set(core.default_outputs())
+        busy = False
+        for dev in core.devices():
+            if dev in ours:
+                continue
+            try:
+                busy = busy or (core.input_channels(dev) > 0 and core.running(dev))
+            except Exception:
+                continue
+        return busy
     except Exception:  # whatever CoreAudio or the wrapper does, the answer is "cannot tell"
         return None
+
+
+def notice_uv():
+    """How to get the uv, in words for this system."""
+    if SYSTEM == 'mac':
+        return 'brew install uv, ou o instalador de https://docs.astral.sh/uv/'
+    return 'https://docs.astral.sh/uv/'
+
+
+def player_names():
+    """The audio players this system looks for, for a message."""
+    return 'afplay' if SYSTEM == 'mac' else 'pw-play, paplay ou aplay'
 
 
 def recordings_now():

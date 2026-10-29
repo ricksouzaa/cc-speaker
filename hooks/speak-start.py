@@ -12,6 +12,7 @@ import sys
 
 SPEAK = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'bin', 'speak')
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'lib'))  # -I skips it
+import speak_os  # noqa: E402
 import speak_paths  # noqa: E402
 
 ROOT = speak_paths.root(SPEAK)
@@ -19,19 +20,15 @@ STATE = os.path.join(ROOT, 'state')
 INSTALL_LOG = os.path.join(STATE, 'install.log')
 INSTALL_LOCK = os.path.join(STATE, 'install.lock')  # flock'ed by `speak install` itself, for as long as it runs
 INSTALL_FAILED = os.path.join(STATE, 'install.failed')  # written by `speak install` when it fails
-MAC = sys.platform == 'darwin'
-UV_HOW = 'brew install uv, ou o instalador de https://docs.astral.sh/uv/' if MAC else 'https://docs.astral.sh/uv/'
-PLAYER_NAMES = 'afplay' if MAC else 'pw-play, paplay ou aplay'
 NOTICE = {
     'installing': 'speak: o motor de voz está sendo instalado em segundo plano (cerca de 350 MB, sem sudo); a voz '
                   'começa sozinha quando terminar. Avise o humano na primeira resposta, em uma frase.',
     'no-uv': 'speak: o motor de voz não está instalado e falta o uv, que o instala. Na primeira resposta, diga ao '
-             'humano como instalar o uv (%s); depois, `/speak install`.' % UV_HOW,
+             'humano como instalar o uv (%s); depois, `/speak install`.' % speak_os.notice_uv(),
     'failed': 'speak: a última instalação do motor de voz falhou; o registro está em %s. Avise o humano na primeira '
               'resposta; `/speak install` tenta de novo.' % INSTALL_LOG,
-    'player': 'speak: nenhum tocador de áudio (%s) foi encontrado;'
-              % PLAYER_NAMES + ' sem ele a voz não toca. '
-              'Avise o humano na primeira resposta.',
+    'player': 'speak: nenhum tocador de áudio (%s) foi encontrado; sem ele a voz não toca. '
+              'Avise o humano na primeira resposta.' % speak_os.player_names(),
 }
 
 
