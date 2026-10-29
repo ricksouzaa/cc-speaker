@@ -1,8 +1,8 @@
 # Spoken reply
 
-The `speak` Stop hook reads each reply aloud: by default the whole prose and tables, without code blocks, paths, links and file names (`speak mode full`); or only its last line `🔊 <resumo>` (`speak mode summary`).
+The `speak` Stop hook reads each reply aloud: by default only its last line `🔊 <resumo>` (`speak mode summary`); or the whole prose and tables, without code blocks, paths, links and file names (`speak mode full`).
 
-- While the voice is on, every reply to the human ends with that `🔊` line, in plain Brazilian Portuguese: {size}. The full reading skips it.
+- {line}
 - In it: no code, file names, paths, commands, command output, numbers of lines, links or acronyms; it is heard, not read.
 - Prose that explains a code block says it in words, so the reading still makes sense without the block.
 - Only dictation interrupts the reading: the voice does not speak while the microphone is recording (dictation, video call) and is cut if a recording starts while it speaks. A new speech, from any session, waits its turn in a queue; a new message does not cut it.

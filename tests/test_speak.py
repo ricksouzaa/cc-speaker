@@ -362,11 +362,11 @@ class Toggle(unittest.TestCase):
         self.assertIn('voz: desligada', out)
         self.assertIn('CLAUDE_SPEAK=0', out)
 
-    def test_mode_defaults_to_full_and_is_kept(self):
-        self.assertIn('modo: full', self.speak('status').stdout)
-        self.assertIn('modo: summary', self.speak('mode', 'summary').stdout)
+    def test_mode_defaults_to_summary_and_is_kept(self):
         self.assertIn('modo: summary', self.speak('status').stdout)
-        self.assertIn('modo: full', self.speak('status', CLAUDE_SPEAK_MODE='full').stdout)
+        self.assertIn('modo: full', self.speak('mode', 'full').stdout)
+        self.assertIn('modo: full', self.speak('status').stdout)
+        self.assertIn('modo: summary', self.speak('status', CLAUDE_SPEAK_MODE='summary').stdout)
         self.assertEqual(self.speak('mode', 'outro').returncode, 2)
 
     def test_without_engine_speaking_is_silent_and_test_says_why(self):
@@ -444,12 +444,12 @@ class Session(unittest.TestCase):
         self.assertIn('voz: desligada', self.speak('status', session=self.other, CLAUDE_SPEAK='0').stdout)
 
     def test_mode_here_does_not_touch_other_sessions(self):
-        self.speak('mode', 'summary', session=self.me)
+        self.speak('mode', 'full', session=self.me)
         mine = self.speak('status', session=self.me).stdout
-        self.assertIn('modo summary', mine)
-        self.assertIn('modo: summary \u00b7 s\u00f3 nesta sess\u00e3o', mine)
+        self.assertIn('modo full', mine)
+        self.assertIn('modo: full \u00b7 s\u00f3 nesta sess\u00e3o', mine)
         other = self.speak('status', session=self.other).stdout
-        self.assertIn('modo: full', other)
+        self.assertIn('modo: summary', other)
         self.assertIn('esta sessão: segue a geral, modo segue o geral', other)
 
     def test_mode_all_sets_every_session_and_the_general(self):
@@ -1215,6 +1215,17 @@ class Silent(unittest.TestCase):
         subprocess.run([sys.executable, '-I', SPEAK, 'off'], capture_output=True, env=self.env)
         self.assertIn('desligada', self.cut())
 
+    def test_aviso_full(self):
+        self.engine()
+        full = 'speak: a leitura é da resposta inteira; não termine esta resposta com a linha 🔊.\n'
+        subprocess.run([sys.executable, '-I', SPEAK, 'mode', 'full'], capture_output=True, env=self.env)
+        self.assertEqual(self.cut(), full)
+        subprocess.run([sys.executable, '-I', SPEAK, 'mode', 'summary'], capture_output=True, env=self.env)
+        self.assertEqual(self.cut(), '')
+        subprocess.run([sys.executable, '-I', SPEAK, 'mode', 'full'], capture_output=True, env=self.env)
+        subprocess.run([sys.executable, '-I', SPEAK, 'off'], capture_output=True, env=self.env)
+        self.assertEqual(self.cut(), 'speak: a voz está desligada nesta sessão; não termine esta resposta com a linha 🔊.\n')
+
     def test_without_speak_the_hook_still_notes(self):
         hook = Hook().plugin(self.home, 'speak-cut.py', fake=False)
         r = subprocess.run([sys.executable, '-I', hook], input='{}', capture_output=True, text=True, env=self.env)
@@ -1318,6 +1329,20 @@ class Rule(unittest.TestCase):
         self.assertIn('one short sentence', self.rule(CLAUDE_SPEAK_SIZE='small'))
         self.assertIn('four to six sentences', self.rule(CLAUDE_SPEAK_SIZE='large'))
         self.assertNotIn('{size}', self.rule())
+
+    def test_regra_sem_linha_no_full(self):
+        full = self.rule(CLAUDE_SPEAK_MODE='full')
+        self.assertIn('do not write', full)
+        self.assertNotIn('two or three sentences', full)
+        self.assertNotIn('{', full)
+        summary = self.rule(CLAUDE_SPEAK_MODE='summary')
+        self.assertNotIn('do not write', summary)
+        self.assertIn('every reply to the human ends with that `🔊` line', summary)
+        self.assertIn('two or three sentences', summary)
+        # the mode of the session (an exception in its file) is the one in force, not only the environment
+        subprocess.run([sys.executable, '-I', SPEAK, 'mode', 'full'], capture_output=True,
+                       env={**self.env, 'CLAUDE_SPEAK_SESSION': 'sessao-9'})
+        self.assertIn('do not write', self.rule(CLAUDE_SPEAK_SESSION='sessao-9'))
 
     def test_rule_names_the_commands(self):
         text = self.rule()
@@ -1697,8 +1722,8 @@ class Scope(unittest.TestCase):
         self.put(self.me, {'size': 'large'})
         out = self.speak('status', session=self.me).stdout
         self.assertIn('tamanho do resumo: large \u00b7 s\u00f3 nesta sess\u00e3o', out)
-        self.assertIn('modo: full\n', out)
-        self.assertNotIn('modo: full \u00b7', out)
+        self.assertIn('modo: summary\n', out)
+        self.assertNotIn('modo: summary \u00b7', out)
         self.assertNotIn('voz: sem', out)
         self.assertTrue(all('s\u00f3 nesta sess\u00e3o' not in l for l in out.splitlines() if 'voz: ' in l and 'velocidade' in l))
         plain = self.speak('status', session=self.other).stdout
@@ -1736,6 +1761,25 @@ class OldOutputField(unittest.TestCase):
 
 
 class StatusJson(unittest.TestCase):
+    def test_padrao_summary(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as root:
+            isolate(self, root)
+            out = io.StringIO()
+            with mock.patch.dict(os.environ, {'CLAUDE_SPEAK_SESSION': '-'}), mock.patch('sys.stdout', out):
+                self.assertEqual(speak.main(['status', '--json']), 0)
+            data = json.loads(out.getvalue())
+            self.assertEqual((data['mode'], data['size'], data['voice'], data['on']),
+                             ('summary', 'medium', 'dora', True))
+            os.makedirs(os.path.dirname(speak.MODE_FILE), exist_ok=True)
+            with open(speak.MODE_FILE, 'w') as fh:
+                fh.write('full\n')  # a mode already saved in the general file is kept
+            out = io.StringIO()
+            with mock.patch.dict(os.environ, {'CLAUDE_SPEAK_SESSION': '-'}), mock.patch('sys.stdout', out):
+                self.assertEqual(speak.main(['status', '--json']), 0)
+            self.assertEqual(json.loads(out.getvalue())['mode'], 'full')
+
+
     def test_one_json_line_with_the_state(self):
         from unittest import mock
         with tempfile.TemporaryDirectory() as root:
@@ -1745,7 +1789,7 @@ class StatusJson(unittest.TestCase):
                 self.assertEqual(speak.main(['status', '--json']), 0)
         data = json.loads(out.getvalue())
         self.assertEqual((data['mode'], data['size'], data['voice'], data['engine']),
-                         ('full', 'medium', 'dora', False))
+                         ('summary', 'medium', 'dora', False))
 
 
 class Plugin(unittest.TestCase):
@@ -1780,7 +1824,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.5.6')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.5.7')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

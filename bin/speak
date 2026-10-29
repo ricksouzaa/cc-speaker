@@ -63,6 +63,11 @@ MODE_FILE = os.path.join(CONF, 'mode')
 MODES = ('full', 'summary')
 SIZE_FILE = os.path.join(CONF, 'size')
 SIZES = ('small', 'medium', 'large')
+RULE_LINE = {  # the first bullet of rules/speak.md, by the mode in force
+    'summary': 'While the voice is on, every reply to the human ends with that `\U0001f50a` line, in plain Brazilian '
+               'Portuguese: {size}. The full reading skips it.',
+    'full': 'The voice reads the whole reply (`speak mode full`) and skips the `\U0001f50a` line, so in this mode '
+            'do not write it: the new-message hook says so in a `speak:` note.'}
 SIZE_TEXT = {'small': 'one short sentence',
              'medium': 'two or three sentences: what was done, the result and what the human must decide',
              'large': 'a spoken paragraph of four to six sentences: what was done, what was found, the result and '
@@ -117,7 +122,7 @@ def speed():
 
 
 def mode(session=None):
-    """CLAUDE_SPEAK_MODE, then the session's own mode, then the general file, then 'full'."""
+    """CLAUDE_SPEAK_MODE, then the session's own mode, then the general file, then 'summary'."""
     wanted = os.environ.get('CLAUDE_SPEAK_MODE') or session_mode(session)
     if not wanted:
         try:
@@ -125,7 +130,7 @@ def mode(session=None):
                 wanted = fh.read().strip()
         except OSError:
             pass
-    return wanted if wanted in MODES else 'full'
+    return wanted if wanted in MODES else 'summary'
 
 
 def summary_size(session=None):
@@ -1015,7 +1020,9 @@ def missing():
 def rule():
     with open(RULE, encoding='utf-8') as fh:
         text = fh.read()
-    return text.replace('{size}', SIZE_TEXT[summary_size(current_session())])
+    session = current_session()
+    line = RULE_LINE[mode(session)].replace('{size}', SIZE_TEXT[summary_size(session)])
+    return text.replace('{line}', line)
 
 
 def status():
