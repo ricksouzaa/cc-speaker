@@ -201,7 +201,6 @@ const ROWS: { key: Key; label: string; table: Record<string, string>; current: (
 // O estado da voz lido para o desenho: vazio ao abrir (o desenho lê), e trocado a cada mudança pela leitura que a
 // própria mudança já fez, para não ler duas vezes. `now` indefinido é "não deu para ler".
 let view: { now: State | undefined } | undefined
-let firstDraw = false
 
 // As trocas rodam em fila: duas escolhas seguidas rodam o speak uma depois da outra, nunca juntas.
 let queue: Promise<unknown> = Promise.resolve()
@@ -228,7 +227,7 @@ async function menuChange($: Engine, key: Key, value: string): Promise<void> {
 
 // Tudo o que o desenho precisa, já lido: quem desenha não fala com o speak nem com o estado.
 type Menu = {
-  now: State | undefined; install: State | undefined; where: string; note: string; first: Key | undefined
+  now: State | undefined; install: State | undefined; where: string; note: string; first: Key
   choose: (key: Key, value: string) => unknown; close: () => unknown
 }
 
@@ -247,7 +246,7 @@ function drawMenu(el: any, m: Menu) {
             label={r.label.padEnd(width) + (own ? OWN + ' ' : '')}
             options={Object.keys(r.table).map(v => ({ value: v, label: r.table[v]! }))}
             value={value || undefined}
-            autoFocus={m.first && r.key === m.first ? true : undefined}
+            autoFocus={r.key === m.first ? true : undefined}
             onSelect={(v: string) => m.choose(r.key, v)}
           />
         )
@@ -261,8 +260,6 @@ function drawMenu(el: any, m: Menu) {
 async function menuTree($: Engine, e: any): Promise<unknown> {
   if (!view) view = { now: await state($) }
   const focus = (await $.state.get(FOCUS)).value ?? 'where'
-  const first = firstDraw // o foco pedido vale só no primeiro desenho depois de abrir
-  firstDraw = false
   const progressNow = live ?? view.now
   footLine = installLine(progressNow)
   return drawMenu($.ui.resolve(e), {
@@ -270,7 +267,7 @@ async function menuTree($: Engine, e: any): Promise<unknown> {
     install: progressNow,
     where: (await $.state.get(STATE)).value ?? 'all',
     note: (await $.state.get(NOTE)).value ?? '',
-    first: first ? ((ROWS.some(r => r.key === focus) ? focus : 'where') as Key) : undefined,
+    first: (ROWS.some(r => r.key === focus) ? focus : 'where') as Key,
     choose: (key, value) => enqueue(() => menuChange($, key, value)),
     close: () => $.ui.close({ id: PANE }),
   })
@@ -280,7 +277,6 @@ async function menuTree($: Engine, e: any): Promise<unknown> {
 async function openMenu($: Engine, focus: Key): Promise<boolean> {
   view = undefined
   live = undefined
-  firstDraw = true
   await $.state.set(STATE, 'all')
   await $.state.set(NOTE, '')
   await $.state.set(FOCUS, focus)

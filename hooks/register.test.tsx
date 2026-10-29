@@ -335,7 +335,7 @@ test('leituras falhas seguidas: desiste em silêncio e limpa a linha', async ($,
   expect(toasts).toEqual([])
 })
 
-test('com o menu aberto o relógio só mexe no rodapé, e só quando o progresso muda; o foco não volta', async ($, on) => {
+test('com o menu aberto o relógio só mexe no rodapé, e só quando o progresso muda', async ($, on) => {
   const { ran, clock, st } = await setup($, on, {
     init: { engine: false, installing: true, install: { fase: 'baixando', arquivo: 'kokoro-v1.0.onnx', feito: 1000000, total: 4000000 } },
   })
@@ -350,7 +350,8 @@ test('com o menu aberto o relógio só mexe no rodapé, e só quando o progresso
   expect(await footer(ui)).toBe('🔊 Instalando a voz: 50% (2 de 4 MB)')
   const s = await selects(ui)
   expect(s.mode.value).toBe('full')
-  for (const k of Object.keys(s)) expect(s[k].autoFocus).toBeUndefined()
+  expect(s.mode.autoFocus).toBe(true) // o pedido de foco vale em todo desenho; o anel que a pessoa moveu fica onde está
+  expect(s.where.autoFocus).toBeUndefined()
   expect(reads()).toBeGreaterThan(1)
   await ui.unmount()
 })
