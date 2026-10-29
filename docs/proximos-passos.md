@@ -34,6 +34,7 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 - README reorganizado em tabelas, com os padrões de cada opção.
 - Tamanho do resumo (pequeno, médio, grande) e escolha da voz (dora, alex, santa).
 - Filtro do que se narra: a voz não lê nomes de ramo, códigos de commit, HEAD nem código entre crases com hífen, sublinhado ou número (0.7.5).
+- Ouvir de novo (0.8.0): `speak again [summary|full]` repete a última fala da sessão (guardada em `state/last/`, podada com as sessões mortas), mesmo com a voz desligada; no `/speak again` e numa linha do painel; sem 🔊, o resumo lê a resposta inteira e avisa.
 - Testes que não tocam a pasta de dados real: um só ajudante de isolamento (`tests/isolation.py`) e um guarda-costas que compara a pasta real antes e depois da bateria.
 
 ## Recusado

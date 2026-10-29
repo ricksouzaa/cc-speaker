@@ -1,5 +1,5 @@
 // Módulo de ganchos do plugin: o comando /speak. Sem escolha escrita, abre o menu (painel `speak`, que já abre com o
-// foco): uma lista nativa (`Select`) por linha e um botão Fechar; cada escolha roda o `bin/speak` na hora.
+// foco): uma lista nativa (`Select`) por linha, a linha "Ouvir de novo" (dois botões que tocam na hora) e um botão Fechar; cada escolha roda o `bin/speak` na hora.
 // A primeira linha, "Mudar em", só diz onde as próximas trocas são gravadas (todas as sessões ou só esta); abre sempre
 // em "Todas as sessões" e trocá-la não roda nada. Responde sozinho, sem o modelo. Com a escolha escrita
 // (/speak voice alex), roda direto, sem menu, e responde uma linha.
@@ -22,7 +22,7 @@ const READERS: Record<string, string> = { dora: 'Dora', alex: 'Alex', santa: 'Sa
 const POWER: Record<string, string> = { on: 'Ligada', off: 'Desligada' }
 const USAGE =
   'Escreva a ação: /speak on, /speak off, /speak mode full|summary, /speak size small|medium|large, /speak mic wait|play|auto, ' +
-  '/speak voice dora|alex|santa, /speak status, /speak stop, /speak install ' +
+  '/speak voice dora|alex|santa, /speak again [summary|full], /speak status, /speak stop, /speak install ' +
   '(com "all" no fim, vale para todas as sessões).'
 const where = (all: boolean) => (all ? 'em todas as sessões' : 'nesta sessão')
 const speakArgv = ($: Engine, args: string[]) => ['python3', '-I', `${$.plugin.root}/bin/speak`, ...args]
@@ -222,6 +222,9 @@ async function direct($: Engine, body: string[], all: boolean): Promise<Reply | 
     case 'voice':
       if (all) return { text: USAGE }
       return value ? runChoice($, 'voice', value, VOICES, []) : undefined
+    case 'again':
+      if (all || extra.length > 0 || (value && value !== 'summary' && value !== 'full')) return { text: USAGE }
+      return { text: await again($, value) }
     case 'status':
     case 'stop':
     case 'install': {
@@ -234,6 +237,12 @@ async function direct($: Engine, body: string[], all: boolean): Promise<Reply | 
     default:
       return { text: `Não conheço "${action}". ${USAGE}` }
   }
+}
+
+// Ouvir de novo a última fala desta sessão (o speak diz a frase do que vai tocar, ou por que não tocou).
+async function again($: Engine, which?: string): Promise<string> {
+  const r = await run($, which ? ['again', which] : ['again'])
+  return r.out.split('\n').map(l => l.trim()).filter(Boolean).join(' ') || (r.ok ? 'Pronto.' : 'O speak falhou.')
 }
 
 async function runChoice($: Engine, cmd: string, value: string, valid: Record<string, string>, tail: string[]) {
@@ -251,6 +260,9 @@ const WHERES: Record<string, string> = { all: ALL_LABEL, session: 'Só nesta ses
 const OWN = '· só nesta sessão'
 const HELP = 'Tab troca de linha · Enter escolhe o valor · Esc fecha'
 const UNREAD = 'Não deu para ler o estado da voz.'
+
+const AGAIN_LABEL = 'Ouvir de novo'
+const AGAINS: Record<string, string> = { summary: 'Resumo', full: 'Resposta inteira' }
 
 type Key = 'where' | 'power' | 'mode' | 'size' | 'voice' | 'mic'
 const ROWS: { key: Key; label: string; table: Record<string, string>; current: (s: State) => string; own: (s: State) => boolean }[] = [
@@ -290,10 +302,17 @@ async function menuChange($: Engine, key: Key, value: string): Promise<void> {
   $.ui.invalidate('ui.render')
 }
 
+// "Ouvir de novo": toca na hora e guarda a frase (ou o erro) para o rodapé; a linha não guarda valor.
+async function menuAgain($: Engine, which: string): Promise<void> {
+  if (!(which in AGAINS)) return
+  await $.state.set(NOTE, await again($, which))
+  $.ui.invalidate('ui.render')
+}
+
 // Tudo o que o desenho precisa, já lido: quem desenha não fala com o speak nem com o estado.
 type Menu = {
   now: State | undefined; install: State | undefined; where: string; note: string; first: Key
-  choose: (key: Key, value: string) => unknown; close: () => unknown
+  choose: (key: Key, value: string) => unknown; again: (which: string) => unknown; close: () => unknown
 }
 
 // O desenho do painel, isolado: trocar o formato do menu é trocar só esta função.
@@ -316,6 +335,14 @@ function drawMenu(el: any, m: Menu) {
           />
         )
       })}
+      <Box flexDirection="row">
+        <Text>{AGAIN_LABEL.padEnd(width)}</Text>
+        {Object.keys(AGAINS).map(v => (
+          <Box key={v} marginRight={2}>
+            <Button key={'again-' + v} label={AGAINS[v]!} onPress={() => m.again(v)} />
+          </Box>
+        ))}
+      </Box>
       <Button key="fechar" label="Fechar" onPress={m.close} />
       {m.now && (m.now.mic === 'play' || m.now.mic === 'auto') ? <Text dimColor>{MIC_WARNING}</Text> : null}
       <Text dimColor>{m.note || (isInstalling(m.install) ? installLine(m.install) : m.now ? HELP : UNREAD)}</Text>
@@ -335,6 +362,7 @@ async function menuTree($: Engine, e: any): Promise<unknown> {
     note: (await $.state.get(NOTE)).value ?? '',
     first: (ROWS.some(r => r.key === focus) ? focus : 'where') as Key,
     choose: (key, value) => enqueue(() => menuChange($, key, value)),
+    again: which => enqueue(() => menuAgain($, which)),
     close: () => $.ui.close({ id: PANE }),
   })
 }
@@ -353,8 +381,8 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'speak',
-      description: 'Ajusta a voz que lê as respostas: ligar, modo, tamanho, microfone, voz',
-      argumentHint: '[on|off|mode|size|mic|voice|status|stop|install] [all]',
+      description: 'Ajusta a voz que lê as respostas: ligar, modo, tamanho, microfone, voz; ouve de novo a última fala',
+      argumentHint: '[on|off|mode|size|mic|voice|again|status|stop|install] [all]',
       immediate: true,
     })
     void kick($) // em segundo plano: não atrasa o registro da sessão

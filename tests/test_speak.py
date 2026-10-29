@@ -1643,6 +1643,125 @@ class Silent(unittest.TestCase):
         self.assertIn('🔊', r.stdout)
 
 
+class Again(unittest.TestCase):
+    """`speak say -` keeps the last reply of each session; `speak again` speaks it again (fake player, no engine)."""
+
+    NO_LINE = 'Fiz a mudança no painel. Rode os testes depois.'
+
+    def setUp(self):
+        from unittest import mock
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        isolate(self, self.tmp.name)
+        self.sleep = subprocess.Popen(['sleep', '60'])
+        self.addCleanup(self.sleep.wait)
+        self.addCleanup(self.sleep.kill)
+        self.me = speak.session_key(os.getpid())
+        self.other = speak.session_key(self.sleep.pid)
+        self.calls = []
+        speak.write_atomic(os.path.join(speak.STATE, 'scope'), '')  # the one-time migration of old session files is done
+        patchers = [mock.patch.dict(os.environ), mock.patch.object(speak, 'engine_ready', lambda: True),
+                    mock.patch.object(speak.subprocess, 'Popen', lambda cmd, **k: self.calls.append((cmd, k)))]
+        for patcher in patchers:
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        for name in ('CLAUDE_SPEAK', 'CLAUDE_SPEAK_MODE', 'CLAUDE_SPEAK_SIZE'):
+            os.environ.pop(name, None)
+
+    def run_speak(self, *args, session=None, stdin=''):
+        from unittest import mock
+        os.environ['CLAUDE_SPEAK_SESSION'] = session or self.me
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(speak.sys, 'stdin', io.StringIO(stdin)), \
+                mock.patch.object(speak.sys, 'stdout', out), mock.patch.object(speak.sys, 'stderr', err):
+            code = speak.main(list(args))
+        return code, out.getvalue(), err.getvalue()
+
+    def spoken(self):
+        return [cmd[-1] for cmd, _ in self.calls]
+
+    def test_say_keeps_only_the_last_reply_of_each_session(self):
+        self.run_speak('say', '-', stdin='Primeira.\n🔊 Um.')
+        self.run_speak('say', '-', stdin='Segunda.\n🔊 Dois.')
+        self.run_speak('say', '-', stdin='Outra sessão.\n🔊 Três.', session=self.other)
+        self.assertEqual(speak.read_last(self.me), ('Segunda.\n🔊 Dois.', 'summary'))
+        self.assertEqual(speak.read_last(self.other), ('Outra sessão.\n🔊 Três.', 'summary'))
+        self.assertEqual(sorted(os.listdir(speak.LAST)), sorted([self.me, self.other]))
+
+    def test_again_repeats_the_way_it_played_and_never_another_sessions_reply(self):
+        self.run_speak('say', '-', stdin='Texto.\n🔊 Resumo meu.')
+        self.run_speak('say', '-', stdin='Outro.\n🔊 Resumo alheio.', session=self.other)
+        self.calls.clear()
+        code, out, _ = self.run_speak('again')
+        self.assertEqual((code, self.spoken()), (0, ['Resumo meu.']))
+        self.assertIn('resumo', out)
+
+    def test_again_repeats_in_the_mode_it_was_read(self):
+        speak.set_session(self.me, mode='full')
+        self.run_speak('say', '-', stdin='Texto inteiro.\n🔊 Resumo.')
+        self.calls.clear()
+        self.run_speak('again')
+        self.assertEqual(self.spoken(), ['Texto inteiro.'])
+
+    def test_again_summary_and_full_ask_for_the_other_reading(self):
+        self.run_speak('say', '-', stdin='Texto inteiro.\n🔊 Resumo.')  # summary is the mode
+        self.calls.clear()
+        code, out, _ = self.run_speak('again', 'full')
+        self.assertEqual((code, self.spoken()), (0, ['Texto inteiro.']))
+        self.assertIn('inteira', out)
+        speak.set_session(self.me, mode='full')
+        self.run_speak('say', '-', stdin='Texto inteiro.\n🔊 Resumo.')
+        self.calls.clear()
+        self.run_speak('again', 'summary')
+        self.assertEqual(self.spoken(), ['Resumo.'])
+
+    def test_again_summary_without_a_summary_line_reads_it_all_and_says_so(self):
+        speak.set_session(self.me, mode='full')
+        self.run_speak('say', '-', stdin=self.NO_LINE)
+        self.calls.clear()
+        code, out, _ = self.run_speak('again', 'summary')
+        self.assertEqual((code, self.spoken()), (0, ['Fiz a mudança no painel. Rode os testes depois.']))
+        self.assertIn('não tinha resumo', out)
+
+    def test_without_a_stored_reply_it_says_so_and_fails(self):
+        code, out, err = self.run_speak('again')
+        self.assertEqual((code, self.calls), (1, []))
+        self.assertIn('ainda não há uma resposta', err)
+        self.assertEqual(self.run_speak('again', session='-')[0], 1)
+
+    def test_bad_argument_is_refused(self):
+        self.run_speak('say', '-', stdin='x.\n🔊 Y.')
+        code, _, err = self.run_speak('again', 'tudo')
+        self.assertEqual(code, 2)
+        self.assertIn('speak again', err)
+
+    def test_again_speaks_with_the_voice_off_and_the_reply_is_kept_with_it_off(self):
+        self.run_speak('off')
+        self.run_speak('say', '-', stdin='Texto.\n🔊 Resumo calado.')
+        self.assertEqual(self.calls, [])  # nothing spoke by itself
+        code, _, _ = self.run_speak('again')
+        self.assertEqual((code, self.spoken()), (0, ['Resumo calado.']))
+        env = self.calls[0][1]['env']
+        self.assertEqual((env['CLAUDE_SPEAK_AGAIN'], env['CLAUDE_SPEAK_SESSION']), ('1', self.me))
+
+    def test_the_reply_is_kept_without_the_engine_and_again_says_the_engine_is_missing(self):
+        from unittest import mock
+        with mock.patch.object(speak, 'engine_ready', lambda: False):
+            self.run_speak('say', '-', stdin='Texto.\n🔊 Resumo.')
+            code, _, err = self.run_speak('again')
+        self.assertEqual((code, self.calls), (1, []))
+        self.assertIn('motor', err)
+        self.assertEqual(speak.read_last(self.me), ('Texto.\n🔊 Resumo.', 'summary'))
+
+    def test_a_dead_session_loses_its_last_reply(self):
+        self.run_speak('say', '-', stdin='Texto.\n🔊 Dele.', session=self.other)
+        self.assertIn(self.other, os.listdir(speak.LAST))
+        self.sleep.kill()
+        self.sleep.wait()
+        self.run_speak('say', '-', stdin='Texto.\n🔊 Meu.')
+        self.assertEqual(os.listdir(speak.LAST), [self.me])
+
+
 class Size(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -2563,7 +2682,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.7.5')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.8.0')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

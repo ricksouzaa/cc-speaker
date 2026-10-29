@@ -3,7 +3,7 @@ import { expect, mock, test } from 'claude-code/testing'
 // Nada aqui toca o motor, o áudio nem as pastas reais: `process.run` é respondido pelo teste, que guarda o estado
 // do speak numa variável. O menu é montado no painel `speak` da superfície `terminal` e operado pela escolha nas listas.
 
-type Opts = { autoinstall?: string; fail?: boolean; statusFails?: boolean; scope?: Record<string, string>; placed?: boolean; surface?: string; init?: Record<string, unknown> }
+type Opts = { autoinstall?: string; fail?: boolean; statusFails?: boolean; scope?: Record<string, string>; placed?: boolean; again?: string; surface?: string; init?: Record<string, unknown> }
 
 async function setup($: any, on: any, opts: Opts = {}) {
   const ran: string[][] = []
@@ -34,6 +34,11 @@ async function setup($: any, on: any, opts: Opts = {}) {
       ({ value: { exitCode, stdout, stderr, isStdoutTruncated: false, isStderrTruncated: false } })
     if (args[0] === 'autoinstall') return done(0, (opts.autoinstall ?? 'ready') + '\n')
     if (args[0] === 'status' && args[1] === '--json') return opts.statusFails || st.__fail ? done(1, '', 'sem estado') : done(0, JSON.stringify(st))
+    if (args[0] === 'again') {
+      if (opts.again === 'none') return done(1, '', 'voz: ainda não há uma resposta desta sessão para ouvir de novo\n')
+      return done(0, args[1] === 'full' ? 'Lendo de novo a última resposta inteira.\n'
+        : (opts.again === 'noline' ? 'Essa resposta não tinha resumo; vou ler a resposta inteira.\n' : '') + 'Lendo de novo o resumo da última resposta.\n')
+    }
     if (opts.fail) return done(1, '', 'voz: deu errado\n')
     if (args[0] === 'mode') st.mode = args[1]!
     if (args[0] === 'size') st.size = args[1]!
@@ -124,9 +129,55 @@ test('/speak sozinho abre o painel com o foco, uma lista por linha e o botão Fe
   expect(s.where.options.map((o: any) => o.label)).toEqual(['Todas as sessões', 'Só nesta sessão'])
   expect(s.where.autoFocus).toBe(true)
   for (const k of ['power', 'mode', 'size', 'voice', 'mic']) expect(s[k].autoFocus).toBeUndefined()
-  expect((await texts(ui, 'Button')).length).toBe(1)
+  expect((await texts(ui, 'Button')).map((b: any) => b.props.label)).toEqual(['Resumo', 'Resposta inteira', 'Fechar'])
+  expect((await texts(ui, 'Text')).map((t: any) => t.text.trim())).toContain('Ouvir de novo')
   expect(await footer(ui)).toBe(HELP)
   expect(changes(ran)).toEqual([])
+  await ui.unmount()
+})
+
+test('/speak again roda o speak again e diz o que vai tocar', async ($, on) => {
+  const { ran, opened } = await setup($, on)
+  expect((await $.command.run({ command: 'speak', args: 'again' })).text).toBe('Lendo de novo o resumo da última resposta.')
+  expect((await $.command.run({ command: 'speak', args: 'again full' })).text).toBe('Lendo de novo a última resposta inteira.')
+  await $.command.run({ command: 'speak', args: 'again summary' })
+  expect(changes(ran)).toEqual(['again', 'again full', 'again summary'])
+  expect(opened).toEqual([])
+})
+
+test('/speak again repete o aviso de quando não havia resumo', async ($, on) => {
+  await setup($, on, { again: 'noline' })
+  expect((await $.command.run({ command: 'speak', args: 'again summary' })).text).toBe(
+    'Essa resposta não tinha resumo; vou ler a resposta inteira. Lendo de novo o resumo da última resposta.')
+})
+
+test('/speak again sem resposta guardada devolve o erro; escolha ou "all" inválidos mostram o uso', async ($, on) => {
+  const { ran } = await setup($, on, { again: 'none' })
+  expect((await $.command.run({ command: 'speak', args: 'again' })).text).toBe('voz: ainda não há uma resposta desta sessão para ouvir de novo')
+  for (const args of ['again tudo', 'again full all', 'again summary full']) {
+    expect((await $.command.run({ command: 'speak', args })).text).toMatch(/^Escreva a ação/)
+  }
+  expect(changes(ran)).toEqual(['again'])
+})
+
+test('a linha "Ouvir de novo" do painel toca na hora, diz a frase no rodapé e não guarda valor', async ($, on) => {
+  const { ran } = await setup($, on)
+  const { ui } = await openMenu($)
+  await ui.press({ key: 'again-summary' })
+  expect(changes(ran)).toEqual(['again summary'])
+  expect(await footer(ui)).toBe('Lendo de novo o resumo da última resposta.')
+  await ui.press({ key: 'again-full' })
+  expect(changes(ran)).toEqual(['again summary', 'again full'])
+  expect(await footer(ui)).toBe('Lendo de novo a última resposta inteira.')
+  expect(Object.keys(await selects(ui))).toEqual(['where', 'power', 'mode', 'size', 'voice', 'mic'])
+  await ui.unmount()
+})
+
+test('na linha "Ouvir de novo", sem resposta guardada o rodapé mostra o erro', async ($, on) => {
+  await setup($, on, { again: 'none' })
+  const { ui } = await openMenu($)
+  await ui.press({ key: 'again-full' })
+  expect(await footer(ui)).toBe('voz: ainda não há uma resposta desta sessão para ouvir de novo')
   await ui.unmount()
 })
 

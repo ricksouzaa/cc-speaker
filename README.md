@@ -51,6 +51,7 @@ Digite `/speak` sozinho. Abre um painel com uma lista por linha, já com o tecla
 | Tamanho do resumo | pequeno (uma frase), médio (padrão, duas ou três frases) ou grande (um parágrafo) |
 | Voz de leitura | Dora (padrão, feminina), Alex ou Santa (masculinas); vale sempre para todas as sessões |
 | Com o microfone em uso | Espera (padrão), Toca ou Toca nesta reunião (veja [Microfone](#microfone)) |
+| Ouvir de novo | dois botões, Resumo e Resposta inteira: tocam na hora a última fala desta sessão; a linha não guarda valor |
 
 Uma linha que só vale nesta sessão leva a marca "· só nesta sessão". O painel responde sem gastar uma resposta do Claude e funciona até no meio de uma resposta.
 
@@ -65,6 +66,7 @@ Para pular o painel, escreva a ação. Com `all` no fim, vale para todas as sess
 | `/speak size small` · `medium` · `large` | tamanho do resumo (padrão: `medium`) |
 | `/speak voice dora` · `alex` · `santa` | troca a voz, sempre em todas as sessões (padrão: `dora`) |
 | `/speak mic wait` · `play` · `auto` | o que fazer com o microfone em uso (padrão: `wait`) |
+| `/speak again` · `again summary` · `again full` | ouve de novo a última fala desta sessão, mesmo com a voz desligada: do jeito em que tocou, só o resumo ou a resposta inteira |
 | `/speak status` | mostra como está tudo: voz, leitura, tamanho, microfone e motor |
 | `/speak stop` | corta a fala que está tocando e esvazia a fila |
 | `/speak install` | instala o motor de novo, em primeiro plano |
@@ -73,7 +75,7 @@ Sem o valor (`/speak mode`, `/speak voice`…), o painel abre já na linha certa
 
 ### Em palavras
 
-Também dá para pedir ao Claude, escrevendo ou ditando: "fala só o resumo", "resumo maior", "troca para a voz do Alex", "para de falar", "silêncio em todas as sessões". Ele roda o comando e confirma o que passou a valer.
+Também dá para pedir ao Claude, escrevendo ou ditando: "fala só o resumo", "resumo maior", "troca para a voz do Alex", "para de falar", "silêncio em todas as sessões". Para ouvir de novo: "repete", "não entendi, repete", "lê a resposta inteira", "lê só o resumo de novo". Ele roda o comando e confirma o que passou a valer.
 
 ## Microfone
 

@@ -36,6 +36,9 @@
                            voice stays on
   speak stop here          cut only the speeches of this session (playing or waiting); other sessions' speeches stay
                            (used by hooks/speak-end.py when the session ends)
+  speak again [summary|full]  speak the last reply of this session again, even with the voice off: as it played
+                           (no word), only its 🔊 line (`summary`; the whole reply when it had none) or the whole
+                           reply (`full`); `speak say -` keeps the last reply of each session for this
   speak told [full|summary] print, or record, the mode last told to the model in this session (`rule` records it;
                            used by hooks/speak-cut.py to say when the mode changes)
   speak silent             exit 0 when this session will not speak, else 1; when it will not, prints why: `off` (voice
@@ -75,6 +78,7 @@ DATA, CONF, STATE = speak_paths.paths(os.path.realpath(__file__))  # engine, cho
 OFF_FLAG = os.path.join(CONF, 'off')
 ALL_MARK = os.path.join(STATE, 'all')  # its modification time: when the last request for every session was made
 SESSIONS = os.path.join(STATE, 'sessions')  # one file per session: name = key, content = JSON
+LAST = os.path.join(STATE, 'last')  # one file per session: the last raw reply and the mode it was read in (JSON)
 MODE_FILE = os.path.join(CONF, 'mode')
 MODES = ('full', 'summary')
 SIZE_FILE = os.path.join(CONF, 'size')
@@ -333,12 +337,37 @@ def own_field(session, field):
 
 
 def prune_sessions():
-    for key in os.listdir(SESSIONS) if os.path.isdir(SESSIONS) else ():
-        if not session_alive(key):
-            try:
-                os.remove(os.path.join(SESSIONS, key))
-            except OSError:
-                pass
+    for folder in (SESSIONS, LAST):
+        for key in os.listdir(folder) if os.path.isdir(folder) else ():
+            if not session_alive(key):
+                try:
+                    os.remove(os.path.join(folder, key))
+                except OSError:
+                    pass
+
+
+def save_last(session, message, how):
+    """Keeps the last raw reply of the session and the mode it was read in (only the last; atomic write)."""
+    if not session or not message.strip():
+        return
+    try:
+        prune_sessions()
+        write_atomic(os.path.join(LAST, session), json.dumps({'message': message, 'mode': how}))
+    except OSError:
+        pass
+
+
+def read_last(session):
+    """(message, mode) of the session's last reply; None when there is none."""
+    if not session:
+        return None
+    try:
+        with open(os.path.join(LAST, session)) as fh:
+            data = json.load(fh)
+        message, how = data['message'], data['mode']
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return (message, how) if isinstance(message, str) and message.strip() and how in MODES else None
 
 
 def is_on(session=None):
@@ -616,16 +645,17 @@ def stop_if_mine(session):
             clear_speech(pid)
 
 
-def speak_background(text, session):
+def speak_background(text, session, force=False):
     """Speaks `text` for `session`, in order of arrival: the speech process joins the queue and waits its turn
-    (it never cuts the speech playing). A muted session does not speak."""
-    if not text.strip() or not is_on(session) or not engine_ready():
+    (it never cuts the speech playing). A muted session does not speak, unless `force` (an explicit request)."""
+    if not text.strip() or not (force or is_on(session)) or not engine_ready():
         return 0
     os.makedirs(STATE, exist_ok=True)
     with open(LOG, 'a') as log:
         subprocess.Popen([VENV_PY, '-I', os.path.realpath(__file__), '_play', text],
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=log,
-                         start_new_session=True, env={**os.environ, 'CLAUDE_SPEAK_SESSION': session or '-'})
+                         start_new_session=True, env={**os.environ, 'CLAUDE_SPEAK_SESSION': session or '-',
+                                     **({'CLAUDE_SPEAK_AGAIN': '1'} if force else {})})
     return 0
 
 
@@ -988,8 +1018,10 @@ def play(text):
     session = current_session()
     try:
         watch = speak_os.SYSTEM == 'mac' or bool(shutil.which('pw-dump'))
-        # `speak test` (CLAUDE_SPEAK_TEST) is a diagnostic the human asked for: it speaks even with the voice off
-        if not wait_turn(session, watch) or not (is_on(session) or os.environ.get('CLAUDE_SPEAK_TEST')):
+        # `speak test` (CLAUDE_SPEAK_TEST) and `speak again` (CLAUDE_SPEAK_AGAIN) are explicit requests: they speak
+        # even with the voice off
+        if not wait_turn(session, watch) or not (is_on(session) or os.environ.get('CLAUDE_SPEAK_TEST')
+                                                 or os.environ.get('CLAUDE_SPEAK_AGAIN')):
             return 0
         from kokoro_onnx import Kokoro
         player = player_command()
@@ -1329,6 +1361,30 @@ def rule():
     return text.replace('{line}', line)
 
 
+def again(which):
+    """Speaks the session's last reply again, even with the voice off. which: '' (as it played), 'summary', 'full'."""
+    session = current_session()
+    last = read_last(session)
+    if last is None:
+        print('voz: ainda não há uma resposta desta sessão para ouvir de novo', file=sys.stderr)
+        return 1
+    message, played = last
+    how = which or played
+    if how == 'summary' and not spoken_line(message):
+        how = 'full'
+        print('Essa resposta não tinha resumo; vou ler a resposta inteira.')
+    said = to_speak(message, how, summary_size(session))
+    if not said.strip():
+        print('voz: não há nada para ler nessa resposta', file=sys.stderr)
+        return 1
+    if not engine_ready():
+        print('voz: motor %s' % engine_text(), file=sys.stderr)
+        return 1
+    print('Lendo de novo o resumo da última resposta.' if how == 'summary'
+          else 'Lendo de novo a última resposta inteira.')
+    return speak_background(said, session, force=True)
+
+
 def status():
     session = current_session()
     here = ' \u00b7 s\u00f3 nesta sess\u00e3o'
@@ -1602,9 +1658,15 @@ def main(argv):
     if cmd == 'say':
         session = current_session()
         if text == '-':
-            said = to_speak(sys.stdin.read(), mode(session), summary_size(session))
-            return speak_background(said, session)
+            message, how = sys.stdin.read(), mode(session)
+            save_last(session, message, how)  # kept also with the voice off or without the engine
+            return speak_background(to_speak(message, how, summary_size(session)), session)
         return speak_background(text, session)
+    if cmd == 'again':
+        if text not in ('', 'summary', 'full'):
+            print('voz: use "speak again", "speak again summary" ou "speak again full"', file=sys.stderr)
+            return 2
+        return again(text)
     if cmd == 'test':
         if not engine_ready():
             print('voz: motor %s' % engine_text(), file=sys.stderr)
