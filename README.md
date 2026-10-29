@@ -28,19 +28,19 @@ O Claude Code não tem passo de instalação para plugins. Por isso, ao abrir um
 
 ## O comando /speak
 
-Um comando só, para você digitar. Sem nada depois, abre um painel com uma lista para cada ajuste, no estilo do `/model` (setas movem, Enter escolhe, Esc fecha): voz ligada ou desligada, leitura, tamanho do resumo, voz de leitura e para quais sessões vale. Cada escolha vale na hora e a lista mostra o valor novo. Ele responde na hora, sem gastar uma resposta do Claude, e funciona mesmo durante uma resposta (assim `/speak stop` corta a fala já).
+Um comando só, para você digitar. Sem nada depois, abre caixas de escolha abaixo do campo de digitação, no estilo do `/model` (setas movem, Enter escolhe, Esc cancela), uma pergunta por vez: primeiro o ajuste (voz ligada ou desligada, leitura, tamanho do resumo, voz de leitura), depois o valor, com o atual marcado, e por fim para quais sessões vale (a voz de leitura vale para todas e não pergunta). A mudança roda uma vez só, com tudo já escolhido; Esc em qualquer caixa não muda nada. Ele responde na hora, sem gastar uma resposta do Claude, e funciona mesmo durante uma resposta (assim `/speak stop` corta a fala já).
 
-Também dá para escrever a ação inteira e pular o painel. Com `all` no fim, vale para todas as sessões; sem ele, só para a sessão atual:
+Também dá para escrever a ação inteira e pular as caixas. Com `all` no fim, vale para todas as sessões; sem ele, só para a sessão atual:
 
 - `/speak on` e `/speak off`: ligam e desligam a voz.
-- `/speak mode [full|summary]`: lê a resposta inteira (sem código, caminhos e links) ou só o resumo da linha 🔊. Sem a escolha, abre o painel só com essa lista.
+- `/speak mode [full|summary]`: lê a resposta inteira (sem código, caminhos e links) ou só o resumo da linha 🔊. Sem a escolha, pula a primeira caixa e pergunta só o valor (e o alcance).
 - `/speak size [small|medium|large]`: tamanho do resumo falado: uma frase curta, duas a três frases (padrão) ou um parágrafo.
-- `/speak voice [dora|alex|santa]`: sem nome, abre a lista com as vozes em português; com nome, escolhe (dora é feminina; alex e santa são masculinas). Vale para todas as sessões.
+- `/speak voice [dora|alex|santa]`: sem nome, abre a caixa com as vozes em português; com nome, escolhe (dora é feminina; alex e santa são masculinas). Vale para todas as sessões.
 - `/speak status`: mostra o estado atual (voz, modo, tamanho, motor).
 - `/speak stop`: corta a fala que está tocando e esvazia a fila.
 - `/speak install`: instala o motor (ou tenta de novo), em primeiro plano; pode levar minutos.
 
-Se o painel não puder abrir (por exemplo, numa execução sem tela), o comando responde com a forma escrita. Também dá para pedir em palavras ("fala só o resumo", "resumo maior", "troca para a voz do Alex"); o Claude roda o comando por você.
+Se as caixas não puderem abrir (por exemplo, numa execução sem tela), o comando responde com a forma escrita. Também dá para pedir em palavras ("fala só o resumo", "resumo maior", "troca para a voz do Alex"); o Claude roda o comando por você.
 
 ## Variáveis de ambiente
 

@@ -1,5 +1,7 @@
 > Retirado em 28/10/2026: o modo celular e as seções dele neste desenho foram retirados (o botão de ler em voz alta do próprio app cobre o caso).
 
+> Trocado em 28/10/2026, a pedido do Ricardo depois de comparar um protótipo: o painel de listas (`$.ui.open` + `ui.render`) deu lugar à caixa nativa `$.ui.ask`, que abre abaixo do campo de digitação. Fluxo novo: `/speak` sozinho pergunta "O que quer ajustar?", depois o valor daquele ajuste (com " (atual)" no valor em vigor) e, exceto para a voz de leitura, "Vale para quais sessões?"; só então o `bin/speak` roda, uma vez. `/speak mode|size|voice` pula a primeira caixa; `all` no fim pula a do alcance; Esc não muda nada. Isso também corrige o campo "Vale para" do painel, que voltava a "Só esta sessão" a cada abertura. O resto deste desenho continua valendo.
+
 # Comando /speak com menus nativos: desenho
 
 Data: 28/10/2026. Pedido do Ricardo: ao digitar o comando, escolher as opções com as setas, como no `/model`, para toda escolha (modo, tamanho, voz, saída...). Os comandos de barra feitos como habilidades não fazem isso: o menu vinha do modelo, depois de rodar um comando, numa resposta inteira. Decisões minhas, para a revisão dele.

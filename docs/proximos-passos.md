@@ -11,7 +11,7 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 
 ## Feito
 
-- Plugin `speak` no catálogo `cc-speaker`, com o comando `/speak` e seu painel de listas no terminal (ligar, leitura, tamanho, voz, alcance), pedidos em palavras e o motor instalado sozinho na primeira sessão.
+- Plugin `speak` no catálogo `cc-speaker`, com o comando `/speak` e suas caixas de escolha no terminal (ligar, leitura, tamanho, voz, alcance), pedidos em palavras e o motor instalado sozinho na primeira sessão.
 - Tamanho do resumo (pequeno, médio, grande) e escolha da voz (dora, alex, santa).
 
 ## Pedidos para depois

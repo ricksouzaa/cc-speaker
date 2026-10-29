@@ -1,22 +1,22 @@
 import { expect, test } from 'claude-code/testing'
 
-// Nada aqui toca o motor, o áudio nem as pastas reais: `process.run` e a abertura do painel são respondidos pelo teste.
-const PANE = {
-  plugin: 'speak',
-  component: 'Pane',
-  requestId: 'speak',
-  props: { title: 'Voz', isFocused: true, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 20 }, view: {} },
-} as const
+// Nada aqui toca o motor, o áudio nem as pastas reais: `process.run` e as caixas de escolha (`$.ui.ask`, que o motor
+// levanta como uma chamada da ferramenta AskUserQuestion) são respondidas pelo teste.
 
-async function setup($: any, on: any, opts: { fail?: boolean; placed?: boolean } = {}) {
+async function setup($: any, on: any, opts: { fail?: boolean; answers?: (string | undefined)[] } = {}) {
   const ran: string[][] = []
-  const opened: any[] = []
+  const asked: { question: string; header: string; labels: string[] }[] = []
+  const answers = [...(opts.answers ?? [])]
   const st = { on: true, mode: 'full', size: 'medium', engine: true, voice: 'dora' }
   on('command.register', () => ({ value: { command: 'speak' } }))
   on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
-  on('ui.open', (_: unknown, e: any) => {
-    opened.push(e)
-    return opts.placed === false ? { value: { isPlaced: false, reason: 'sem superfície' } } : { value: { isPlaced: true } }
+  // Cada caixa tira a próxima resposta da fila; `undefined` é o Esc (a chamada é recusada).
+  on('tool.call', (_: unknown, e: any) => {
+    const q = e.questions[0]
+    asked.push({ question: q.question, header: q.header, labels: q.options.map((o: any) => o.label) })
+    const answer = answers.shift()
+    if (answer === undefined) return { deny: 'dispensada' }
+    return { result: { questions: e.questions, answers: { [q.question]: answer } } }
   })
   on('process.run', (_: unknown, e: any) => {
     const args = e.argv.slice(3) as string[]
@@ -32,7 +32,7 @@ async function setup($: any, on: any, opts: { fail?: boolean; placed?: boolean }
     return done(0, 'ok\n')
   })
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-  return { ran, opened }
+  return { ran, asked }
 }
 
 // Os comandos do speak que rodaram, sem as consultas de estado.
@@ -47,14 +47,14 @@ test('o comando /speak é registrado, imediato', async ($, on) => {
   expect(spec.immediate).toBe(true)
 })
 
-test('escolha completa roda o speak certo, sem painel', async ($, on) => {
-  const { ran, opened } = await setup($, on)
+test('escolha completa roda o speak certo, sem caixa', async ($, on) => {
+  const { ran, asked } = await setup($, on)
   const args = ['on', 'off all', 'mode summary', 'mode full all', 'size large', 'size small all',
     'voice alex', 'stop']
   for (const a of args) await $.command.run({ command: 'speak', args: a })
   expect(changes(ran)).toEqual(['on', 'off all', 'mode summary', 'mode full all', 'size large', 'size small all',
     'voice alex', 'stop'])
-  expect(opened).toEqual([])
+  expect(asked).toEqual([])
 })
 
 test('status mostra o estado do speak e install roda direto', async ($, on) => {
@@ -64,45 +64,77 @@ test('status mostra o estado do speak e install roda direto', async ($, on) => {
   expect(changes(ran)).toEqual(['status', 'install'])
 })
 
-test('/speak sozinho abre o painel com uma lista por ajuste, cada uma com o valor atual', async ($, on) => {
-  const { opened } = await setup($, on)
+const ALCANCE = 'Vale para quais sessões?'
+
+test('/speak sozinho pergunta o ajuste, o valor e o alcance, e roda o speak uma vez só', async ($, on) => {
+  const { ran, asked } = await setup($, on, { answers: ['Leitura', 'Só o resumo', 'Todas as sessões'] })
+  const r = await $.command.run({ command: 'speak', args: '' })
+  expect(asked.map(a => a.question)).toEqual(['O que quer ajustar?', 'O que a voz lê?', ALCANCE])
+  expect(asked.map(a => a.header)).toEqual(['Voz', 'Leitura', 'Alcance'])
+  expect(asked[0]!.labels).toEqual(['Ligar ou desligar', 'Leitura', 'Tamanho do resumo', 'Voz de leitura'])
+  expect(asked[2]!.labels).toEqual(['Só esta sessão', 'Todas as sessões'])
+  expect(changes(ran)).toEqual(['mode summary all'])
+  expect(r.text).toBe('A voz passa a ler só o resumo em todas as sessões.')
+})
+
+test('ligar ou desligar e tamanho rodam com o alcance escolhido', async ($, on) => {
+  const { ran } = await setup($, on, {
+    answers: ['Ligar ou desligar', 'Desligada', 'Só esta sessão', 'Tamanho do resumo', 'Grande', 'Todas as sessões'],
+  })
   await $.command.run({ command: 'speak', args: '' })
-  expect(opened[0]).toMatchObject({ id: 'speak', focus: true, closeOnEscape: true })
-  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  for (const key of ['power', 'mode', 'size', 'voice', 'scope']) {
-    expect(await ui.find({ key })).toBeDefined()
-  }
-  await ui.unmount()
-})
-
-test('escolher no painel roda o speak e redesenha; o alcance vira all', async ($, on) => {
-  const { ran } = await setup($, on)
   await $.command.run({ command: 'speak', args: '' })
-  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  await ui.select({ key: 'mode', value: 'summary' })
-  await ui.select({ key: 'scope', value: 'all' })
-  await ui.select({ key: 'size', value: 'large' })
-  await ui.select({ key: 'voice', value: 'santa' })
-  await ui.select({ key: 'power', value: 'off' })
-  expect(changes(ran)).toEqual(['mode summary', 'size large all', 'voice santa', 'off all'])
-  expect((await ui.find({ type: 'Text', text: /desligada/ }))).toBeDefined()
-  await ui.unmount()
+  expect(changes(ran)).toEqual(['off', 'size large all'])
 })
 
-test('/speak mode abre só a lista da leitura', async ($, on) => {
-  await setup($, on)
-  await $.command.run({ command: 'speak', args: 'voice' })
-  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ key: 'voice' })).toBeDefined()
-  expect(await ui.find({ key: 'mode' })).toBeUndefined()
-  expect(await ui.find({ key: 'scope' })).toBeUndefined()
-  await ui.unmount()
+test('a voz de leitura não pergunta o alcance', async ($, on) => {
+  const { ran, asked } = await setup($, on, { answers: ['Voz de leitura', 'Santa (masculina)'] })
+  const r = await $.command.run({ command: 'speak', args: '' })
+  expect(asked.map(a => a.question)).not.toContain(ALCANCE)
+  expect(changes(ran)).toEqual(['voice santa'])
+  expect(r.text).toContain('Santa')
 })
 
-test('painel que não abre devolve as opções em texto', async ($, on) => {
-  await setup($, on, { placed: false })
+test('/speak size pula a primeira caixa', async ($, on) => {
+  const { ran, asked } = await setup($, on, { answers: ['Pequeno', 'Só esta sessão'] })
+  await $.command.run({ command: 'speak', args: 'size' })
+  expect(asked.map(a => a.header)).toEqual(['Tamanho', 'Alcance'])
+  expect(changes(ran)).toEqual(['size small'])
+})
+
+test('/speak mode all pula também o alcance', async ($, on) => {
+  const { ran, asked } = await setup($, on, { answers: ['Resposta inteira'] })
+  await $.command.run({ command: 'speak', args: 'mode all' })
+  expect(asked.length).toBe(1)
+  expect(changes(ran)).toEqual(['mode full all'])
+})
+
+test('o valor em vigor leva (atual) e o rótulo vale com ou sem o sufixo', async ($, on) => {
+  const { ran, asked } = await setup($, on, { answers: ['Médio (atual)', 'Só esta sessão', 'Grande', 'Só esta sessão'] })
+  await $.command.run({ command: 'speak', args: 'size' })
+  await $.command.run({ command: 'speak', args: 'size' })
+  expect(asked[0]!.labels).toEqual(['Pequeno', 'Médio (atual)', 'Grande'])
+  expect(changes(ran)).toEqual(['size medium', 'size large'])
+})
+
+test('Esc na primeira caixa não roda nada', async ($, on) => {
+  const { ran } = await setup($, on, { answers: [undefined] })
+  const r = await $.command.run({ command: 'speak', args: '' })
+  expect(r.text).toContain('Nada mudou.')
+  expect(changes(ran)).toEqual([])
+})
+
+test('Esc na caixa do alcance não roda nada', async ($, on) => {
+  const { ran } = await setup($, on, { answers: ['Leitura', 'Só o resumo', undefined] })
+  const r = await $.command.run({ command: 'speak', args: '' })
+  expect(r.text).toContain('Nada mudou.')
+  expect(changes(ran)).toEqual([])
+})
+
+test('texto livre que não bate com nenhum rótulo não roda nada e explica as formas escritas', async ($, on) => {
+  const { ran } = await setup($, on, { answers: ['Leitura', 'qualquer coisa'] })
   const r = await $.command.run({ command: 'speak', args: '' })
   expect(r.text).toContain('/speak voice')
+  expect(changes(ran)).toEqual([])
 })
 
 test('erro do speak volta como texto', async ($, on) => {

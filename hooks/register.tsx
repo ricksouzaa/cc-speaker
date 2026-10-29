@@ -1,26 +1,29 @@
-// Módulo de ganchos do plugin: o comando /speak. Sem escolha escrita, abre um painel com listas (setas movem, Enter
-// escolhe, Esc fecha), como o /model; cada escolha roda o `bin/speak` na hora e redesenha com o valor novo. Responde
-// sozinho, sem o modelo. Com a escolha escrita (/speak voice alex), roda direto e responde uma linha.
+// Módulo de ganchos do plugin: o comando /speak. Sem escolha escrita, pergunta em caixas de escolha nativas
+// (`$.ui.ask`, o diálogo do AskUserQuestion, que abre abaixo do campo de digitação, como o /model), uma pergunta por
+// vez: o ajuste, o valor e, se couber, o alcance. Só depois roda o `bin/speak` uma vez, com tudo já escolhido. Esc em
+// qualquer caixa não muda nada. Responde sozinho, sem o modelo. Com a escolha escrita (/speak voice alex), roda
+// direto, sem caixa, e responde uma linha.
 import type { EngineInterface, Register } from 'claude-code'
 
 type Engine = EngineInterface
 type Reply = { text?: string }
 type State = { on: boolean; mode: string; size: string; voice: string; engine: boolean }
-type View = 'all' | 'power' | 'mode' | 'size' | 'voice'
+type Setting = 'power' | 'mode' | 'size' | 'voice'
 
-const PANE = 'speak'
 const MODES: Record<string, string> = { full: 'Resposta inteira', summary: 'Só o resumo' }
 const SIZES: Record<string, string> = { small: 'Pequeno', medium: 'Médio', large: 'Grande' }
 const VOICES: Record<string, string> = { dora: 'Dora (feminina)', alex: 'Alex (masculina)', santa: 'Santa (masculina)' }
 const POWER: Record<string, string> = { on: 'Ligada', off: 'Desligada' }
-const SCOPES: Record<string, string> = { session: 'Só esta sessão', all: 'Todas as sessões' }
+const SETTINGS: Record<Setting, string> = {
+  power: 'Ligar ou desligar', mode: 'Leitura', size: 'Tamanho do resumo', voice: 'Voz de leitura',
+}
+const SESSION = 'Só esta sessão'
+const ALL = 'Todas as sessões'
+const CURRENT = ' (atual)'
 const USAGE =
   'Escreva a ação: /speak on, /speak off, /speak mode full|summary, /speak size small|medium|large, ' +
   '/speak voice dora|alex|santa, /speak status, /speak stop, /speak install ' +
   '(com "all" no fim, vale para todas as sessões).'
-const VIEWS: Record<string, View> = { on: 'power', off: 'power', mode: 'mode', size: 'size', voice: 'voice' }
-
-const options = (table: Record<string, string>) => Object.keys(table).map(value => ({ value, label: table[value]! }))
 const where = (all: boolean) => (all ? 'em todas as sessões' : 'nesta sessão')
 const speakArgv = ($: Engine, args: string[]) => ['python3', '-I', `${$.plugin.root}/bin/speak`, ...args]
 
@@ -64,7 +67,7 @@ async function change($: Engine, args: string[]): Promise<{ ok: boolean; text: s
   return { ok: true, text: said(args, await state($)) }
 }
 
-// Escrita completa: roda direto, sem painel. Devolve undefined quando falta a escolha (então abre o painel).
+// Escrita completa: roda direto, sem caixa. Devolve undefined quando falta a escolha (então pergunta em caixas).
 async function direct($: Engine, body: string[], all: boolean): Promise<Reply | undefined> {
   const [action, value, ...extra] = body
   if (extra.length > 0) return { text: USAGE }
@@ -99,17 +102,56 @@ async function runChoice($: Engine, cmd: string, value: string, valid: Record<st
   return { text: (await change($, [cmd, value, ...tail])).text }
 }
 
-// O que o painel tem para mostrar quando não abre: as opções, em texto.
-const fallback = (view: View) =>
-  `Não consegui abrir o painel aqui. ${USAGE}` + (view === 'all' ? '' : '')
+// Cada ajuste: a tabela de valores, o título da caixa e como o valor atual sai do estado.
+const ASK: Record<Setting, { table: Record<string, string>; question: string; header: string; current: (s: State) => string }> = {
+  power: { table: POWER, question: 'A voz fica ligada ou desligada?', header: 'Voz', current: s => (s.on ? 'on' : 'off') },
+  mode: { table: MODES, question: 'O que a voz lê?', header: 'Leitura', current: s => s.mode },
+  size: { table: SIZES, question: 'Qual o tamanho do resumo falado?', header: 'Tamanho', current: s => s.size },
+  voice: { table: VOICES, question: 'Qual voz lê as respostas?', header: 'Voz leitura', current: s => s.voice },
+}
+
+const stripCurrent = (answer: string) => (answer.endsWith(CURRENT) ? answer.slice(0, -CURRENT.length) : answer)
+const keyOf = (table: Record<string, string>, answer: string) => {
+  const label = stripCurrent(answer)
+  return Object.keys(table).find(k => table[k] === label)
+}
+
+class Stop extends Error {}
+
+// Pergunta numa caixa. Esc (ou execução sem tela) vira Stop; texto livre que não bate com nenhum rótulo, undefined.
+async function ask($: Engine, question: string, header: string, labels: string[]): Promise<string> {
+  try {
+    return await $.ui.ask(question, { header, options: labels })
+  } catch {
+    throw new Stop()
+  }
+}
+
+// Sem escolha escrita: pergunta o ajuste (se não veio), o valor e o alcance, e então roda o speak uma vez.
+async function asked($: Engine, first: string | undefined, wantsAll: boolean): Promise<Reply> {
+  let setting = first as Setting | undefined
+  if (!setting) {
+    const answer = await ask($, 'O que quer ajustar?', 'Voz', Object.values(SETTINGS))
+    setting = (Object.keys(SETTINGS) as Setting[]).find(k => SETTINGS[k] === answer)
+    if (!setting) return { text: USAGE }
+  }
+  const { table, question, header, current } = ASK[setting]
+  const now = await state($)
+  const labels = Object.keys(table).map(k => table[k]! + (now && current(now) === k ? CURRENT : ''))
+  const value = keyOf(table, await ask($, question, header, labels))
+  if (!value) return { text: USAGE }
+  let all = wantsAll
+  if (setting !== 'voice' && !wantsAll) {
+    const scope = await ask($, 'Vale para quais sessões?', 'Alcance', [SESSION, ALL])
+    if (scope !== SESSION && scope !== ALL) return { text: USAGE }
+    all = scope === ALL
+  }
+  const tail = all ? ['all'] : []
+  const args = setting === 'power' ? [value, ...tail] : setting === 'voice' ? ['voice', value] : [setting, value, ...tail]
+  return { text: (await change($, args)).text }
+}
 
 export const register: Register = on => {
-  // Estado do painel: vive enquanto o módulo está carregado.
-  let view: View = 'all'
-  let all = false
-  let note = ''
-  let now: State | undefined
-
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'speak',
@@ -129,55 +171,10 @@ export const register: Register = on => {
         const done = await direct($, body, wantsAll)
         if (done) return done
       }
-      view = (body[0] && VIEWS[body[0]]) || 'all'
-      all = wantsAll
-      note = ''
-      now = await state($)
-      const opened = await $.ui.open({ id: PANE, title: 'Voz', focus: true, closeOnEscape: true })
-      $.ui.invalidate('ui.render')
-      return opened.isPlaced ? {} : { text: fallback(view) }
+      return await asked($, body[0], wantsAll)
     } catch (error) {
+      if (error instanceof Stop) return { text: `Nada mudou. ${USAGE}` }
       return { text: `O speak falhou: ${String((error as { message?: unknown })?.message ?? error)}` }
     }
-  })
-
-  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const elements = $.ui.resolve(e)
-    const { Box, Text } = elements
-    // Onde não há Select (telas sem lista), o painel só aponta a forma escrita.
-    if (!('Select' in elements)) return <Text>{USAGE}</Text>
-    const { Select } = elements
-    const tail = () => (all ? ['all'] : [])
-    // Cada escolha roda na hora, guarda a frase do rodapé e pede o redesenho.
-    const apply = (args: string[]) => {
-      void (async () => {
-        const r = await change($, args)
-        note = r.text
-        now = await state($)
-        $.ui.invalidate('ui.render')
-      })()
-    }
-    const rows: { key: string; label: string; table: Record<string, string>; value: string | undefined; pick: (v: string) => void; view: View }[] = [
-      { key: 'power', label: 'Voz', table: POWER, value: now ? (now.on ? 'on' : 'off') : undefined,
-        pick: v => apply([v, ...tail()]), view: 'power' },
-      { key: 'mode', label: 'Leitura', table: MODES, value: now?.mode, pick: v => apply(['mode', v, ...tail()]), view: 'mode' },
-      { key: 'size', label: 'Tamanho do resumo', table: SIZES, value: now?.size, pick: v => apply(['size', v, ...tail()]), view: 'size' },
-      { key: 'voice', label: 'Voz de leitura', table: VOICES, value: now?.voice, pick: v => apply(['voice', v]), view: 'voice' },
-    ]
-    const shown = rows.filter(r => view === 'all' || r.view === view)
-    const needsScope = shown.some(r => r.key !== 'voice')
-    return (
-      <Box flexDirection="column">
-        {shown.map(r => (
-          <Select key={r.key} label={r.label} options={options(r.table)} value={r.value}
-            onSelect={(v: string) => r.pick(v)} />
-        ))}
-        {needsScope && (
-          <Select key="scope" label="Vale para" options={options(SCOPES)} value={all ? 'all' : 'session'}
-            onSelect={(v: string) => { all = v === 'all'; note = `Daqui em diante vale ${where(all)}.`; $.ui.invalidate('ui.render') }} />
-        )}
-        <Text dimColor>{note || 'Setas movem, Enter escolhe, Esc fecha.'}</Text>
-      </Box>
-    )
   })
 }
