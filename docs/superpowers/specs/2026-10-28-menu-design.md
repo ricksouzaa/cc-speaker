@@ -1,4 +1,4 @@
-> Trocado em 29/10/2026: o menu de hoje não é de setas nem usa `$.ui.ask`: é o painel lateral com listas nativas (Tab troca de linha, Enter escolhe, Esc ou o botão Fechar fecham; funciona no terminal e no VS Code). Veja `docs/superpowers/specs/2026-10-29-menu-dados-mac-design.md`.
+> Trocado em 29/10/2026: o menu de hoje não é de setas nem usa `$.ui.ask`: é o painel lateral com listas nativas (Tab troca de linha, Enter escolhe, Esc ou o botão Fechar fecham; funciona no terminal e no VS Code). Veja as decisões de 29/10/2026 em `docs/proximos-passos.md`.
 
 > Retirado em 28/10/2026: o modo celular e as seções dele neste desenho foram retirados (o botão de ler em voz alta do próprio app cobre o caso).
 
