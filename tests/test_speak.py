@@ -1043,7 +1043,12 @@ class Hook(unittest.TestCase):
         shutil.copy(os.path.join(ROOT, 'hooks', hook), os.path.join(root, 'hooks', hook))
         if fake:
             with open(os.path.join(root, 'bin', 'speak'), 'w') as fh:
-                fh.write('import sys\nopen(%r, "w").write(" ".join(sys.argv[1:]) + "|" + sys.stdin.read())\n'
+                fh.write('import os, sys\n'
+                         'if sys.argv[1] == "output":\n'
+                         '    print(os.environ.get("FAKE_OUTPUT", "speaker")); sys.exit(0)\n'
+                         'open(%r, "w").write(" ".join(sys.argv[1:]) + "|" + sys.stdin.read())\n'
+                         'if os.environ.get("FAKE_MP3"):\n'
+                         '    print(os.environ["FAKE_MP3"])\n'
                          % os.path.join(home, 'seen'))
         return os.path.join(root, 'hooks', hook)
 
@@ -1079,6 +1084,60 @@ class Hook(unittest.TestCase):
             r = subprocess.run([sys.executable, '-I', self.plugin(home)], input='not json', capture_output=True,
                                text=True, env={'HOME': home, 'PATH': '/usr/bin:/bin'})
         self.assertEqual((r.returncode, r.stdout, r.stderr), (0, '', ''))
+
+
+class PhoneHook(unittest.TestCase):
+    """The Stop hook with the phone output: asks Claude to send the mp3 the fake `speak` printed."""
+    plugin = Hook.plugin
+
+    def run_hook(self, data=None, **env):
+        with tempfile.TemporaryDirectory() as home:
+            hook = self.plugin(home)
+            mp3 = os.path.join(home, 'a.mp3')
+            open(mp3, 'w').close()
+            env = {k: v.replace('@MP3@', mp3) for k, v in env.items()}
+            r = subprocess.run([sys.executable, '-I', hook], text=True, capture_output=True,
+                               input=json.dumps(data or {'last_assistant_message': REPLY}),
+                               env={'HOME': home, 'PATH': '/usr/bin:/bin', **env})
+            return r, mp3, os.path.join(home, 'seen')
+
+    def test_blocks_with_the_path_when_the_phone_made_an_mp3(self):
+        r, mp3, _ = self.run_hook(FAKE_OUTPUT='phone', FAKE_MP3='@MP3@')
+        self.assertEqual((r.returncode, r.stderr), (0, ''))
+        out = json.loads(r.stdout)
+        self.assertEqual(out['decision'], 'block')
+        self.assertIn(mp3, out['reason'])
+        self.assertIn('SendUserFile', out['reason'])
+
+    def test_nothing_when_there_is_no_path_or_the_file_is_missing(self):
+        r, _, _ = self.run_hook(FAKE_OUTPUT='phone')
+        self.assertEqual((r.returncode, r.stdout), (0, ''))
+        r, _, _ = self.run_hook(FAKE_OUTPUT='phone', FAKE_MP3='/nao/existe.mp3')
+        self.assertEqual((r.returncode, r.stdout), (0, ''))
+
+    def test_nothing_in_the_speaker_output(self):
+        r, _, _ = self.run_hook(FAKE_OUTPUT='speaker', FAKE_MP3='@MP3@')
+        self.assertEqual((r.returncode, r.stdout), (0, ''))
+
+    def test_no_block_on_the_turn_after_the_request(self):
+        r, _, _ = self.run_hook({'last_assistant_message': REPLY, 'stop_hook_active': True},
+                                FAKE_OUTPUT='phone', FAKE_MP3='@MP3@')
+        self.assertEqual((r.returncode, r.stdout), (0, ''))
+
+    def test_hands_the_stop_flag_to_speak(self):
+        script = ('import os, sys\n'
+                  'if sys.argv[1] == "output": print("phone"); sys.exit(0)\n'
+                  'open(%r, "w").write(os.environ.get("CLAUDE_SPEAK_STOP_ACTIVE", "?"))\n')
+        for active, expected in ((True, '1'), (False, '0')):
+            with tempfile.TemporaryDirectory() as home:
+                hook = self.plugin(home)
+                seen = os.path.join(home, 'flag')
+                with open(os.path.join(home, 'plugin', 'bin', 'speak'), 'w') as fh:
+                    fh.write(script % seen)
+                subprocess.run([sys.executable, '-I', hook], text=True, capture_output=True,
+                               input=json.dumps({'last_assistant_message': 'oi', 'stop_hook_active': active}),
+                               env={'HOME': home, 'PATH': '/usr/bin:/bin'})
+                self.assertEqual(open(seen).read(), expected)
 
 
 class Silent(unittest.TestCase):
@@ -1240,6 +1299,131 @@ class Voice(unittest.TestCase):
         self.assertIn('voz: pm_santa', self.speak('status', CLAUDE_SPEAK_VOICE='pm_santa').stdout)
 
 
+class Phone(unittest.TestCase):
+    """The phone output: choice, status, and `say -` with a fake engine (a script that only writes the file)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.home = self.tmp.name
+        self.env = {'HOME': self.home, 'PATH': '/usr/bin:/bin', 'CLAUDE_SPEAK_SESSION': '-'}
+        self.state = os.path.join(self.home, '.local', 'state', 'claude-speak')
+        self.conf = os.path.join(self.home, '.config', 'claude-speak')
+
+    def speak(self, *args, key='-', input=None, **env):
+        return subprocess.run([sys.executable, '-I', SPEAK, *args], capture_output=True, text=True, input=input,
+                              stdin=None if input is not None else subprocess.DEVNULL,
+                              env={**self.env, 'CLAUDE_SPEAK_SESSION': key, **env})
+
+    def fake_engine(self):
+        """A fake engine: VENV_PY is a script that writes 'mp3' at the path it is given, and records its arguments."""
+        data = os.path.join(self.home, '.local', 'share', 'claude-speak')
+        os.makedirs(os.path.join(data, '.venv', 'bin'))
+        for name in ('kokoro-v1.0.onnx', 'voices-v1.0.bin'):
+            open(os.path.join(data, name), 'w').close()
+        py = os.path.join(data, '.venv', 'bin', 'python')
+        with open(py, 'w') as fh:
+            fh.write('#!/bin/sh\necho "$@" > "%s"\necho mp3 > "$4"\n' % os.path.join(self.home, 'called'))
+        os.chmod(py, 0o755)
+
+    def test_default_is_speaker_and_general_choice_is_kept(self):
+        self.assertIn('saída: alto-falante', self.speak('status').stdout)
+        self.assertIn('saída: celular', self.speak('phone', 'on').stdout)
+        self.assertEqual(open(os.path.join(self.conf, 'output')).read().strip(), 'phone')
+        self.assertEqual(self.speak('output').stdout, 'phone\n')
+        self.assertIn('saída: alto-falante', self.speak('phone', 'off').stdout)
+        self.assertEqual(self.speak('output').stdout, 'speaker\n')
+
+    def test_variable_beats_everything(self):
+        self.speak('phone', 'on')
+        self.assertEqual(self.speak('output', CLAUDE_SPEAK_OUTPUT='speaker').stdout, 'speaker\n')
+        self.assertIn('saída: celular', self.speak('status', CLAUDE_SPEAK_OUTPUT='phone').stdout)
+
+    def test_bad_arguments_are_refused(self):
+        for args in (('phone',), ('phone', 'maybe'), ('phone', 'on', 'tudo')):
+            r = self.speak(*args)
+            self.assertEqual(r.returncode, 2, args)
+            self.assertIn('voz:', r.stderr)
+
+    def test_session_choice_stays_in_the_session_and_all_sets_every_one(self):
+        key = '%d-%s' % (os.getpid(), speak_stat_start())
+        folder = os.path.join(self.state, 'sessions')
+        self.speak('phone', 'on', key=key)
+        self.assertEqual(speak_read(folder, key)['output'], 'phone')
+        self.assertFalse(os.path.exists(os.path.join(self.conf, 'output')))
+        self.assertEqual(self.speak('output', key=key).stdout, 'phone\n')
+        self.assertEqual(self.speak('output', key='99999999-1').stdout, 'speaker\n')
+        self.speak('phone', 'off', 'all', key=key)
+        self.assertEqual(speak_read(folder, key)['output'], 'speaker')
+        self.assertEqual(open(os.path.join(self.conf, 'output')).read().strip(), 'speaker')
+
+    def test_say_makes_an_mp3_and_prints_its_path(self):
+        self.fake_engine()
+        self.speak('phone', 'on')
+        r = self.speak('say', '-', input='Uma resposta.')
+        path = r.stdout.strip()
+        self.assertEqual((r.returncode, r.stderr), (0, ''))
+        self.assertTrue(path.startswith(os.path.join(self.state, 'phone') + os.sep) and path.endswith('.mp3'), path)
+        self.assertTrue(os.path.exists(path))
+        called = open(os.path.join(self.home, 'called')).read().split()
+        self.assertEqual(called[:3], ['-I', SPEAK, '_mp3'])
+        self.assertEqual(called[3], path)
+        self.assertEqual(' '.join(called[4:]), 'Uma resposta.')
+
+    def test_say_respects_mode_and_size(self):
+        self.fake_engine()
+        self.speak('phone', 'on')
+        r = self.speak('say', '-', input=REPLY, CLAUDE_SPEAK_MODE='summary')
+        called = open(os.path.join(self.home, 'called')).read().split()
+        self.assertEqual(' '.join(called[4:]), 'Terminei a voz; falta você testar.')
+        self.assertTrue(r.stdout.strip())
+
+    def test_nothing_printed_without_text_engine_or_voice(self):
+        self.speak('phone', 'on')
+        self.assertEqual(self.speak('say', '-', input='Oi.').stdout, '')  # no engine
+        self.fake_engine()
+        self.assertEqual(self.speak('say', '-', input='').stdout, '')
+        self.assertEqual(self.speak('say', '-', input='🔊 só o resumo', CLAUDE_SPEAK_MODE='full').stdout, '')
+        self.speak('off', 'all')
+        self.assertEqual(self.speak('say', '-', input='Oi.').stdout, '')
+        self.assertFalse(os.path.exists(os.path.join(self.home, 'called')))
+
+    def test_nothing_on_the_turn_after_the_request(self):
+        self.fake_engine()
+        self.speak('phone', 'on')
+        r = self.speak('say', '-', input='Enviei o arquivo.', CLAUDE_SPEAK_STOP_ACTIVE='1')
+        self.assertEqual((r.returncode, r.stdout), (0, ''))
+        self.assertFalse(os.path.exists(os.path.join(self.home, 'called')))
+
+    def test_speaker_output_ignores_the_stop_flag_and_never_makes_an_mp3(self):
+        self.fake_engine()
+        r = self.speak('say', '-', input='Oi.', CLAUDE_SPEAK_STOP_ACTIVE='1')
+        self.assertEqual((r.returncode, r.stdout), (0, ''))
+        self.assertFalse(os.path.exists(os.path.join(self.state, 'phone')))
+
+    def test_failed_synthesis_prints_nothing(self):
+        self.fake_engine()
+        py = os.path.join(self.home, '.local', 'share', 'claude-speak', '.venv', 'bin', 'python')
+        with open(py, 'w') as fh:
+            fh.write('#!/bin/sh\nexit 1\n')
+        self.speak('phone', 'on')
+        self.assertEqual(self.speak('say', '-', input='Oi.').stdout, '')
+
+    def test_old_mp3_files_are_removed_and_recent_ones_kept(self):
+        self.fake_engine()
+        self.speak('phone', 'on')
+        folder = os.path.join(self.state, 'phone')
+        os.makedirs(folder)
+        old, new = os.path.join(folder, 'velho.mp3'), os.path.join(folder, 'novo.mp3')
+        for path in (old, new):
+            open(path, 'w').close()
+        past = time.time() - 2 * 86400
+        os.utime(old, (past, past))
+        self.speak('say', '-', input='Oi.')
+        self.assertFalse(os.path.exists(old))
+        self.assertTrue(os.path.exists(new))
+
+
 class Rule(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -1260,10 +1444,12 @@ class Rule(unittest.TestCase):
 
     def test_rule_names_the_commands(self):
         text = self.rule()
-        for name in ('on', 'off', 'mode', 'size', 'voice', 'status', 'stop', 'install'):
+        for name in ('on', 'off', 'mode', 'size', 'phone', 'voice', 'status', 'stop', 'install'):
             self.assertIn('/speak:' + name, text)
         self.assertIn('speak size', text)
         self.assertIn('speak voice', text)
+        self.assertIn('speak phone on', text)
+        self.assertIn('SendUserFile', text)
 
 
 class StartHook(unittest.TestCase):
@@ -1343,7 +1529,7 @@ class Plugin(unittest.TestCase):
                     self.assertTrue(os.path.exists(os.path.join(ROOT, match.group(1))))
 
     def test_slash_commands_are_for_the_human_only(self):
-        names = ('on', 'off', 'mode', 'size', 'voice', 'status', 'stop', 'install')
+        names = ('on', 'off', 'mode', 'size', 'phone', 'voice', 'status', 'stop', 'install')
         self.assertEqual(sorted(os.listdir(os.path.join(ROOT, 'skills'))), sorted(names))
         for name in names:
             with open(os.path.join(ROOT, 'skills', name, 'SKILL.md'), encoding='utf-8') as fh:

@@ -23,8 +23,9 @@ Todos são só para você digitar. Com `all` no fim, valem para todas as sessõe
 - `/speak:on [all]` e `/speak:off [all]`: ligam e desligam a voz.
 - `/speak:mode [full|summary] [all]`: sem argumento, abre um menu de setas (leitura, alcance e, no resumo, o tamanho); lê a resposta inteira (sem código, caminhos e links) ou só o resumo da linha 🔊.
 - `/speak:size [small|medium|large] [all]`: sem argumento, abre um menu de setas; tamanho do resumo falado: uma frase curta, duas a três frases (padrão) ou um parágrafo.
+- `/speak:phone [on|off] [all]`: sem argumento, abre um menu de setas. Com o celular ligado, o computador não toca nada: cada resposta vira um arquivo mp3 (respeita o modo e o tamanho do resumo) que o Claude envia ao seu celular pelo controle remoto, para você dar o play. Custa uma volta curta extra do Claude por resposta, e a resposta inteira pode levar alguns minutos para virar áudio. Só funciona num controle remoto que aceite envio de arquivo; os mp3 ficam em `~/.local/state/claude-speak/phone` e somem depois de um dia.
 - `/speak:voice [dora|alex|santa]`: sem nome, abre um menu de setas com as vozes em português; com nome, escolhe (dora é feminina; alex e santa são masculinas).
-- `/speak:status`: mostra o estado atual (voz, modo, tamanho, motor).
+- `/speak:status`: mostra o estado atual (voz, modo, tamanho, saída, motor).
 - `/speak:stop`: corta a fala que está tocando e esvazia a fila.
 - `/speak:install`: instala o motor.
 
@@ -33,7 +34,7 @@ Também dá para pedir em palavras ("fala só o resumo", "resumo maior", "troca 
 ## Variáveis de ambiente
 
 - `CLAUDE_SPEAK=0`: começa a sessão muda.
-- `CLAUDE_SPEAK_MODE`, `CLAUDE_SPEAK_SIZE`, `CLAUDE_SPEAK_VOICE`: mandam mais que as escolhas gravadas.
+- `CLAUDE_SPEAK_MODE`, `CLAUDE_SPEAK_SIZE`, `CLAUDE_SPEAK_VOICE`, `CLAUDE_SPEAK_OUTPUT` (`phone` ou `speaker`): mandam mais que as escolhas gravadas.
 - `CLAUDE_SPEAK_SPEED`: velocidade da fala (padrão 1.1).
 
 ## Pastas
