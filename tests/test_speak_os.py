@@ -67,7 +67,7 @@ class LinuxTest(unittest.TestCase):
         me = os.getpid()
         self.assertTrue(speak_os.alive(me))
         self.assertEqual(speak_os.parent(me), os.getppid())
-        self.assertEqual(speak_os.argv(me)[0:1], [speak_os.argv(me)[0]])
+        self.assertTrue(os.path.basename(speak_os.argv(me)[0]).startswith('python'))
         self.assertAlmostEqual(speak_os.started_at(me), speak.session_started(speak.session_key(me)), places=3)
         self.assertEqual(speak_os.ancestors(me)[0][0], me)
 
@@ -112,38 +112,47 @@ class MacTest(unittest.TestCase):
         self.run_ps({})
         self.assertEqual(speak_os.ancestors(50), [(50, '?')])
 
+    def as_mac_everywhere(self):
+        """Mac also for the speak_os module that bin/speak imported (a separate instance); no CLAUDE_SPEAK_SESSION."""
+        for patch in (mock.patch.object(speak.speak_os, 'SYSTEM', 'mac'),
+                      mock.patch.dict(os.environ, {}),
+                      mock.patch.object(speak.os, 'getppid', return_value=60)):
+            patch.start()
+            self.addCleanup(patch.stop)
+        os.environ.pop('CLAUDE_SPEAK_SESSION', None)
+
     def test_mac_node(self):
-        self.run_ps({('ppid=,comm=', '60'): ' 50 bash\n', ('ppid=,comm=', '50'): ' 1 /usr/local/bin/node\n',
-                     ('command=', '60'): 'bash\n', ('command=', '50'): 'node /usr/local/bin/claude\n'})
+        run = self.run_ps({('ppid=,comm=', '60'): ' 50 bash\n', ('ppid=,comm=', '50'): ' 1 /usr/local/bin/node\n',
+                           ('command=', '60'): 'bash\n', ('command=', '50'): 'node /usr/local/bin/claude\n',
+                           ('lstart=', '50'): 'Wed Oct 29 10:00:00 2026\n'})
         self.assertEqual(speak_os.name(50), 'node')
         self.assertEqual(speak_os.argv(50), ['node', '/usr/local/bin/claude'])
-        with mock.patch.dict(os.environ, {}, clear=False), \
-                mock.patch.object(speak.speak_os, 'SYSTEM', 'mac'), \
-                mock.patch.object(speak.os, 'getppid', return_value=60):
-            os.environ.pop('CLAUDE_SPEAK_SESSION', None)
-            self.run_ps({('ppid=,comm=', '60'): ' 50 bash\n', ('ppid=,comm=', '50'): ' 1 /usr/local/bin/node\n',
-                         ('command=', '60'): 'bash\n', ('command=', '50'): 'node /usr/local/bin/claude\n',
-                         ('lstart=', '50'): 'Wed Oct 29 10:00:00 2026\n'})
-            key = speak.current_session()
-        self.assertRegex(key, r'50-[0-9]+')
+        self.as_mac_everywhere()
+        run.calls.clear()
+        self.assertRegex(speak.current_session(), r'50-[0-9]+')
+        walk = [c for c in run.calls if c[2] == 'ppid=,comm=']
+        self.assertEqual([c[4] for c in walk], ['60', '50'])  # one ps call per level, not two
 
     def test_ps_falha(self):
+        self.as_mac_everywhere()
         for failure in (OSError('no ps'), None):
+            tried = []
+
             def run(cmd, **kw):
+                tried.append(cmd)
                 if failure:
                     raise failure
                 return subprocess.CompletedProcess(cmd, 0, '', '')
-            with mock.patch.object(speak_os.subprocess, 'run', run), \
-                    mock.patch.object(speak.os, 'getppid', return_value=60), \
-                    mock.patch.dict(os.environ, {}):
-                os.environ.pop('CLAUDE_SPEAK_SESSION', None)
+            with mock.patch.object(speak_os.subprocess, 'run', run):
                 self.assertIsNone(speak_os.parent(60))
                 self.assertIsNone(speak_os.name(60))
                 self.assertIsNone(speak_os.started(60))
                 self.assertIsNone(speak_os.started_at(60))
                 self.assertIsNone(speak_os.argv(60))
                 self.assertEqual(speak_os.ancestors(60), [(60, '?')])
+                del tried[:]
                 self.assertIsNone(speak.current_session())
+                self.assertTrue(tried, 'the Mac path (ps) was not taken')
 
     def test_alive_uses_kill_zero(self):
         with mock.patch.object(speak_os.os, 'kill') as kill:

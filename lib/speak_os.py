@@ -21,8 +21,7 @@ def _ps(pid, fields):
                              env={**os.environ, 'LC_ALL': 'C'})
     except (OSError, ValueError, subprocess.SubprocessError):
         return None
-    text = out.stdout.strip("\n") if out.returncode == 0 else ''
-    return text.strip() or None
+    return out.stdout.strip() or None if out.returncode == 0 else None
 
 
 def _mac_ppid_comm(pid):
@@ -44,6 +43,16 @@ def _stat_fields(pid):
             return fh.read().rpartition(')')[2].split()
     except (OSError, ValueError):
         return None
+
+
+def node(pid):
+    """(parent pid, executable base name) of `pid`, or None. On Mac this is one `ps` call, so walking up the
+    chain costs one call per level."""
+    if SYSTEM == 'mac':
+        found = _mac_ppid_comm(pid)
+        return (found[0], os.path.basename(found[1]) or None) if found else None
+    up, label = parent(pid), name(pid)
+    return (up, label) if up is not None and label else None
 
 
 def parent(pid):
@@ -136,11 +145,8 @@ def ancestors(pid):
     '?'; when even the parent cannot be read the chain ends there (so a failing `ps` gives [(pid, '?')])."""
     chain = []
     while pid and pid > 1 and len(chain) < 64:
-        if SYSTEM == 'mac':
-            found = _mac_ppid_comm(pid)
-            label, up = (os.path.basename(found[1]) or '?', found[0]) if found else ('?', None)
-        else:
-            label, up = name(pid) or '?', parent(pid)
+        found = node(pid)
+        up, label = (found[0], found[1] or '?') if found else (None, '?')
         chain.append((pid, label))
         if up is None or up == pid:
             break

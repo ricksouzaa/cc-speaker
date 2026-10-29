@@ -155,13 +155,13 @@ def current_session():
     chain = []
     pid = os.getppid()
     while pid and pid > 1 and len(chain) < 64:
-        label = speak_os.name(pid)
-        if label is None:
+        found = speak_os.node(pid)  # (parent, name) in one read
+        if found is None:
             break
-        if label == 'claude':
+        if found[1] == 'claude':
             return session_key(pid)
         chain.append(pid)
-        pid = speak_os.parent(pid)
+        pid = found[0]
     for pid in chain:
         if any(os.path.basename(arg) == 'claude' for arg in speak_os.argv(pid) or []):
             return session_key(pid)
@@ -433,7 +433,9 @@ def synthesize_ahead(texts, synth, ahead=2):
 # --- speaking -----------------------------------------------------------------------------------------------------
 
 def is_speech(pid):
-    """True if `pid` is a speech process of ours: its command line is `<python> -I <...>/speak _play ...`."""
+    """True if `pid` is a speech process of ours: its command line is `<python> -I <...>/speak _play ...`.
+    # Known limit: on Mac the command line is split on spaces, so a plugin path with a space is not recognised
+    # (stop then leaves that speech playing)."""
     argv = speak_os.argv(pid)
     return bool(argv) and len(argv) > 3 and argv[1] == '-I' and os.path.basename(argv[2]) == 'speak' and argv[3] == '_play'
 
