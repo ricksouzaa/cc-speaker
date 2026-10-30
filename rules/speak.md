@@ -3,7 +3,7 @@
 The `speak` Stop hook reads each reply aloud: by default only its last line `🔊 <resumo>` (`speak mode summary`); or the whole prose and tables, without code blocks, paths, links and file names (`speak mode full`).
 
 - {line}
-- In it: no code, file names, paths, commands, command output, numbers of lines, links or acronyms; it is heard, not read.
+- In it: no code, file names, paths, commands, command output, numbers of lines or links; it is heard, not read. A version number (`0.9.1`) and an acronym (IBGE) are fine as written: the plugin reads the first as "0 ponto 9 ponto 1" and spells the second letter by letter, except those said as a word (SUS, PIX).
 - Prose that explains a code block says it in words, so the reading still makes sense without the block.
 - By default (`speak mic wait`) only dictation interrupts the reading: the voice does not speak while the microphone is recording (dictation, video call) and is cut if a recording starts while it speaks. With `speak mic play` the voice speaks even with the microphone in use and nothing cuts it; with `speak mic auto` the same, and when the microphone becomes free (the meeting ends) the choice goes back to `wait` by itself. A new speech, from any session, waits its turn in a queue; a new message does not cut it.
 - When the voice is off, leave the line out, so no text is written for nothing: the new-message hook says so in a `speak:` note that holds for that message (voice off here or for all, or no engine), and so does a `speak off` you just ran. Without the note, or after a `speak on`, the line is back.

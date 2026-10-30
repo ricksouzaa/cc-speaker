@@ -7,6 +7,11 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.15.2] - 2026-10-30
+
+### Alterado
+- A regra que o Claude lê para escrever a linha 🔊 agora deixa escrever número de versão e sigla do jeito normal, sem por extenso: o plugin já lê "0.15.1" como "0 ponto 15 ponto 1" e soletra as siglas. Assim o resumo e o texto completo mostram a mesma coisa.
+
 ## [0.15.1] - 2026-10-30
 
 ### Corrigido
@@ -282,7 +287,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.15.1...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.15.2...HEAD
+[0.15.2]: https://github.com/ricksouzaa/cc-speaker/compare/v0.15.1...v0.15.2
 [0.15.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.14.6...v0.15.0
 [0.14.6]: https://github.com/ricksouzaa/cc-speaker/compare/v0.14.5...v0.14.6
