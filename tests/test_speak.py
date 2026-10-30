@@ -158,6 +158,24 @@ class Filter(unittest.TestCase):
         for gone in ('ci-mac', 'cc-speaker', 'speak-cc-speaker', 'install_marked', 'e863ea0', 'CLAUDE_SPEAK=0'):
             self.assertEqual(speak.clean('Veja `%s` agora.' % gone), 'Veja agora.')
 
+    def test_acronyms_are_spelled_unless_said_as_a_word(self):
+        self.assertEqual(speak.clean('O IBGE e a ANTT.'), 'O i bê gê é e a á êne tê tê.')
+        self.assertEqual(speak.clean('O SUS, o PIX e o ENEM.'), 'O SUS, o PIX e o ENEM.')
+        self.assertEqual(speak.clean('CPF e CNPJ.'), 'cê pê éfe e cê êne pê jota.')
+        self.assertEqual(speak.clean('Tarefa XII, capítulo IV.'), 'Tarefa XII, capítulo IV.')
+        self.assertEqual(speak.clean('ATENÇÃO: NÃO mexa, A e B.'), 'ATENÇÃO: NÃO mexa, A e B.')
+        self.assertEqual(speak.clean('Um CD novo, API-REST e INSS.'), 'Um cê dê novo, API-REST e i êne ésse ésse.')
+
+    def test_own_words_file_adds_acronyms_said_as_a_word(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        isolate(self, tmp.name)
+        self.assertEqual(speak.clean('A CVM e a ANBIMA.'), 'A cê vê ême e a á êne bê i ême á.')
+        os.makedirs(speak.CONF, exist_ok=True)
+        with open(os.path.join(speak.CONF, 'words'), 'w') as fh:
+            fh.write('# lidas como palavra\ncvm\nAnbima\n')
+        self.assertEqual(speak.clean('A CVM e a ANBIMA.'), 'A CVM e a ANBIMA.')
+
     def test_commit_codes_and_head_go(self):
         self.assertEqual(speak.clean('Commit b48e609 e 93a66bd prontos.'), 'Commit e prontos.')
         self.assertEqual(speak.clean('Está no HEAD agora.'), 'Está no agora.')
@@ -3695,7 +3713,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.14.6')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.15.0')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

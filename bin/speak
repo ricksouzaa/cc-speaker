@@ -467,6 +467,36 @@ def _slash_in_code(match):
     return (_slash_name(found.group(1)) + found.group(2)).strip()
 
 
+# Acronyms: the engine (espeak) guesses at ones written in capitals, so IBGE comes out as a word. Spell them letter by
+# letter, except those that are said as a word (this list, plus the person's own in CONF/words, one per line).
+LETTER_NAMES = dict(zip('ABCDEFGHIJKLMNOPQRSTUVWXYZ', (
+    'á bê cê dê é éfe gê agá i jota cá éle ême êne ó pê quê érre ésse tê u vê dáblio xis ípsilon zê').split()))
+WORD_ACRONYMS = frozenset((
+    'SUS PIX ONU OTAN NASA FIFA UEFA OPEP UNESCO UNICEF MERCOSUL AIDS COVID OK '
+    'ENEM PROUNI FIES SISU CAPES FINEP FAPESP UNICAMP UNESP USP PUC '
+    'FUNAI ANVISA ANATEL ANEEL ANAC ANTAQ IBAMA INMET INPE INMETRO DNIT BACEN COPOM SELIC CADE ABIN '
+    'DETRAN PROCON SAMU UPA CIPA SEBRAE SENAI SENAC SESI SESC SENAT SENAR '
+    'IPVA IPCA PIS PASEP COFINS PIB CEP FUNDEB SERPRO DATAPREV PETROBRAS EMBRAER EMBRAPA EMBRATEL FUNASA PAC ONG TED').split())
+ROMAN = re.compile(r'(?=[IVXLCDM])M{0,3}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3})')
+
+
+def spelled_acronyms(text):
+    """IBGE -> "i bê gê é": capitals of two to six letters are spelled out, unless said as a word (WORD_ACRONYMS or
+    CONF/words) or a Roman numeral."""
+    try:
+        with open(os.path.join(CONF, 'words')) as fh:
+            own = {w.strip().upper() for w in fh if w.strip() and not w.lstrip().startswith('#')}
+    except OSError:
+        own = set()
+
+    def spell(match):
+        word = match.group(0)
+        if word in WORD_ACRONYMS or word in own or (ROMAN.fullmatch(word) and word not in ('CD', 'DC')):
+            return word
+        return ' '.join(LETTER_NAMES[c] for c in word)
+    return re.sub(r'(?<![\w-])[A-Z]{2,6}(?![\w-])', spell, text)
+
+
 def clean(text):
     """One line of markdown made fit to be heard. A slash command (`/speak stop`, `/reload-plugins`) is read as
     "barra speak stop"; paths are dropped."""
@@ -478,6 +508,7 @@ def clean(text):
     text = re.sub(r'(?<![\w-])(?=[0-9a-fA-F]*\d)(?=[0-9a-fA-F]*[a-fA-F])[0-9a-fA-F]{7,40}(?![\w-])', '', text)  # commit code
     text = re.sub(r'(?<![\w.-])' + VERSION + r'(?![\w-]|\.\d)', _version_spoken, text)  # 0.9.1, v2.1.312
     text = re.sub(r'\bHEAD\b', '', text)
+    text = spelled_acronyms(text)
     text = text.replace('·', ', ')
     text = re.sub(r'(?i)\b(ramos?|branch|worktree)\s+(?=[\w./-]*[-_\d/])[\w/-]+(?:\.[\w/-]+)*', r'\1', text)  # branch name
     text = re.sub(r'(?<![\w-])(?=[a-z0-9-]*[a-z])(?=[a-z0-9-]*\d)[a-z0-9]+(?:-[a-z0-9]+)+(?![\w-])', '', text)  # wt-1

@@ -7,6 +7,12 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.15.0] - 2026-10-30
+
+### Adicionado
+- As siglas em maiúsculas agora são soletradas antes de falar: "IBGE" vira "i bê gê é" e "ANTT" vira "á êne tê tê". Antes o motor tentava ler como palavra e errava.
+- As siglas que se leem como palavra (SUS, PIX, ENEM, ONU, NASA, Anvisa e várias outras) e os números romanos continuam como estavam. Para incluir outra, escreva-a numa linha do arquivo `config/words` da pasta de dados.
+
 ## [0.14.6] - 2026-10-30
 
 ### Corrigido
@@ -271,7 +277,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.14.6...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.14.6...v0.15.0
 [0.14.6]: https://github.com/ricksouzaa/cc-speaker/compare/v0.14.5...v0.14.6
 [0.14.5]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.14.5
 [0.14.4]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.14.4
