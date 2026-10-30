@@ -7,6 +7,11 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.14.4] - 2026-10-29
+
+### Adicionado
+- O README mostra selos de versão, de estado dos testes automáticos, de licença, de sistemas aceitos, de Python e de voz local.
+
 ## [0.14.3] - 2026-10-29
 
 ### Corrigido
@@ -256,7 +261,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.14.3...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.14.4...HEAD
+[0.14.4]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.14.4
 [0.14.3]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.14.3
 [0.14.2]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.14.2
 [0.14.1]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.14.1
