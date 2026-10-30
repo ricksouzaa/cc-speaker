@@ -162,6 +162,7 @@ class Filter(unittest.TestCase):
         self.assertEqual(speak.clean('O IBGE e a ANTT.'), 'O i bê gê é e a á êne tê tê.')
         self.assertEqual(speak.clean('O SUS, o PIX e o ENEM.'), 'O SUS, o PIX e o ENEM.')
         self.assertEqual(speak.clean('CPF e CNPJ.'), 'cê pê éfe e cê êne pê jota.')
+        self.assertEqual(speak.clean('O IPVA e o IPCA.'), 'O i pê vê á e o i pê cê á.')
         self.assertEqual(speak.clean('Tarefa XII, capítulo IV.'), 'Tarefa XII, capítulo IV.')
         self.assertEqual(speak.clean('ATENÇÃO: NÃO mexa, A e B.'), 'ATENÇÃO: NÃO mexa, A e B.')
         self.assertEqual(speak.clean('Um CD novo, API-REST e INSS.'), 'Um cê dê novo, API-REST e i êne ésse ésse.')
@@ -3713,7 +3714,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.15.0')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.15.1')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

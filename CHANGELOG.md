@@ -7,6 +7,11 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.15.1] - 2026-10-30
+
+### Corrigido
+- IPVA, IPCA, ONG, USP, CIPA e DNIT saíam da lista de siglas lidas como palavra: agora são soletradas, como a maioria das pessoas fala. Quem as lê como palavra pode pô-las no arquivo `config/words`.
+
 ## [0.15.0] - 2026-10-30
 
 ### Adicionado
@@ -277,7 +282,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.15.0...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.15.1...HEAD
+[0.15.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.14.6...v0.15.0
 [0.14.6]: https://github.com/ricksouzaa/cc-speaker/compare/v0.14.5...v0.14.6
 [0.14.5]: https://github.com/ricksouzaa/cc-speaker/releases/tag/v0.14.5
