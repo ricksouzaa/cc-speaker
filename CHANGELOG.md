@@ -7,6 +7,14 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.17.0] - 2026-10-30
+
+### Removido
+- Os termos em inglês voltam a ser falados em português, como antes da 0.16.0: a pronúncia inglesa no meio da frase ficou estranha. Saem a lista de termos e o arquivo `config/english`.
+
+### Quebra
+- O arquivo `config/english`, se você criou um, deixa de ter efeito e pode ser apagado.
+
 ## [0.16.0] - 2026-10-30
 
 ### Adicionado
@@ -296,7 +304,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.16.0...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.17.0...HEAD
+[0.17.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.15.2...v0.16.0
 [0.15.2]: https://github.com/ricksouzaa/cc-speaker/compare/v0.15.1...v0.15.2
 [0.15.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.15.0...v0.15.1

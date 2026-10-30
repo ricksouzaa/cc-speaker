@@ -499,39 +499,6 @@ def spelled_acronyms(text):
 
 # Respelt for the engine: ENEM comes out as "eneɪŋ"; written so it is said "ê-nêi".
 RESPELL = {'ENEM': 'ênêi'}
-# English terms inside Portuguese text are spoken with English sounds (same voice), marked here with private-use
-# characters that `synth_piece` splits on. The person adds more in CONF/english, one per line.
-EN_START, EN_END = '\ue000', '\ue001'
-ENGLISH = frozenset((
-    'reload plugin plugins commit commits push pull request branch branches merge deploy build hook hooks github '
-    'worktree release rebase checkout stash lint workflow pipeline dashboard feedback download upload login logout '
-    'backup prompt token tokens endpoint backend frontend framework script scripts bug bugs debug timeout cache '
-    'fallback rollback webhook staging cluster slash').split())
-
-
-def english_terms(text):
-    """Wraps the English terms (ENGLISH plus CONF/english) in markers; neighbours join into one stretch."""
-    try:
-        with open(os.path.join(CONF, 'english')) as fh:
-            own = {w.strip().lower() for w in fh if w.strip() and not w.lstrip().startswith('#')}
-    except OSError:
-        own = set()
-    known = ENGLISH | own
-    text = re.sub(r'(?<![\w-])[A-Za-z]+(?![\w-])',
-                  lambda m: EN_START + m.group(0) + EN_END if m.group(0).lower() in known else m.group(0), text)
-    return re.sub(EN_END + r'(\s+)' + EN_START, r'\1', text)
-
-
-def synth_piece(kokoro, piece, style, rate):
-    """One piece as audio: Portuguese stretches with Brazilian sounds, marked English stretches with English ones.
-    A piece with no English is one plain call, as before."""
-    parts = re.split(EN_START + '(.*?)' + EN_END, piece)
-    audio = [kokoro.create(part, voice=style, speed=rate, lang='en-us' if i % 2 else 'pt-br')[0]
-             for i, part in enumerate(parts) if re.search(r'\w', part)]
-    if len(audio) == 1:
-        return audio[0]
-    import numpy
-    return numpy.concatenate(audio) if audio else numpy.zeros(0, dtype='float32')
 
 
 def clean(text):
@@ -1490,13 +1457,12 @@ def play(text):
             print('voz: nenhum tocador de áudio (%s)' % speak_os.player_names(), file=sys.stderr)
             return 1
         kokoro = Kokoro(MODEL, VOICES)
-        text = english_terms(text)  # after `clean`, so the markers never reach what tests and `speak say` print
 
         style = voice_style(kokoro.voices, recipe(voice())[0])
         rate = speed()
 
         def synth(piece):
-            return synth_piece(kokoro, piece, style, rate)
+            return kokoro.create(piece, voice=style, speed=rate, lang='pt-br')[0]
 
         if not speak_os.streams():
             return play_files(player, synthesize_ahead(pieces(text), synth), watch, session)
