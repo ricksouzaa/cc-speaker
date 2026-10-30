@@ -56,6 +56,7 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 ## Pedidos para depois
 
 - **Outros narradores** pesquisados em 28/10/2026: avisos falados durante o trabalho (do claude-voice do adjit).
+- **Internacionalização (inglês)**: o Ricardo decidiu em 30/10/2026 não fazer agora, para não gastar tempo; quem quiser pode fazer um fork e traduzir. O plano fica em `docs/internacionalizacao.md`, e o português do Brasil continua o padrão.
 
 ## Retirado
 
