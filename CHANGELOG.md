@@ -7,6 +7,15 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.16.0] - 2026-10-30
+
+### Adicionado
+- Termos técnicos em inglês no meio do texto (reload, plugins, commit, push, deploy, build, GitHub e outros) passam a ser falados com a pronúncia do inglês, na mesma voz. Para incluir outros, escreva-os no arquivo `config/english` da pasta de dados.
+
+### Corrigido
+- A última letra de siglas soletradas terminadas em E (como o IBGE) saía curta demais; agora sai inteira.
+- ENEM passa a ser falado "ê-nêi", sem o som final que o motor inventava.
+
 ## [0.15.2] - 2026-10-30
 
 ### Alterado
@@ -287,7 +296,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.15.2...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.15.2...v0.16.0
 [0.15.2]: https://github.com/ricksouzaa/cc-speaker/compare/v0.15.1...v0.15.2
 [0.15.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.14.6...v0.15.0

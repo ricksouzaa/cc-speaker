@@ -132,6 +132,10 @@ Quando o plugin é ativado com uma sessão já aberta, a instalação começa al
 
 O motor de voz erra a leitura de siglas escritas em maiúsculas (IBGE sai como uma palavra). Por isso o plugin soletra, antes de falar, toda sigla de duas a seis letras ("IBGE" vira "i bê gê é"), menos as que se leem como palavra (SUS, PIX, ENEM, ONU, NASA e outras) e os números romanos. Para acrescentar uma sigla que deve ser lida como palavra, ponha-a numa linha do arquivo `config/words` da pasta de dados; as linhas que começam com `#` são comentários.
 
+### Palavras em inglês
+
+Termos técnicos em inglês no meio do texto (reload, plugin, commit, deploy, GitHub e outros) são falados com a pronúncia do inglês, na mesma voz. Para acrescentar um termo, ponha-o numa linha do arquivo `config/english` da pasta de dados; as linhas que começam com `#` são comentários.
+
 ### Pastas
 
 Tudo fica na pasta de dados do plugin, `~/.claude/plugins/data/speak-cc-speaker` (ou onde `CLAUDE_SPEAK_DATA` mandar): o motor em `engine/`, as escolhas em `config/` e o estado em `state/`.

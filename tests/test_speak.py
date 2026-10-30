@@ -159,8 +159,8 @@ class Filter(unittest.TestCase):
             self.assertEqual(speak.clean('Veja `%s` agora.' % gone), 'Veja agora.')
 
     def test_acronyms_are_spelled_unless_said_as_a_word(self):
-        self.assertEqual(speak.clean('O IBGE e a ANTT.'), 'O i bê gê é e a á êne tê tê.')
-        self.assertEqual(speak.clean('O SUS, o PIX e o ENEM.'), 'O SUS, o PIX e o ENEM.')
+        self.assertEqual(speak.clean('O IBGE e a ANTT.'), 'O i bê gê éh e a á êne tê tê.')
+        self.assertEqual(speak.clean('O SUS, o PIX e o NASA.'), 'O SUS, o PIX e o NASA.')
         self.assertEqual(speak.clean('CPF e CNPJ.'), 'cê pê éfe e cê êne pê jota.')
         self.assertEqual(speak.clean('O IPVA e o IPCA.'), 'O i pê vê á e o i pê cê á.')
         self.assertEqual(speak.clean('Tarefa XII, capítulo IV.'), 'Tarefa XII, capítulo IV.')
@@ -176,6 +176,37 @@ class Filter(unittest.TestCase):
         with open(os.path.join(speak.CONF, 'words'), 'w') as fh:
             fh.write('# lidas como palavra\ncvm\nAnbima\n')
         self.assertEqual(speak.clean('A CVM e a ANBIMA.'), 'A CVM e a ANBIMA.')
+
+    def test_english_terms_are_marked_and_neighbours_join(self):
+        S, E = speak.EN_START, speak.EN_END
+        self.assertEqual(speak.english_terms(speak.clean('Rode /reload-plugins e faça o deploy.')),
+                         'Rode barra %sreload plugins%s e faça o %sdeploy%s.' % (S, E, S, E))
+        self.assertEqual(speak.english_terms(speak.clean('Nada em inglês aqui.')), 'Nada em inglês aqui.')
+
+    def test_enem_is_respelt_and_the_letter_e_is_stressed(self):
+        self.assertEqual(speak.clean('O Enem e o IBGE.'), 'O ênêi e o i bê gê éh.')
+
+    def test_own_english_file(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        isolate(self, tmp.name)
+        os.makedirs(speak.CONF, exist_ok=True)
+        with open(os.path.join(speak.CONF, 'english'), 'w') as fh:
+            fh.write('# inglês\nKubernetes\n')
+        self.assertEqual(speak.english_terms(speak.clean('Usa kubernetes.')), 'Usa %skubernetes%s.' % (speak.EN_START, speak.EN_END))
+
+    def test_a_piece_is_spoken_in_two_languages(self):
+        calls = []
+
+        class Fake:
+            def create(self, text, voice, speed, lang):
+                import numpy
+                calls.append((text, lang))
+                return numpy.ones(3, dtype='float32'), 24000
+        piece = speak.english_terms(speak.clean('Rode o deploy agora, então.'))
+        audio = speak.synth_piece(Fake(), piece, 'v', 1.0)
+        self.assertEqual(calls, [('Rode o ', 'pt-br'), ('deploy', 'en-us'), (' agora, então.', 'pt-br')])
+        self.assertEqual(len(audio), 9)
 
     def test_commit_codes_and_head_go(self):
         self.assertEqual(speak.clean('Commit b48e609 e 93a66bd prontos.'), 'Commit e prontos.')
@@ -3714,7 +3745,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.15.2')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.16.0')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):
