@@ -49,8 +49,8 @@
   speak again [summary|full]  speak the last reply of this session again, even with the voice off: as it played
                            (no word), only its 🔊 line (`summary`; the whole reply when it had none) or the whole
                            reply (`full`); `speak say -` keeps the last reply of each session for this
-  speak told [full|summary] print, or record, the mode last told to the model in this session (`rule` records it;
-                           used by hooks/speak-cut.py to say when the mode changes)
+  speak told [full|summary|silent] print, or record, what the model was last told in this session (`rule` records
+                           the mode; used by hooks/speak-cut.py to say when the mode or the voice comes back)
   speak silent             exit 0 when this session will not speak, else 1; when it will not, prints why: `off` (voice
                            off here), `installing [percent]` (engine being installed) or `missing` (no engine, no
                            install running); used by hooks/speak-cut.py to tell Claude to leave out the 🔊 line
@@ -327,7 +327,7 @@ def read_session(key):
         return {}
     return {k: v for k, v in data.items() if (k == 'voice' and v in ('muted', 'speaking'))
             or (k == 'mode' and v in MODES) or (k == 'size' and v in SIZES)
-            or (k == 'told' and v in MODES) or (k == 'mic' and v in MICS) or (k == 'micseen' and v is True)
+            or (k == 'told' and (v in MODES or v == 'silent')) or (k == 'mic' and v in MICS) or (k == 'micseen' and v is True)
             or (k == 'dir' and isinstance(v, str) and v)}
 
 
@@ -2064,7 +2064,7 @@ def main(argv):
         return status()
     if cmd == 'told':  # the mode last told to the model in this session (a field of the session file)
         session = current_session()
-        if text in MODES and session:
+        if (text in MODES or text == 'silent') and session:
             set_session(session, told=text)
         elif not text:
             print(read_session(session).get('told', ''))

@@ -2424,6 +2424,23 @@ class Silent(unittest.TestCase):
         subprocess.run([sys.executable, '-I', SPEAK, 'on'], env=env, capture_output=True)
         self.assertEqual(self.cut(CLAUDE_SPEAK_SESSION=two), back)
 
+    def test_a_voz_que_volta_avisa_uma_vez(self):
+        """Voice off then on in summary mode: the model was told to leave the 🔊 line out, so it is told once to write it."""
+        self.engine()
+        back = 'speak: a leitura voltou a ser só o resumo; termine esta resposta com a linha 🔊.\n'
+        self.env['CLAUDE_SPEAK_SESSION'] = speak.session_key(os.getpid())
+
+        def run(*args):
+            return subprocess.run([sys.executable, '-I', SPEAK, *args], capture_output=True, text=True, env=self.env)
+        run('rule')
+        self.assertEqual(self.cut(), '')
+        run('off')
+        self.assertIn('desligada', self.cut())
+        self.assertIn('desligada', self.cut())
+        run('on')
+        self.assertEqual(self.cut(), back)
+        self.assertEqual(self.cut(), '')
+
     def test_without_speak_the_hook_still_notes(self):
         hook = Hook().plugin(self.home, 'speak-cut.py', fake=False)
         r = subprocess.run([sys.executable, '-I', hook], input='{}', capture_output=True, text=True, env=self.env)
@@ -3678,7 +3695,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.14.5')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.14.6')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):
