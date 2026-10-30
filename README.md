@@ -3,9 +3,6 @@
 [![Versão](https://img.shields.io/github/v/release/ricksouzaa/cc-speaker?label=vers%C3%A3o)](https://github.com/ricksouzaa/cc-speaker/releases)
 [![Testes](https://img.shields.io/github/actions/workflow/status/ricksouzaa/cc-speaker/tests.yml?branch=main&label=testes)](https://github.com/ricksouzaa/cc-speaker/actions/workflows/tests.yml)
 [![Licença: MIT](https://img.shields.io/github/license/ricksouzaa/cc-speaker?label=licen%C3%A7a)](LICENSE)
-![Sistemas](https://img.shields.io/badge/sistemas-Linux%20%7C%20macOS-blue)
-![Python](https://img.shields.io/badge/python-3.9%2B-blue)
-![Voz local](https://img.shields.io/badge/voz-local%2C%20sem%20rede-success)
 
 Um plugin do Claude Code, chamado `speak`, que lê as respostas em voz alta em português do Brasil. A voz é gerada na sua máquina pelo Kokoro: sem rede, sem conta e sem custo. Este repositório é também o catálogo de onde o plugin se instala.
 
