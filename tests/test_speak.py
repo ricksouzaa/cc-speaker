@@ -1876,6 +1876,61 @@ class Session(unittest.TestCase):
         self.assertEqual([os.path.exists(p) for p in (dead, live, odd)], [False, True, True])
 
 
+class SoftPause(unittest.TestCase):
+    """A speech that plays through a stream pauses by feeding its player silence, not by freezing the player."""
+
+    def setUp(self):
+        isolation.guard_workers(self)
+        speak.PAUSED.clear()
+        self.addCleanup(speak.PAUSED.clear)
+
+    class Sink:
+        def __init__(self, on_write=None):
+            self.chunks = []
+            self.on_write = on_write
+
+        def write(self, data):
+            self.chunks.append(bytes(data))
+            if self.on_write:
+                self.on_write(self)
+
+        def flush(self):
+            pass
+
+    def test_audio_is_written_in_slices_and_whole(self):
+        data = bytes(range(256)) * (speak.SLICE // 256 * 2 + 1)
+        sink = self.Sink()
+        speak.write_audio(sink, data)
+        self.assertEqual(b''.join(sink.chunks), data)
+        self.assertTrue(all(len(c) <= speak.SLICE for c in sink.chunks))
+
+    def test_paused_writes_silence_until_continued(self):
+        data = b'\x01' * (speak.SLICE * 3)
+        speak.PAUSED.set()
+
+        def after(sink):
+            if len(sink.chunks) == 3:
+                speak.PAUSED.clear()
+
+        sink = self.Sink(after)
+        speak.write_audio(sink, data)
+        self.assertEqual(sink.chunks[:3], [bytes(4 * speak.RATE // 50)] * 3)  # silence while paused
+        self.assertEqual(b''.join(sink.chunks[3:]), data)  # then the whole audio, nothing lost
+
+    def test_a_speech_with_a_marker_gets_the_soft_signals_and_the_others_the_freeze(self):
+        calls = []
+        with mock.patch.object(speak.os, 'kill', lambda pid, sig: calls.append(('kill', pid, sig))), \
+                mock.patch.object(speak, 'signal_group', lambda pid, sig: calls.append(('group', pid, sig)) or True):
+            with mock.patch.object(speak.os.path, 'exists', lambda path: path == speak.soft_marker(7)):
+                speak.freeze(7, True)
+                speak.freeze(7, False)
+                speak.freeze(8, True)
+                speak.freeze(8, False)
+        S = speak.signal
+        self.assertEqual(calls, [('kill', 7, S.SIGUSR1), ('kill', 7, S.SIGUSR2),
+                                 ('group', 8, S.SIGSTOP), ('group', 8, S.SIGCONT)])
+
+
 class Pause(unittest.TestCase):
     """Pausing and resuming: real waiting processes (the fake driver of the queue tests, which runs speak's own
     wait_turn) frozen and continued by `speak pause` and `speak resume`. Nothing plays; sleep-like processes only."""
@@ -3717,7 +3772,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.17.0')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.17.1')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

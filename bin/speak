@@ -40,8 +40,8 @@
                            paused ones; the voice stays on
   speak stop here          cut only the speeches of this session (playing, waiting or paused); other sessions' speeches
                            stay (used by hooks/speak-end.py when the session ends)
-  speak pause              freeze the speech playing now, whoever's it is, at the exact point (SIGSTOP to its whole
-                           process group); the turn passes to the next speech in the queue, and the paused one waits
+  speak pause              freeze the speech playing now, whoever's it is, at the exact point (the player gets silence
+                           meanwhile, so the audio server has nothing to repeat); the turn passes to the next speech in the queue, and the paused one waits
                            until `speak resume` (or `speak stop`) asks for it
   speak resume             continue a paused speech: this session's (else the most recent pause); at once when
                            nothing plays, else it goes before the queue and continues when the speech playing ends
@@ -794,6 +794,7 @@ def end_paused(pid):
     only if the pid is still a speech of ours."""
     if is_speech(pid):
         signal_group(pid, signal.SIGKILL)
+        drop(soft_marker(pid))
 
 
 def terminate(pid):
@@ -918,8 +919,27 @@ def stop_if_mine(session):
             clear_speech(pid)
 
 
+def soft_marker(pid):
+    """Marker file of a speech that pauses itself (Linux streaming): it plays silence while paused instead of being
+    frozen, because a player frozen in the middle of a PipeWire stream leaves the server repeating the last buffer."""
+    return os.path.join(STATE, 'soft-%d' % pid)
+
+
+def freeze(pid, stop):
+    """Pauses (`stop`) or continues the speech `pid`. A speech with a soft marker gets SIGUSR1/SIGUSR2 and feeds its
+    player silence meanwhile; any other gets SIGSTOP/SIGCONT on its whole process group. True if something received it."""
+    if os.path.exists(soft_marker(pid)):
+        try:
+            os.kill(pid, signal.SIGUSR1 if stop else signal.SIGUSR2)
+            return True
+        except OSError:
+            return False
+    return signal_group(pid, signal.SIGSTOP if stop else signal.SIGCONT)
+
+
 def pause():
-    """Freezes the speech playing now, whoever's it is: SIGSTOP to its whole process group, at the exact point. The
+    """Freezes the speech playing now, whoever's it is: SIGSTOP to its whole process group, at the exact point (a
+    speech that plays through a stream pauses itself, see `freeze`). The
     turn is freed (speech.pid and speech.owner go) and the speech is registered as paused, last in the order of the
     pauses. Done under the queue lock, where `wait_turn` and the cuts swap the turn. Returns its facts; None when no
     speech of ours plays (the short helper that waits a paused speech's turn is not frozen)."""
@@ -936,7 +956,7 @@ def pause():
             except OSError:
                 owner = ''
             facts = {'pid': pid, 'session': owner, 'dir': '', 'how': ''}
-        if not signal_group(pid, signal.SIGSTOP):
+        if not freeze(pid, True):
             return None
         drop(PID)
         drop(OWNER)
@@ -967,7 +987,7 @@ def resume(session):
             write_atomic(PID, str(entry['pid']))
             write_atomic(OWNER, entry.get('session') or '')
             write_now({k: v for k, v in entry.items() if k != 'waiting'}, rest)
-            signal_group(entry['pid'], signal.SIGCONT)
+            freeze(entry['pid'], False)
             return 'now', entry
         os.makedirs(STATE, exist_ok=True)
         with open(LOG, 'a') as log:
@@ -996,7 +1016,7 @@ def resume_wait(pid):
                 write_atomic(PID, str(pid))
                 write_atomic(OWNER, entry.get('session') or '')
                 write_now({k: v for k, v in entry.items() if k != 'waiting'}, [e for e in now['paused'] if e is not entry])
-                signal_group(pid, signal.SIGCONT)
+                freeze(pid, False)
         return 0
     finally:
         drop_own_tickets()
@@ -1440,10 +1460,41 @@ def play_files(command, chunks, watch, session=None):
         player.drop_stream()
 
 
+PAUSED = threading.Event()  # set while the speech is paused (SIGUSR1) and until it is continued (SIGUSR2)
+PIPE_SIZE = 16384  # bytes the player's pipe holds (about 170 ms): a pause is heard within that time
+SLICE = 4 * RATE // 10  # bytes written between two looks at PAUSED (100 ms)
+
+
+def hold_silence(stdin):
+    """While paused, feeds the player silence (20 ms at a time, paced by the pipe), so its stream keeps running."""
+    chunk = bytes(4 * RATE // 50)
+    while PAUSED.is_set():
+        stdin.write(chunk)
+        stdin.flush()
+
+
+def write_audio(stdin, data):
+    """Writes `data` to the player in slices, holding silence in between when a pause came."""
+    for start in range(0, len(data), SLICE):
+        hold_silence(stdin)
+        stdin.write(data[start:start + SLICE])
+        stdin.flush()
+
+
 def play(text):
     """Runs inside the engine's Python: waits its turn in the queue, then synthesizes piece by piece into the
     player's stdin. The turn comes only while the microphone is free (no dictation in progress)."""
     session = current_session()
+    marker = None
+    if speak_os.streams():
+        signal.signal(signal.SIGUSR1, lambda *_: PAUSED.set())
+        signal.signal(signal.SIGUSR2, lambda *_: PAUSED.clear())
+        marker = soft_marker(os.getpid())
+        try:
+            os.makedirs(STATE, exist_ok=True)
+            open(marker, 'w').close()
+        except OSError:
+            marker = None
     try:
         watch = speak_os.SYSTEM == 'mac' or bool(shutil.which('pw-dump'))
         # `speak test` (CLAUDE_SPEAK_TEST) and `speak again` (CLAUDE_SPEAK_AGAIN) are explicit requests: they speak
@@ -1467,19 +1518,25 @@ def play(text):
         if not speak_os.streams():
             return play_files(player, synthesize_ahead(pieces(text), synth), watch, session)
         proc = subprocess.Popen(player, stdin=subprocess.PIPE)
+        try:
+            fcntl.fcntl(proc.stdin.fileno(), getattr(fcntl, 'F_SETPIPE_SZ', 1031), PIPE_SIZE)
+        except OSError:
+            pass
         speak_os.realtime(proc.pid)  # real time for the player, or as before when the system will not give it
         watcher = watch_microphone(proc, session) if watch else None
         try:
             try:
                 for samples in synthesize_ahead(pieces(text), synth):
-                    proc.stdin.write(samples.astype('float32').tobytes())
-                    proc.stdin.flush()
+                    write_audio(proc.stdin, samples.astype('float32').tobytes())
+                hold_silence(proc.stdin)  # paused after the last piece: the speech ends only when continued
             finally:
                 proc.stdin.close()
             return proc.wait()
         finally:
             stop_watching(watcher)
     finally:
+        if marker:
+            drop(marker)
         drop_own_tickets()
         clear_speech(os.getpid())
 

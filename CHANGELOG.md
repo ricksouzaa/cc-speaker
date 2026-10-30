@@ -7,6 +7,11 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.17.1] - 2026-10-30
+
+### Corrigido
+- Ao pausar a fala no Linux, o som não fica mais chiando, como se repetisse o trecho em que você pausou. A pausa agora manda silêncio ao tocador em vez de congelá-lo, e a fala continua de onde parou. A pausa passa a levar até cerca de um quarto de segundo para ser ouvida.
+
 ## [0.17.0] - 2026-10-30
 
 ### Removido
@@ -304,7 +309,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.17.0...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.17.1...HEAD
+[0.17.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.15.2...v0.16.0
 [0.15.2]: https://github.com/ricksouzaa/cc-speaker/compare/v0.15.1...v0.15.2
