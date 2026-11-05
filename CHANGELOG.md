@@ -7,6 +7,14 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.19.0] - 2026-11-05
+
+### Adicionado
+- Nova escolha: **resumo em mensagem própria**. Ligada, o Claude responde sem a linha 🔊 e, logo depois, manda a linha sozinha numa segunda mensagem. Assim, o botão de ler em voz alta do app do celular toca só o resumo. Escolha pelo painel (linha "Resumo em mensagem própria"), por `/speak split on` e `/speak split off` (com `all` no fim, para todas as sessões) ou em palavras, como "manda o resumo numa mensagem separada".
+- A voz do plugin lê o resumo uma vez só, e "Ouvir de novo" guarda a resposta inteira com o resumo no fim, como antes.
+- Custa uma chamada a mais do modelo por resposta, só enquanto a escolha está ligada. Vale com a voz ligada ou só com o resumo escrito, e não muda nada na leitura inteira ou com a voz desligada.
+- `/speak status` mostra a escolha na linha `resumo em mensagem própria`.
+
 ## [0.18.0] - 2026-11-05
 
 ### Adicionado
@@ -321,7 +329,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.18.0...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.19.0...HEAD
+[0.19.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.17.2...v0.18.0
 [0.17.2]: https://github.com/ricksouzaa/cc-speaker/compare/v0.17.1...v0.17.2
 [0.17.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.17.0...v0.17.1

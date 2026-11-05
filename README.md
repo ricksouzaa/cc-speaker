@@ -54,6 +54,7 @@ Digite `/speak` sozinho. Abre um painel com uma lista por linha, já com o tecla
 | Voz | ligada (padrão), só o resumo escrito (a voz cala e a linha 🔊 continua saindo, mesmo sem o motor; na leitura inteira vale como desligada) ou desligada |
 | Leitura | só o resumo (padrão) ou a resposta inteira |
 | Tamanho do resumo | pequeno (uma frase), médio (padrão, duas ou três frases) ou grande (um parágrafo); a linha só aparece com a leitura em "só o resumo" (o `/speak size` escrito vale em qualquer modo) |
+| Resumo em mensagem própria | Não (padrão) ou Sim: a linha 🔊 sai numa mensagem só dela, logo depois da resposta, para o botão de ler em voz alta do app do celular tocar só o resumo; também só aparece com a leitura em "só o resumo" |
 | Voz de leitura | Dora (padrão, feminina), Alice (feminina, a Dora mais suave), Alex ou Santa (masculinas); vale sempre para todas as sessões |
 | Com o microfone em uso | Espera (padrão), Toca ou Toca nesta reunião (veja [Microfone](#microfone)) |
 | Ouvir de novo | dois botões, Resumo e Resposta inteira: tocam na hora a última fala desta sessão; a linha não guarda valor |
@@ -75,21 +76,24 @@ Para pular o painel, escreva a ação. Com `all` no fim, vale para todas as sess
 | `/speak on` · `/speak quiet` · `/speak off` | liga a voz, cala a voz mas mantém o resumo escrito, ou desliga tudo (padrão: `on`) |
 | `/speak mode summary` · `full` | lê só o resumo ou a resposta inteira (padrão: `summary`) |
 | `/speak size small` · `medium` · `large` | tamanho do resumo (padrão: `medium`) |
+| `/speak split on` · `off` | põe o resumo numa mensagem própria, depois da resposta, ou de volta no fim dela (padrão: `off`) |
 | `/speak voice dora` · `alice` · `alex` · `santa` | troca a voz, sempre em todas as sessões (padrão: `dora`) |
 | `/speak mic wait` · `play` · `auto` | o que fazer com o microfone em uso (padrão: `wait`) |
 | `/speak again` · `again summary` · `again full` | ouve de novo a última fala desta sessão, mesmo com a voz desligada: do jeito em que tocou, só o resumo ou a resposta inteira |
 | `/speak pause` | congela a fala que está tocando, de qualquer sessão, no ponto exato; a vez passa para a próxima da fila, e a pausada espera você pedir |
 | `/speak resume` | continua a fala pausada desta sessão (ou a pausada mais recente); se outra fala toca, a pausada vai para a frente da fila e continua quando essa acabar |
-| `/speak status` | mostra a versão do plugin e como está tudo: voz, leitura, tamanho, microfone e motor |
+| `/speak status` | mostra a versão do plugin e como está tudo: voz, leitura, tamanho, resumo em mensagem própria, microfone e motor |
 | `/speak stop` | corta a fala que está tocando, esvazia a fila e encerra as falas pausadas |
 | `/speak install` | instala o motor de novo, em primeiro plano |
 | `/speak update` | atualiza o plugin para a versão mais nova do catálogo; vale depois de `/reload-plugins` ou numa sessão nova |
 
 Sem o valor (`/speak mode`, `/speak voice`…), o painel abre já na linha certa. Sair de uma sessão corta as falas dela (tocando, na fila ou pausadas), e as de outras sessões continuam.
 
+O resumo em mensagem própria custa uma chamada a mais do modelo por resposta, só enquanto a escolha está ligada: o Claude responde sem a linha 🔊, o gancho de parada pede a linha e ela vem sozinha numa segunda mensagem. Foi feito para o app do celular, cujo botão de ler em voz alta lê a mensagem inteira; a voz do plugin continua lendo só o resumo, uma vez.
+
 ### Em palavras
 
-Também dá para pedir ao Claude, escrevendo ou ditando: "fala só o resumo", "resumo maior", "troca para a voz do Alex", "para de falar", "cala a voz mas deixa o resumo", "silêncio em todas as sessões". Para pausar: "pausa"; para seguir: "continua" ou "continuar de onde parou". Para ouvir de novo: "repete", "não entendi, repete", "lê a resposta inteira", "lê só o resumo de novo". Ele roda o comando e confirma o que passou a valer.
+Também dá para pedir ao Claude, escrevendo ou ditando: "fala só o resumo", "resumo maior", "troca para a voz do Alex", "para de falar", "cala a voz mas deixa o resumo", "manda o resumo numa mensagem separada", "silêncio em todas as sessões". Para pausar: "pausa"; para seguir: "continua" ou "continuar de onde parou". Para ouvir de novo: "repete", "não entendi, repete", "lê a resposta inteira", "lê só o resumo de novo". Ele roda o comando e confirma o que passou a valer.
 
 ## Microfone
 
