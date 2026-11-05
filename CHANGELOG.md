@@ -7,6 +7,11 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.20.1] - 2026-11-05
+
+### Alterado
+- O resumo em mensagem própria volta a vir **desligado**, como na 0.19.0, para não gastar uma chamada a mais do modelo em toda resposta. Ligue quando for ouvir pelo celular: `/speak split on` (ou `/speak split on all`), o painel ou peça em palavras. Quem ligou de propósito continua com ele ligado.
+
 ## [0.20.0] - 2026-11-05
 
 ### Alterado
@@ -335,7 +340,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.20.0...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.20.1...HEAD
+[0.20.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.20.0...v0.20.1
 [0.20.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.17.2...v0.18.0

@@ -54,7 +54,7 @@ Digite `/speak` sozinho. Abre um painel com uma lista por linha, já com o tecla
 | Voz | ligada (padrão), só o resumo escrito (a voz cala e a linha 🔊 continua saindo, mesmo sem o motor; na leitura inteira vale como desligada) ou desligada |
 | Leitura | só o resumo (padrão) ou a resposta inteira |
 | Tamanho do resumo | pequeno (uma frase), médio (padrão, duas ou três frases) ou grande (um parágrafo); a linha só aparece com a leitura em "só o resumo" (o `/speak size` escrito vale em qualquer modo) |
-| Resumo em mensagem própria | Sim (padrão) ou Não: a linha 🔊 sai numa mensagem só dela, logo depois da resposta, para o botão de ler em voz alta do app do celular tocar só o resumo; também só aparece com a leitura em "só o resumo" |
+| Resumo em mensagem própria | Não (padrão) ou Sim: a linha 🔊 sai numa mensagem só dela, logo depois da resposta, para o botão de ler em voz alta do app do celular tocar só o resumo; também só aparece com a leitura em "só o resumo" |
 | Voz de leitura | Dora (padrão, feminina), Alice (feminina, a Dora mais suave), Alex ou Santa (masculinas); vale sempre para todas as sessões |
 | Com o microfone em uso | Espera (padrão), Toca ou Toca nesta reunião (veja [Microfone](#microfone)) |
 | Ouvir de novo | dois botões, Resumo e Resposta inteira: tocam na hora a última fala desta sessão; a linha não guarda valor |
@@ -76,7 +76,7 @@ Para pular o painel, escreva a ação. Com `all` no fim, vale para todas as sess
 | `/speak on` · `/speak quiet` · `/speak off` | liga a voz, cala a voz mas mantém o resumo escrito, ou desliga tudo (padrão: `on`) |
 | `/speak mode summary` · `full` | lê só o resumo ou a resposta inteira (padrão: `summary`) |
 | `/speak size small` · `medium` · `large` | tamanho do resumo (padrão: `medium`) |
-| `/speak split on` · `off` | põe o resumo numa mensagem própria, depois da resposta, ou de volta no fim dela (padrão: `on`) |
+| `/speak split on` · `off` | põe o resumo numa mensagem própria, depois da resposta, ou de volta no fim dela (padrão: `off`) |
 | `/speak voice dora` · `alice` · `alex` · `santa` | troca a voz, sempre em todas as sessões (padrão: `dora`) |
 | `/speak mic wait` · `play` · `auto` | o que fazer com o microfone em uso (padrão: `wait`) |
 | `/speak again` · `again summary` · `again full` | ouve de novo a última fala desta sessão, mesmo com a voz desligada: do jeito em que tocou, só o resumo ou a resposta inteira |
@@ -89,7 +89,7 @@ Para pular o painel, escreva a ação. Com `all` no fim, vale para todas as sess
 
 Sem o valor (`/speak mode`, `/speak voice`…), o painel abre já na linha certa. Sair de uma sessão corta as falas dela (tocando, na fila ou pausadas), e as de outras sessões continuam.
 
-O resumo em mensagem própria vem ligado e custa uma chamada a mais do modelo por resposta; `/speak split off all` volta ao resumo no fim da resposta, sem a chamada extra: o Claude responde sem a linha 🔊, o gancho de parada pede a linha e ela vem sozinha numa segunda mensagem. Foi feito para o app do celular, cujo botão de ler em voz alta lê a mensagem inteira; a voz do plugin continua lendo só o resumo, uma vez.
+O resumo em mensagem própria custa uma chamada a mais do modelo por resposta, só enquanto a escolha está ligada: o Claude responde sem a linha 🔊, o gancho de parada pede a linha e ela vem sozinha numa segunda mensagem. Foi feito para o app do celular, cujo botão de ler em voz alta lê a mensagem inteira; a voz do plugin continua lendo só o resumo, uma vez.
 
 ### Em palavras
 

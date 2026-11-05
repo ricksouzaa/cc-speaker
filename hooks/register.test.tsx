@@ -130,13 +130,6 @@ test('a linha do resumo em mensagem própria roda speak split e diz o que vale',
   await ui.unmount()
 })
 
-test('sem a escolha no estado, a linha do resumo em mensagem própria mostra Sim, o padrão', async ($, on) => {
-  await setup($, on, { init: { split: undefined } })
-  const { ui } = await openMenu($)
-  expect((await selects(ui)).split.value).toBe('on')
-  await ui.unmount()
-})
-
 test('/speak split escrito roda direto; sem valor abre o painel na linha', async ($, on) => {
   const { ran, opened } = await setup($, on)
   const r = await $.command.run({ command: 'speak', args: 'split on' })

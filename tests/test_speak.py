@@ -1147,17 +1147,17 @@ class Session(unittest.TestCase):
         self.assertEqual(json.loads(self.speak('status', '--json', session=self.me).stdout)['power'], 'quiet')
         self.assertFalse(json.loads(self.speak('status', '--json', session=self.me).stdout)['on'])
 
-    def test_split_is_on_by_default_and_follows_the_scopes(self):
-        self.assertIn('resumo em mensagem própria: sim', self.speak('status', session=self.me).stdout)
-        self.speak('split', 'off', session=self.me)
+    def test_split_is_off_by_default_and_follows_the_scopes(self):
+        self.assertIn('resumo em mensagem própria: não', self.speak('status', session=self.me).stdout)
+        self.speak('split', 'on', session=self.me)
         mine = self.speak('status', session=self.me).stdout
-        self.assertIn('resumo em mensagem própria: não · só nesta sessão', mine)
-        self.assertIn('resumo em mensagem própria: sim', self.speak('status', session=self.other).stdout)
+        self.assertIn('resumo em mensagem própria: sim · só nesta sessão', mine)
+        self.assertIn('resumo em mensagem própria: não', self.speak('status', session=self.other).stdout)
         data = json.loads(self.speak('status', '--json', session=self.me).stdout)
-        self.assertEqual((data['split'], data['scope']['split']), ('off', 'session'))
-        self.speak('split', 'off', 'all', session=self.me)
-        data = json.loads(self.speak('status', '--json', session=self.other).stdout)
-        self.assertEqual((data['split'], data['scope']['split']), ('off', 'all'))
+        self.assertEqual((data['split'], data['scope']['split']), ('on', 'session'))
+        self.speak('split', 'on', 'all', session=self.me)
+        data = json.loads(self.speak('status', '--json', session=self.me).stdout)
+        self.assertEqual((data['split'], data['scope']['split']), ('on', 'all'))
         self.assertEqual(self.speak('split', 'sim', session=self.me).returncode, 2)
 
     def test_quiet_all_is_general_and_on_all_clears_it(self):
@@ -2469,10 +2469,6 @@ class Silent(unittest.TestCase):
         self.home = self.tmp.name
         self.bin = os.path.join(self.home, '.local', 'bin')
         self.env = {'HOME': self.home, 'PATH': '/usr/bin:/bin', 'CLAUDE_SPEAK_SESSION': 'sessao-1'}
-        # the line at the end of the reply, as before 0.20.0; the split tests turn it on for their session
-        os.makedirs(data_dir(self.home, 'config'))
-        with open(data_dir(self.home, 'config', 'split'), 'w') as fh:
-            fh.write('off\n')
 
     def engine(self):
         data = data_dir(self.home, 'engine')
@@ -3086,8 +3082,8 @@ class Rule(unittest.TestCase):
 
     def test_the_rule_says_the_line_goes_alone_with_split_on(self):
         said = 'the Stop hook asks for it right after'
-        self.assertIn(said, self.rule())  # on by default since 0.20.0
-        self.assertNotIn(said, self.rule(CLAUDE_SPEAK_SPLIT='off'))
+        self.assertNotIn(said, self.rule())
+        self.assertIn(said, self.rule(CLAUDE_SPEAK_SPLIT='on'))
         self.assertNotIn(said, self.rule(CLAUDE_SPEAK_SPLIT='on', CLAUDE_SPEAK_MODE='full'))
 
     def test_regra_sem_linha_no_full(self):
@@ -4066,7 +4062,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.20.0')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.20.1')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

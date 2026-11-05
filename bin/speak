@@ -12,7 +12,7 @@
                            a paragraph); same scopes as `mode`; default medium
   speak split on|off [all]  on: the 🔊 line goes in a message of its own after the reply (the Stop hook asks for it
                            in one more turn), so a phone's play button reads only the summary; same scopes as `mode`;
-                           default on
+                           default off
   speak mic wait|play|auto [all]  what the speech does while a program records from the microphone (dictation,
                            video call); same scopes as `mode`; wait (default): the speech waits and a recording that
                            starts cuts it; play: it plays anyway, until changed, and only Claude Code's own dictation (holding the
@@ -247,7 +247,7 @@ def mic(session=None):
 
 def split(session=None):
     """Whether the 🔊 line goes in a message of its own: CLAUDE_SPEAK_SPLIT, then the session's own choice, then the
-    general file, then 'on'."""
+    general file, then 'off'."""
     wanted = os.environ.get('CLAUDE_SPEAK_SPLIT') or read_session(session).get('split')
     if not wanted:
         try:
@@ -255,7 +255,7 @@ def split(session=None):
                 wanted = fh.read().strip()
         except OSError:
             pass
-    return wanted if wanted in SPLITS else 'on'
+    return wanted if wanted in SPLITS else 'off'
 
 
 def session_key(pid):
