@@ -2593,7 +2593,7 @@ class Silent(unittest.TestCase):
         """Voice on, summary mode: a note is not enough (the model may ignore it among dozens of "voice off" ones), so
         every new message repeats it while the session's last reply has no 🔊 line."""
         self.engine()
-        remind = ('speak: a voz está ligada e a sua última resposta ficou sem a linha 🔊; termine esta resposta com a '
+        remind = ('speak: a linha 🔊 está pedida e a sua última resposta ficou sem ela; termine esta resposta com a '
                   'linha 🔊. Os avisos anteriores de "não escreva a linha" não valem mais.\n')
         self.env['CLAUDE_SPEAK_SESSION'] = speak.session_key(os.getpid())
 
@@ -2629,7 +2629,26 @@ class Silent(unittest.TestCase):
         run('on')
         self.assertEqual(self.cut(), back)
         run('say', '-', stdin='Ignorei o aviso.')
-        self.assertIn('ficou sem a linha', self.cut())
+        self.assertIn('ficou sem ela', self.cut())
+
+    def test_quiet_brings_the_line_back_and_reminds_without_the_engine(self):
+        """Off then quiet, no engine: the model is told once the line is back, then reminded while replies lack it."""
+        self.env['CLAUDE_SPEAK_SESSION'] = speak.session_key(os.getpid())
+
+        def run(*args, stdin=None):
+            return subprocess.run([sys.executable, '-I', SPEAK, *args], capture_output=True, text=True, env=self.env,
+                                  input=stdin)
+        run('rule')
+        run('off')
+        self.assertIn('desligada', self.cut())
+        run('quiet')
+        self.assertIn('termine esta resposta com a linha 🔊', self.cut())
+        run('say', '-', stdin='Sem linha.')
+        note = self.cut()
+        self.assertIn('ficou sem ela', note)
+        self.assertNotIn('/speak install', note)
+        run('say', '-', stdin='Com linha.\n🔊 Pronto.')
+        self.assertEqual(self.cut(), '')
 
     def test_no_reminder_in_full_mode_or_with_the_voice_off(self):
         self.engine()
@@ -2940,7 +2959,7 @@ class Rule(unittest.TestCase):
 
     def test_rule_names_the_commands(self):
         text = self.rule()
-        for name in ('on', 'off', 'mode', 'size', 'mic', 'voice', 'status', 'stop', 'install'):
+        for name in ('on', 'off', 'quiet', 'mode', 'size', 'mic', 'voice', 'status', 'stop', 'install'):
             self.assertIn('`speak %s' % name, text)
         self.assertIn('`/speak`', text)
         self.assertNotIn('/speak:', text)

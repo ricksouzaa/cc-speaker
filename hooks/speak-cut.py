@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """UserPromptSubmit hook: a new message from the human cuts nothing; a speech playing goes on, and a new speech
 waits its turn in the queue (only dictation cuts the one playing). When this session will not speak (`speak silent`,
-or `speak` missing), or reads the whole reply (`mode full`), it prints a note that Claude reads with the message:
+or `speak` missing; voice `quiet` is not silent here: the line stays), or reads the whole reply (`mode full`), it prints a note that Claude reads with the message:
 leave out the 🔊 line. The rule is injected once, at the start, so the hook remembers (`speak told`) what the
-model was last told (full, or silent); when the voice or the summary comes back it says to write the line again, and repeats a reminder at each message while the last reply has no line (`speak forgot`). Each message also
+model was last told (full, or silent); when the voice (`on` or `quiet`) or the summary comes back it says to write the line again, and repeats a reminder at each message while the last reply has no line (`speak forgot`). Each message also
 runs `speak _mictick`: with the microphone choice on `auto`, that is where the end of the meeting (microphone busy,
 now free) sends the choice back to `wait` when no speech is playing to see it. The note says why the
 session is silent (`speak silent` prints it): voice off, engine being installed, or engine missing. Fail-open: exits 0."""
@@ -18,7 +18,7 @@ NOTE_MISSING = 'speak: o motor de voz não está instalado (rode /speak install)
 NOTE_FULL = 'speak: a leitura é da resposta inteira; não termine esta resposta com a linha 🔊.'
 NOTE_BACK = ('speak: a leitura voltou a ser só o resumo; termine esta resposta com a linha 🔊. '
              'Os avisos anteriores de "não escreva a linha" não valem mais.')
-NOTE_REMIND = ('speak: a voz está ligada e a sua última resposta ficou sem a linha 🔊; termine esta resposta com a '
+NOTE_REMIND = ('speak: a linha 🔊 está pedida e a sua última resposta ficou sem ela; termine esta resposta com a '
                'linha 🔊. Os avisos anteriores de "não escreva a linha" não valem mais.')
 
 
