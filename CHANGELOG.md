@@ -7,6 +7,13 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.18.0] - 2026-11-05
+
+### Adicionado
+- Novo estado da voz: **só o resumo escrito**. A voz fica calada, mas o Claude continua escrevendo a linha 🔊 com o resumo no fim de cada resposta, para você ler sem ouvir (numa reunião, por exemplo). Escolha pelo painel (linha "Voz"), por `/speak quiet` (ou `/speak quiet all`) ou em palavras, como "cala a voz mas deixa o resumo". A linha de estado mostra `voz: só o resumo escrito`, e o painel avisa que a voz está calada nesta sessão e o resumo continua escrito.
+- O resumo escrito continua saindo mesmo sem o motor de voz instalado. Na leitura inteira, esse estado vale como voz desligada.
+- "Ouvir de novo" (e `/speak again`) continua tocando a resposta em qualquer estado, inclusive com a voz calada.
+
 ## [0.17.2] - 2026-11-05
 
 ### Corrigido
@@ -314,7 +321,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.17.2...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.18.0...HEAD
+[0.18.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.17.2...v0.18.0
 [0.17.2]: https://github.com/ricksouzaa/cc-speaker/compare/v0.17.1...v0.17.2
 [0.17.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.16.0...v0.17.0

@@ -16,7 +16,7 @@ SPEAK = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))
 NOTE = 'speak: a voz está desligada nesta sessão; não termine esta resposta com a linha 🔊.'
 NOTE_MISSING = 'speak: o motor de voz não está instalado (rode /speak install); não termine esta resposta com a linha 🔊.'
 NOTE_FULL = 'speak: a leitura é da resposta inteira; não termine esta resposta com a linha 🔊.'
-NOTE_BACK = ('speak: a leitura voltou a ser só o resumo; termine esta resposta com a linha 🔊. '
+NOTE_BACK = ('speak: a linha 🔊 voltou a ser pedida; termine esta resposta com a linha 🔊. '
              'Os avisos anteriores de "não escreva a linha" não valem mais.')
 NOTE_REMIND = ('speak: a linha 🔊 está pedida e a sua última resposta ficou sem ela; termine esta resposta com a '
                'linha 🔊. Os avisos anteriores de "não escreva a linha" não valem mais.')

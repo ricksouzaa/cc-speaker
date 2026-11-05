@@ -444,11 +444,9 @@ def set_general_power(value):
     if value != 'on':
         os.makedirs(CONF, exist_ok=True)
         write_atomic(POWER_FILE, value + '\n')
-    for path in (OFF_FLAG,) if value != 'on' else (OFF_FLAG, POWER_FILE):
-        try:
-            os.remove(path)
-        except OSError:
-            pass
+    remove_quietly(OFF_FLAG)
+    if value == 'on':
+        remove_quietly(POWER_FILE)
 
 
 def power(session=None):
@@ -1984,7 +1982,6 @@ def migrate():
                         os.remove(os.path.join(STATE, name))
                     except OSError:
                         pass
-
 
     _migrate_off_flag()
     _drop_copied_fields()

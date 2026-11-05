@@ -51,7 +51,7 @@ Digite `/speak` sozinho. Abre um painel com uma lista por linha, já com o tecla
 | Linha | O que escolhe |
 |---|---|
 | Mudar em | onde as próximas trocas valem: todas as sessões (padrão ao abrir) ou só nesta |
-| Voz | ligada (padrão) ou desligada |
+| Voz | ligada (padrão), só o resumo escrito (a voz cala e a linha 🔊 continua saindo, mesmo sem o motor; na leitura inteira vale como desligada) ou desligada |
 | Leitura | só o resumo (padrão) ou a resposta inteira |
 | Tamanho do resumo | pequeno (uma frase), médio (padrão, duas ou três frases) ou grande (um parágrafo); a linha só aparece com a leitura em "só o resumo" (o `/speak size` escrito vale em qualquer modo) |
 | Voz de leitura | Dora (padrão, feminina), Alice (feminina, a Dora mais suave), Alex ou Santa (masculinas); vale sempre para todas as sessões |
@@ -72,7 +72,7 @@ Para pular o painel, escreva a ação. Com `all` no fim, vale para todas as sess
 
 | Comando | O que faz |
 |---|---|
-| `/speak on` · `/speak off` | liga ou desliga a voz (padrão: `on`) |
+| `/speak on` · `/speak quiet` · `/speak off` | liga a voz, cala a voz mas mantém o resumo escrito, ou desliga tudo (padrão: `on`) |
 | `/speak mode summary` · `full` | lê só o resumo ou a resposta inteira (padrão: `summary`) |
 | `/speak size small` · `medium` · `large` | tamanho do resumo (padrão: `medium`) |
 | `/speak voice dora` · `alice` · `alex` · `santa` | troca a voz, sempre em todas as sessões (padrão: `dora`) |
@@ -89,7 +89,7 @@ Sem o valor (`/speak mode`, `/speak voice`…), o painel abre já na linha certa
 
 ### Em palavras
 
-Também dá para pedir ao Claude, escrevendo ou ditando: "fala só o resumo", "resumo maior", "troca para a voz do Alex", "para de falar", "silêncio em todas as sessões". Para pausar: "pausa"; para seguir: "continua" ou "continuar de onde parou". Para ouvir de novo: "repete", "não entendi, repete", "lê a resposta inteira", "lê só o resumo de novo". Ele roda o comando e confirma o que passou a valer.
+Também dá para pedir ao Claude, escrevendo ou ditando: "fala só o resumo", "resumo maior", "troca para a voz do Alex", "para de falar", "cala a voz mas deixa o resumo", "silêncio em todas as sessões". Para pausar: "pausa"; para seguir: "continua" ou "continuar de onde parou". Para ouvir de novo: "repete", "não entendi, repete", "lê a resposta inteira", "lê só o resumo de novo". Ele roda o comando e confirma o que passou a valer.
 
 ## Microfone
 
@@ -113,7 +113,7 @@ No Mac, se a voz nunca tocar porque o `speak` acha que o microfone está sempre 
 - **A instalação falhou:** ela não tenta de novo sozinha, para não baixar tudo em toda sessão. O aviso fica embaixo do campo; rode `/speak install` para tentar de novo, vendo cada etapa.
 - **O registro** de cada instalação fica em `state/install.log`, na [pasta de dados](#pastas). Cada etapa aparece ali na hora em que começa.
 
-Enquanto o motor falta, o Claude não escreve a linha 🔊. A instalação automática se desliga com `CLAUDE_SPEAK_AUTOINSTALL=0`.
+Enquanto o motor falta, o Claude não escreve a linha 🔊, a não ser que a voz esteja em só o resumo escrito. A instalação automática se desliga com `CLAUDE_SPEAK_AUTOINSTALL=0`.
 
 Quando o plugin é ativado com uma sessão já aberta, a instalação começa ali mesmo, mas as regras da voz só chegam ao Claude na próxima sessão.
 

@@ -2540,7 +2540,7 @@ class Silent(unittest.TestCase):
 
     def test_volta_ao_resumo(self):
         self.engine()
-        back = ('speak: a leitura voltou a ser só o resumo; termine esta resposta com a linha 🔊. '
+        back = ('speak: a linha 🔊 voltou a ser pedida; termine esta resposta com a linha 🔊. '
                 'Os avisos anteriores de "não escreva a linha" não valem mais.\n')
         full = 'speak: a leitura é da resposta inteira; não termine esta resposta com a linha 🔊.\n'
 
@@ -2574,7 +2574,7 @@ class Silent(unittest.TestCase):
     def test_a_voz_que_volta_avisa_uma_vez(self):
         """Voice off then on in summary mode: the model was told to leave the 🔊 line out, so it is told once to write it."""
         self.engine()
-        back = ('speak: a leitura voltou a ser só o resumo; termine esta resposta com a linha 🔊. '
+        back = ('speak: a linha 🔊 voltou a ser pedida; termine esta resposta com a linha 🔊. '
                 'Os avisos anteriores de "não escreva a linha" não valem mais.\n')
         self.env['CLAUDE_SPEAK_SESSION'] = speak.session_key(os.getpid())
 
@@ -2614,7 +2614,7 @@ class Silent(unittest.TestCase):
         """The first message after the voice returns carries the note of the return; the ones after it carry the
         reminder while the model still leaves the line out."""
         self.engine()
-        back = ('speak: a leitura voltou a ser só o resumo; termine esta resposta com a linha 🔊. '
+        back = ('speak: a linha 🔊 voltou a ser pedida; termine esta resposta com a linha 🔊. '
                 'Os avisos anteriores de "não escreva a linha" não valem mais.\n')
         self.env['CLAUDE_SPEAK_SESSION'] = speak.session_key(os.getpid())
 
@@ -3919,7 +3919,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.17.2')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.18.0')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):
