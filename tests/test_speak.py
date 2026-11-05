@@ -2471,7 +2471,8 @@ class Silent(unittest.TestCase):
 
     def test_volta_ao_resumo(self):
         self.engine()
-        back = 'speak: a leitura voltou a ser só o resumo; termine esta resposta com a linha 🔊.\n'
+        back = ('speak: a leitura voltou a ser só o resumo; termine esta resposta com a linha 🔊. '
+                'Os avisos anteriores de "não escreva a linha" não valem mais.\n')
         full = 'speak: a leitura é da resposta inteira; não termine esta resposta com a linha 🔊.\n'
 
         sleeper = subprocess.Popen(['sleep', '60'])  # live session keys: dead ones are pruned at every write
@@ -2504,7 +2505,8 @@ class Silent(unittest.TestCase):
     def test_a_voz_que_volta_avisa_uma_vez(self):
         """Voice off then on in summary mode: the model was told to leave the 🔊 line out, so it is told once to write it."""
         self.engine()
-        back = 'speak: a leitura voltou a ser só o resumo; termine esta resposta com a linha 🔊.\n'
+        back = ('speak: a leitura voltou a ser só o resumo; termine esta resposta com a linha 🔊. '
+                'Os avisos anteriores de "não escreva a linha" não valem mais.\n')
         self.env['CLAUDE_SPEAK_SESSION'] = speak.session_key(os.getpid())
 
         def run(*args):
@@ -2517,6 +2519,63 @@ class Silent(unittest.TestCase):
         run('on')
         self.assertEqual(self.cut(), back)
         self.assertEqual(self.cut(), '')
+
+    def test_the_reminder_repeats_until_a_reply_has_the_line(self):
+        """Voice on, summary mode: a note is not enough (the model may ignore it among dozens of "voice off" ones), so
+        every new message repeats it while the session's last reply has no 🔊 line."""
+        self.engine()
+        remind = ('speak: a voz está ligada e a sua última resposta ficou sem a linha 🔊; termine esta resposta com a '
+                  'linha 🔊. Os avisos anteriores de "não escreva a linha" não valem mais.\n')
+        self.env['CLAUDE_SPEAK_SESSION'] = speak.session_key(os.getpid())
+
+        def run(*args, stdin=None):
+            return subprocess.run([sys.executable, '-I', SPEAK, *args], capture_output=True, text=True, env=self.env,
+                                  input=stdin)
+        run('rule')
+        self.assertEqual(self.cut(), '')  # nothing said yet: nothing to remind
+        run('say', '-', stdin='Fiz tudo.')
+        self.assertEqual(self.cut(), remind)
+        self.assertEqual(self.cut(), remind)  # again, until the line comes
+        run('say', '-', stdin='Fiz tudo.\n🔊 Fiz tudo.')
+        self.assertEqual(self.cut(), '')
+        run('say', '-', stdin='Esqueci de novo.')
+        self.assertEqual(self.cut(), remind)
+
+    def test_the_reminder_follows_the_voice_coming_back(self):
+        """The first message after the voice returns carries the note of the return; the ones after it carry the
+        reminder while the model still leaves the line out."""
+        self.engine()
+        back = ('speak: a leitura voltou a ser só o resumo; termine esta resposta com a linha 🔊. '
+                'Os avisos anteriores de "não escreva a linha" não valem mais.\n')
+        self.env['CLAUDE_SPEAK_SESSION'] = speak.session_key(os.getpid())
+
+        def run(*args, stdin=None):
+            return subprocess.run([sys.executable, '-I', SPEAK, *args], capture_output=True, text=True, env=self.env,
+                                  input=stdin)
+        run('rule')
+        run('off')
+        self.assertIn('desligada', self.cut())
+        run('say', '-', stdin='Sem linha, a voz estava desligada.')
+        self.assertIn('desligada', self.cut())
+        run('on')
+        self.assertEqual(self.cut(), back)
+        run('say', '-', stdin='Ignorei o aviso.')
+        self.assertIn('ficou sem a linha', self.cut())
+
+    def test_no_reminder_in_full_mode_or_with_the_voice_off(self):
+        self.engine()
+        self.env['CLAUDE_SPEAK_SESSION'] = speak.session_key(os.getpid())
+
+        def run(*args, stdin=None):
+            return subprocess.run([sys.executable, '-I', SPEAK, *args], capture_output=True, text=True, env=self.env,
+                                  input=stdin)
+        run('rule')
+        run('say', '-', stdin='Sem linha.')
+        run('mode', 'full')
+        self.assertIn('inteira', self.cut())
+        run('mode', 'summary')
+        run('off')
+        self.assertIn('desligada', self.cut())
 
     def test_without_speak_the_hook_still_notes(self):
         hook = Hook().plugin(self.home, 'speak-cut.py', fake=False)
@@ -3772,7 +3831,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.17.1')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.17.2')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

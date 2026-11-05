@@ -29,6 +29,7 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 - Pasta de dados na do plugin (`.../plugins/data/speak-cc-speaker`, ou a que o Claude Code der): motor, escolhas e estado juntos, e `claude plugin uninstall` apaga tudo (a menos que use `--keep-data`). As pastas antigas (`~/.local/share/claude-speak` e as outras) se mudam sozinhas, uma de cada vez.
 - Mac: peça por sistema em `lib/speak_os.py`; som em fluxo pelo `sounddevice` (com prazo para abrir, escrever e parar) e `afplay` de reserva; microfone lido pelo CoreAudio. O fluxo do GitHub roda os testes no Ubuntu e no macOS (também no Python 3.9 do Mac). Falta o teste num Mac de verdade.
 - A linha 🔊 do resumo só é pedida no modo resumo (o padrão); no modo leitura inteira o modelo é avisado de que não deve escrevê-la.
+- Voz que volta (0.17.2): o aviso "termine com a linha 🔊" de uma vez só não bastava (visto numa sessão longa do invest em 05/11/2026: o modelo o recebeu e ignorou, entre dezenas de avisos de "voz desligada"). O gancho de mensagem nova repete o lembrete enquanto a última resposta guardada (`speak forgot`) estiver sem a linha, com a voz ligada e no modo resumo. Limite: só chega com mensagem nova (ou aviso de tarefa); no meio de uma rodada sem mensagem nenhuma nada chega ao modelo.
 - Fim de sessão corta a fala daquela sessão (`speak stop here`), sem mexer nas outras.
 - Instalação do motor visível: progresso na linha de status, no `/speak status` e no menu, com aviso ao fim ou na falha (issue #1).
 - Teste de instalação limpa em contêiner (`tests/docker/`).

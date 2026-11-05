@@ -3,7 +3,7 @@
 waits its turn in the queue (only dictation cuts the one playing). When this session will not speak (`speak silent`,
 or `speak` missing), or reads the whole reply (`mode full`), it prints a note that Claude reads with the message:
 leave out the 🔊 line. The rule is injected once, at the start, so the hook remembers (`speak told`) what the
-model was last told (full, or silent); when the voice or the summary comes back it says once to write the line again. Each message also
+model was last told (full, or silent); when the voice or the summary comes back it says to write the line again, and repeats a reminder at each message while the last reply has no line (`speak forgot`). Each message also
 runs `speak _mictick`: with the microphone choice on `auto`, that is where the end of the meeting (microphone busy,
 now free) sends the choice back to `wait` when no speech is playing to see it. The note says why the
 session is silent (`speak silent` prints it): voice off, engine being installed, or engine missing. Fail-open: exits 0."""
@@ -16,7 +16,10 @@ SPEAK = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))
 NOTE = 'speak: a voz está desligada nesta sessão; não termine esta resposta com a linha 🔊.'
 NOTE_MISSING = 'speak: o motor de voz não está instalado (rode /speak install); não termine esta resposta com a linha 🔊.'
 NOTE_FULL = 'speak: a leitura é da resposta inteira; não termine esta resposta com a linha 🔊.'
-NOTE_BACK = 'speak: a leitura voltou a ser só o resumo; termine esta resposta com a linha 🔊.'
+NOTE_BACK = ('speak: a leitura voltou a ser só o resumo; termine esta resposta com a linha 🔊. '
+             'Os avisos anteriores de "não escreva a linha" não valem mais.')
+NOTE_REMIND = ('speak: a voz está ligada e a sua última resposta ficou sem a linha 🔊; termine esta resposta com a '
+               'linha 🔊. Os avisos anteriores de "não escreva a linha" não valem mais.')
 
 
 def speak(*args):
@@ -34,9 +37,15 @@ def silent_note(why):
     return NOTE
 
 
+def forgot():
+    """True when the last reply of this session went out without the 🔊 line (`speak forgot`)."""
+    return subprocess.run([sys.executable, '-I', SPEAK, 'forgot'], capture_output=True, timeout=10).returncode == 0
+
+
 def mode_note():
     """The note for the mode in force: full says to leave the line out at every message; the return to summary says
-    to write it again, once, if the model was last told full."""
+    to write it again, and, since one note is easy to ignore (it competes with every earlier "leave it out" one in the
+    context), the reminder repeats at each message while the last reply still has no line."""
     mode = json.loads(speak('status', '--json')).get('mode')
     told = speak('told').strip()
     if mode == 'full':
@@ -47,6 +56,8 @@ def mode_note():
             speak('told', 'summary')
         if told in ('full', 'silent'):
             return NOTE_BACK
+        if forgot():
+            return NOTE_REMIND
     return None
 
 

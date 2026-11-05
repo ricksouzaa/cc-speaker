@@ -51,6 +51,8 @@
                            reply (`full`); `speak say -` keeps the last reply of each session for this
   speak told [full|summary|silent] print, or record, what the model was last told in this session (`rule` records
                            the mode; used by hooks/speak-cut.py to say when the mode or the voice comes back)
+  speak forgot             exit 0 when the last reply of this session (kept by `say -`) has no 🔊 line, else 1; used by
+                           hooks/speak-cut.py to remind Claude, at each new message, while the line keeps missing
   speak silent             exit 0 when this session will not speak, else 1; when it will not, prints why: `off` (voice
                            off here), `installing [percent]` (engine being installed) or `missing` (no engine, no
                            install running); used by hooks/speak-cut.py to tell Claude to leave out the 🔊 line
@@ -2186,6 +2188,9 @@ def main(argv):
         busy = speak_os.mic_busy()  # for whoever tests on a Mac: "em uso" with nobody recording is the Siri case
         print('microfone: %s' % {True: 'em uso', False: 'livre'}.get(busy, 'não deu para saber'), file=sys.stderr)
         return 1 if gone else 0
+    if cmd == 'forgot':  # the last reply of this session (kept by `say -`) has no 🔊 line
+        last = read_last(current_session())
+        return 0 if last and not spoken_line(last[0]) else 1
     if cmd == 'silent':
         why = silent_reason()
         if why:

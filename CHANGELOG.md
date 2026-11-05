@@ -7,6 +7,11 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.17.2] - 2026-11-05
+
+### Corrigido
+- Depois de desligar e religar a voz, as sessões que já estavam trabalhando continuavam sem escrever a linha 🔊: o aviso de que a voz tinha voltado era dado uma vez só e o Claude podia ignorá-lo, no meio de vários avisos antigos de "voz desligada". Agora, com a voz ligada e no modo resumo, o aviso se repete a cada mensagem nova enquanto a última resposta da sessão estiver sem a linha 🔊, e para quando ela volta. O aviso também diz que os avisos antigos de "não escreva a linha" não valem mais.
+
 ## [0.17.1] - 2026-10-30
 
 ### Corrigido
@@ -309,7 +314,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.17.1...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.17.2...HEAD
+[0.17.2]: https://github.com/ricksouzaa/cc-speaker/compare/v0.17.1...v0.17.2
 [0.17.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.15.2...v0.16.0
