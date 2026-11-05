@@ -101,6 +101,7 @@ POWER_TEXT = {'on': 'ligada', 'quiet': 'só o resumo escrito', 'off': 'desligada
 ALL_MARK = os.path.join(STATE, 'all')  # its modification time: when the last request for every session was made
 SESSIONS = os.path.join(STATE, 'sessions')  # one file per session: name = key, content = JSON
 LAST = os.path.join(STATE, 'last')  # one file per session: the last raw reply and the mode it was read in (JSON)
+PENDING = os.path.join(STATE, 'pending')  # one file per session: a reply body waiting for its 🔊 line (`speak split on`)
 MODE_FILE = os.path.join(CONF, 'mode')
 MODES = ('full', 'summary')
 SIZE_FILE = os.path.join(CONF, 'size')
@@ -413,7 +414,7 @@ def own_field(session, field):
 
 def prune_sessions():
     end_dead_paused()
-    for folder in (SESSIONS, LAST):
+    for folder in (SESSIONS, LAST, PENDING):
         for key in os.listdir(folder) if os.path.isdir(folder) else ():
             if not session_alive(key):
                 try:
@@ -431,6 +432,51 @@ def save_last(session, message, how):
         write_atomic(os.path.join(LAST, session), json.dumps({'message': message, 'mode': how}))
     except OSError:
         pass
+
+
+def save_pending(session, body):
+    """Keeps the reply body that waits for its 🔊 line, sent in a message of its own (atomic write)."""
+    if not session:
+        return
+    try:
+        prune_sessions()
+        write_atomic(os.path.join(PENDING, session), json.dumps({'body': body}))
+    except OSError:
+        pass
+
+
+def read_pending(session):
+    """The body waiting for its 🔊 line; None when there is none."""
+    if not session:
+        return None
+    try:
+        with open(os.path.join(PENDING, session)) as fh:
+            body = json.load(fh).get('body')
+    except (OSError, ValueError, AttributeError):
+        return None
+    return body if isinstance(body, str) else None
+
+
+def drop_pending(session):
+    if session:
+        remove_quietly(os.path.join(PENDING, session))
+
+
+def only_line(message):
+    """True when every non-empty line of the reply is a 🔊 line (the line sent in a message of its own)."""
+    lines = [line.strip().lstrip('>*_ ').strip() for line in (message or '').splitlines()]
+    lines = [line for line in lines if line]
+    return bool(lines) and all(line.startswith(MARK) for line in lines)
+
+
+SPLIT_REASON = ('speak: escreva agora, como mensagem própria, só a linha 🔊 com o resumo da resposta que acabou de dar '
+                '(%s); nada mais.')
+SIZE_SPOKEN = {'small': 'uma frase curta', 'medium': 'duas ou três frases', 'large': 'um parágrafo de quatro a seis frases'}
+
+
+def block_output(reason):
+    """The Stop hook output that makes Claude go on with one more turn, told why."""
+    return json.dumps({'decision': 'block', 'reason': reason}, ensure_ascii=False)
 
 
 def read_last(session):
@@ -2284,8 +2330,19 @@ def main(argv):
         return 0
     if cmd == 'say':
         session = current_session()
-        if text == '-':
+        if rest[:1] == ['-']:
             message, how = sys.stdin.read(), mode(session)
+            # `speak split on`: a reply without the 🔊 line is kept and Claude is asked, once, for the line alone;
+            # the next stop, with only the line, joins both. The pending body is the mark (never block twice).
+            wanted = split(session) == 'on' and how == 'summary' and silent_reason() is None
+            pending = read_pending(session)
+            if wanted and not spoken_line(message) and pending is None and '--active' not in rest[1:]:
+                save_pending(session, message)
+                print(block_output(SPLIT_REASON % SIZE_SPOKEN[summary_size(session)]))
+                return 0
+            if wanted and pending is not None and only_line(message):
+                message = pending.rstrip() + '\n\n' + message.strip()
+            drop_pending(session)
             save_last(session, message, how)  # kept also with the voice off or without the engine
             return speak_background(to_speak(message, how, summary_size(session)), session, how=how)
         return speak_background(text, session)

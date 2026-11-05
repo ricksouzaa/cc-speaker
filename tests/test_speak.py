@@ -2330,7 +2330,10 @@ class Pause(unittest.TestCase):
         from unittest import mock
         calls = []
         data = {'last_assistant_message': 'oi', 'cwd': '/x/projeto'}
-        with mock.patch.object(speak_stop.subprocess, 'run', lambda cmd, **k: calls.append(k)), \
+        def run(cmd, **k):
+            calls.append(k)
+            return subprocess.CompletedProcess(cmd, 0, b'', None)
+        with mock.patch.object(speak_stop.subprocess, 'run', run), \
                 mock.patch.object(speak_stop.sys, 'stdin', io.StringIO(json.dumps(data))):
             speak_stop.main()
         self.assertEqual(calls[0]['env']['CLAUDE_SPEAK_CWD'], '/x/projeto')
@@ -2387,6 +2390,25 @@ class Hook(unittest.TestCase):
             took = time.time() - started
             seen = os.path.join(home, 'seen')
             return r, (open(seen).read() if os.path.exists(seen) else None), took
+
+    def test_stop_hook_passes_the_active_flag_on(self):
+        with tempfile.TemporaryDirectory() as home:
+            hook = self.plugin(home)
+            r = subprocess.run([sys.executable, '-I', hook],
+                               input=json.dumps({'last_assistant_message': 'oi', 'stop_hook_active': True}),
+                               capture_output=True, text=True, env={'HOME': home, 'PATH': '/usr/bin:/bin'})
+            self.assertEqual(r.returncode, 0)
+            with open(os.path.join(home, 'seen')) as fh:
+                self.assertEqual(fh.read(), 'say - --active|oi')
+
+    def test_stop_hook_hands_the_block_of_speak_on(self):
+        with tempfile.TemporaryDirectory() as home:
+            hook = self.plugin(home)
+            with open(os.path.join(home, 'plugin', 'bin', 'speak'), 'w') as fh:
+                fh.write('import sys\nsys.stdin.read()\nprint(\'{"decision": "block", "reason": "x"}\')\n')
+            r = subprocess.run([sys.executable, '-I', hook], input=json.dumps({'last_assistant_message': 'oi'}),
+                               capture_output=True, text=True, env={'HOME': home, 'PATH': '/usr/bin:/bin'})
+            self.assertEqual((r.returncode, r.stdout.strip()), (0, '{"decision": "block", "reason": "x"}'))
 
     def test_fim_chama_o_corte_da_sessao(self):
         r, seen, _ = self.end_hook()
@@ -2728,6 +2750,64 @@ class Again(unittest.TestCase):
 
     def spoken(self):
         return [cmd[-1] for cmd, _ in self.calls]
+
+    def test_split_asks_for_the_line_once_and_joins_it(self):
+        speak.set_session(self.me, split='on')
+        code, out, _ = self.run_speak('say', '-', stdin='Fiz tudo.')
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)['decision'], 'block')
+        self.assertIn('duas ou três frases', json.loads(out)['reason'])
+        self.assertEqual(self.spoken(), [])
+        self.assertEqual(speak.read_pending(self.me), 'Fiz tudo.')
+        code, out, _ = self.run_speak('say', '-', stdin='🔊 Fiz tudo, pode testar.')
+        self.assertEqual((code, out), (0, ''))
+        self.assertEqual(self.spoken(), ['Fiz tudo, pode testar.'])
+        self.assertEqual(speak.read_last(self.me), ('Fiz tudo.\n\n🔊 Fiz tudo, pode testar.', 'summary'))
+        self.assertIsNone(speak.read_pending(self.me))
+
+    def test_split_never_blocks_twice_and_a_line_already_there_is_spoken(self):
+        speak.set_session(self.me, split='on')
+        self.run_speak('say', '-', stdin='Primeira sem linha.')
+        code, out, _ = self.run_speak('say', '-', stdin='Ainda sem linha.')  # the model ignored the request
+        self.assertEqual((code, out), (0, ''))
+        self.assertEqual(self.spoken(), [])
+        self.assertIsNone(speak.read_pending(self.me))
+        self.assertEqual(speak.read_last(self.me), ('Ainda sem linha.', 'summary'))
+        code, out, _ = self.run_speak('say', '-', stdin='Corpo e linha juntos.\n🔊 Juntos.')
+        self.assertEqual(out, '')
+        self.assertEqual(self.spoken(), ['Juntos.'])
+
+    def test_a_stale_pending_body_is_replaced_by_a_new_reply(self):
+        speak.set_session(self.me, split='on')
+        self.run_speak('say', '-', stdin='Antiga.')
+        _, out, _ = self.run_speak('say', '-', stdin='Corpo e linha.\n🔊 Linha.')
+        self.assertEqual(out, '')
+        self.assertIsNone(speak.read_pending(self.me))
+        _, out, _ = self.run_speak('say', '-', stdin='Nova sem linha.')
+        self.assertEqual(json.loads(out)['decision'], 'block')
+        self.assertEqual(speak.read_pending(self.me), 'Nova sem linha.')
+
+    def test_split_does_nothing_when_the_line_is_not_wanted_or_the_hook_is_active(self):
+        from unittest import mock
+        speak.set_session(self.me, split='on')
+        with mock.patch.object(speak, 'silent_reason', lambda: 'off'):
+            _, out, _ = self.run_speak('say', '-', stdin='Sem linha.')
+        self.assertEqual(out, '')
+        speak.set_session(self.me, mode='full')
+        _, out, _ = self.run_speak('say', '-', stdin='Sem linha.')
+        self.assertEqual(out, '')
+        speak.set_session(self.me, mode='summary')
+        _, out, _ = self.run_speak('say', '-', '--active', stdin='Sem linha.')
+        self.assertEqual(out, '')
+        self.assertIsNone(speak.read_pending(self.me))
+
+    def test_pending_of_a_dead_session_is_pruned(self):
+        speak.set_session(self.other, split='on')
+        self.run_speak('say', '-', stdin='Corpo.', session=self.other)
+        self.assertIn(self.other, os.listdir(speak.PENDING))
+        self.sleep.kill(); self.sleep.wait()
+        self.run_speak('on')  # set_session prunes the dead sessions
+        self.assertNotIn(self.other, os.listdir(speak.PENDING))
 
     def test_say_keeps_only_the_last_reply_of_each_session(self):
         self.run_speak('say', '-', stdin='Primeira.\n🔊 Um.')

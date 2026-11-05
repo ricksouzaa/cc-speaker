@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Stop hook: hands the reply to `speak say -`, which picks what is spoken (the whole prose, or only the 🔊 line) and
-speaks it in the background. Waits (at most 4 s) for `speak say -` to return, which is quick because the speech
+speaks it in the background. With `speak split on`, `speak say -` may print a block decision instead (Claude is asked
+for the 🔊 line in a message of its own): this hook hands that output on as its own, and passes `stop_hook_active` on
+as `--active` (then `speak` never blocks). Waits (at most 4 s) for `speak say -` to return, which is quick because the speech
 itself runs detached inside it: `speak` must still find this hook alive to locate its session (the nearest `claude`
 ancestor). Fail-open: exits 0 in every case. Always hands the reply over (also with CLAUDE_SPEAK=0): `speak` decides,
 per session, whether to speak. Passes the `cwd` of the hook input on (CLAUDE_SPEAK_CWD), so the other sessions can be
@@ -49,8 +51,11 @@ def main():
     env = dict(os.environ)
     if isinstance(data.get('cwd'), str) and data['cwd']:
         env['CLAUDE_SPEAK_CWD'] = data['cwd']  # the folder the other sessions are told this one speaks from
-    subprocess.run([sys.executable, '-I', speak, 'say', '-'], input=message.encode('utf-8'), env=env,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=4)
+    args = ['say', '-'] + (['--active'] if data.get('stop_hook_active') else [])
+    r = subprocess.run([sys.executable, '-I', speak] + args, input=message.encode('utf-8'), env=env,
+                       stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=4)
+    if r.stdout:
+        sys.stdout.write(r.stdout.decode('utf-8', 'replace'))
 
 
 if __name__ == '__main__':
