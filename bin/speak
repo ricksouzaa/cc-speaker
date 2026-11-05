@@ -10,9 +10,6 @@
                            summary (default): only its last line starting with 🔊 (rules/speak.md)
   speak size small|medium|large [all]  how long the spoken summary is (one short sentence; two or three sentences;
                            a paragraph); same scopes as `mode`; default medium
-  speak split on|off [all]  on: the 🔊 line goes in a message of its own after the reply (the Stop hook asks for it
-                           in one more turn), so a phone's play button reads only the summary; same scopes as `mode`;
-                           default off
   speak mic wait|play|auto [all]  what the speech does while a program records from the microphone (dictation,
                            video call); same scopes as `mode`; wait (default): the speech waits and a recording that
                            starts cuts it; play: it plays anyway, until changed, and only Claude Code's own dictation (holding the
@@ -53,13 +50,10 @@
   speak again [summary|full]  speak the last reply of this session again, even with the voice off: as it played
                            (no word), only its 🔊 line (`summary`; the whole reply when it had none) or the whole
                            reply (`full`); `speak say -` keeps the last reply of each session for this
-  speak told [full|summary|silent|split] print, or record, what the model was last told in this session (`rule` records
+  speak told [full|summary|silent] print, or record, what the model was last told in this session (`rule` records
                            the mode; used by hooks/speak-cut.py to say when the mode or the voice comes back)
   speak forgot             exit 0 when the last reply of this session (kept by `say -`) has no 🔊 line, else 1; used by
                            hooks/speak-cut.py to remind Claude, at each new message, while the line keeps missing
-  speak pending [drop]     exit 0 when this session has a reply body waiting for its 🔊 line (`speak split on`: the
-                           Stop hook asked for the line in a message of its own), else 1; `drop` forgets that body
-                           (hooks/speak-cut.py, at a new message: the line never came)
   speak silent             exit 0 when this session will not speak, else 1; when it will not, prints why: `off` (voice
                            off here), `installing [percent]` (engine being installed) or `missing` (no engine, no
                            install running); used by hooks/speak-cut.py to tell Claude to leave out the 🔊 line
@@ -104,7 +98,6 @@ POWER_TEXT = {'on': 'ligada', 'quiet': 'só o resumo escrito', 'off': 'desligada
 ALL_MARK = os.path.join(STATE, 'all')  # its modification time: when the last request for every session was made
 SESSIONS = os.path.join(STATE, 'sessions')  # one file per session: name = key, content = JSON
 LAST = os.path.join(STATE, 'last')  # one file per session: the last raw reply and the mode it was read in (JSON)
-PENDING = os.path.join(STATE, 'pending')  # one file per session: a reply body waiting for its 🔊 line (`speak split on`)
 MODE_FILE = os.path.join(CONF, 'mode')
 MODES = ('full', 'summary')
 SIZE_FILE = os.path.join(CONF, 'size')
@@ -112,8 +105,6 @@ SIZES = ('small', 'medium', 'large')
 MIC_FILE = os.path.join(CONF, 'mic')
 MICS = ('wait', 'play', 'auto')
 MIC_TEXT = {'wait': 'espera', 'play': 'toca', 'auto': 'toca nesta reunião'}
-SPLIT_FILE = os.path.join(CONF, 'split')
-SPLITS = ('on', 'off')
 MIC_SEEN = os.path.join(STATE, 'mic-seen')  # `auto` in the general setting: a busy microphone was seen under it
 RULE_LINE = {  # the first bullet of rules/speak.md, by the mode in force
     'summary': 'While the voice is on or quiet (`speak quiet`: silent, the line kept), every reply to the human '
@@ -245,19 +236,6 @@ def mic(session=None):
     return wanted if wanted in MICS else 'wait'
 
 
-def split(session=None):
-    """Whether the 🔊 line goes in a message of its own: CLAUDE_SPEAK_SPLIT, then the session's own choice, then the
-    general file, then 'off'."""
-    wanted = os.environ.get('CLAUDE_SPEAK_SPLIT') or read_session(session).get('split')
-    if not wanted:
-        try:
-            with open(SPLIT_FILE) as fh:
-                wanted = fh.read().strip()
-        except OSError:
-            pass
-    return wanted if wanted in SPLITS else 'off'
-
-
 def session_key(pid):
     """'<pid>-<start time>' of a process, which tells it from a later process that reuses the number; None if unreadable."""
     start = speak_os.started(pid)
@@ -355,8 +333,7 @@ def read_session(key):
         return {}
     return {k: v for k, v in data.items() if (k == 'voice' and v in ('muted', 'speaking', 'quiet'))
             or (k == 'mode' and v in MODES) or (k == 'size' and v in SIZES)
-            or (k == 'told' and (v in MODES or v in ('silent', 'split'))) or (k == 'mic' and v in MICS) or (k == 'micseen' and v is True)
-            or (k == 'split' and v in SPLITS)
+            or (k == 'told' and (v in MODES or v == 'silent')) or (k == 'mic' and v in MICS) or (k == 'micseen' and v is True)
             or (k == 'dir' and isinstance(v, str) and v)}
 
 
@@ -417,7 +394,7 @@ def own_field(session, field):
 
 def prune_sessions():
     end_dead_paused()
-    for folder in (SESSIONS, LAST, PENDING):
+    for folder in (SESSIONS, LAST):
         for key in os.listdir(folder) if os.path.isdir(folder) else ():
             if not session_alive(key):
                 try:
@@ -435,51 +412,6 @@ def save_last(session, message, how):
         write_atomic(os.path.join(LAST, session), json.dumps({'message': message, 'mode': how}))
     except OSError:
         pass
-
-
-def save_pending(session, body):
-    """Keeps the reply body that waits for its 🔊 line, sent in a message of its own (atomic write)."""
-    if not session:
-        return
-    try:
-        prune_sessions()
-        write_atomic(os.path.join(PENDING, session), json.dumps({'body': body}))
-    except OSError:
-        pass
-
-
-def read_pending(session):
-    """The body waiting for its 🔊 line; None when there is none."""
-    if not session:
-        return None
-    try:
-        with open(os.path.join(PENDING, session)) as fh:
-            body = json.load(fh).get('body')
-    except (OSError, ValueError, AttributeError):
-        return None
-    return body if isinstance(body, str) else None
-
-
-def drop_pending(session):
-    if session:
-        remove_quietly(os.path.join(PENDING, session))
-
-
-def only_line(message):
-    """True when every non-empty line of the reply is a 🔊 line (the line sent in a message of its own)."""
-    lines = [line.strip().lstrip('>*_ ').strip() for line in (message or '').splitlines()]
-    lines = [line for line in lines if line]
-    return bool(lines) and all(line.startswith(MARK) for line in lines)
-
-
-SPLIT_REASON = ('speak: escreva agora, como mensagem própria, só a linha 🔊 com o resumo da resposta que acabou de dar '
-                '(%s); nada mais.')
-SIZE_SPOKEN = {'small': 'uma frase curta', 'medium': 'duas ou três frases', 'large': 'um parágrafo de quatro a seis frases'}
-
-
-def block_output(reason):
-    """The Stop hook output that makes Claude go on with one more turn, told why."""
-    return json.dumps({'decision': 'block', 'reason': reason}, ensure_ascii=False)
 
 
 def read_last(session):
@@ -1959,9 +1891,6 @@ def rule():
         text = fh.read()
     session = current_session()
     line = RULE_LINE[mode(session)].replace('{size}', SIZE_TEXT[summary_size(session)])
-    if mode(session) == 'summary' and split(session) == 'on':
-        line += (' The summary goes in its own message (`speak split on`): do not end the reply with the `🔊` line; '
-                 'the Stop hook asks for it right after, and then you answer with only that line.')
     return text.replace('{line}', line)
 
 
@@ -2015,8 +1944,6 @@ def status():
         print('  desligada só nesta sessão (CLAUDE_SPEAK=0)')
     print('  modo: %s%s' % (mode(session), here if own_field(session, 'mode') else ''))
     print('  tamanho do resumo: %s%s' % (summary_size(session), here if own_field(session, 'size') else ''))
-    print('  resumo em mensagem própria: %s%s' % ('sim' if split(session) == 'on' else 'não',
-                                                 here if own_field(session, 'split') else ''))
     print('  microfone em uso: %s%s' % (MIC_TEXT[mic(session)], here if own_field(session, 'mic') else ''))
     print('  motor: %s' % engine_text())
     print('  voz: %s, velocidade %s' % (voice(), speed()))
@@ -2058,6 +1985,13 @@ def migrate():
 
     _migrate_off_flag()
     _drop_copied_fields()
+    _drop_split()
+
+
+def _drop_split():
+    """The `speak split` of 0.19.0 to 0.20.1 is gone: its general choice and the replies waiting for their line."""
+    remove_quietly(os.path.join(CONF, 'split'))
+    shutil.rmtree(os.path.join(STATE, 'pending'), ignore_errors=True)
 
 
 def _migrate_off_flag():
@@ -2143,10 +2077,8 @@ def status_json():
     heard = sweep_now()
     print(json.dumps({'version': plugin_version(), 'session': session, 'stateDir': STATE,
                       'speaking': heard['playing'], 'paused': heard['paused'], 'on': is_on(session), 'power': power(session), 'mode': mode(session), 'size': summary_size(session), 'mic': mic(session),
-                      'split': split(session),
                       'scope': {f: 'session' if own_field(session, g) else 'all'
-                                for f, g in (('on', 'voice'), ('mode', 'mode'), ('size', 'size'), ('mic', 'mic'),
-                                             ('split', 'split'))},
+                                for f, g in (('on', 'voice'), ('mode', 'mode'), ('size', 'size'), ('mic', 'mic'))},
                       'engine': engine_ready(), 'installing': not engine_ready() and installing(),
                       'install': None if engine_ready() else install_progress(),
                       'voice': next((short for short, (full, _) in PT_VOICES.items() if full == now), now)}))
@@ -2258,20 +2190,6 @@ def main(argv):
         if wanted == 'auto':
             track_mic(session, current_recordings())  # chosen in the middle of the meeting: it counts as seen
         return status()
-    if cmd == 'split':
-        wanted, _, scope = text.partition(' ')
-        if wanted not in SPLITS or scope not in ('', 'all'):
-            print('voz: use "speak split on" ou "speak split off" (com "all" no fim, vale para todas as sessões)',
-                  file=sys.stderr)
-            return 2
-        session = current_session()
-        if session and not scope:
-            set_session(session, split=wanted)
-        else:
-            os.makedirs(CONF, exist_ok=True)
-            write_atomic(SPLIT_FILE, wanted + '\n')
-            clear_all_sessions('split')
-        return status()
     if cmd == '_mictick':  # used by hooks/speak-cut.py at each new message: the meeting may have ended
         if mic(current_session()) == 'auto':
             track_mic(current_session(), current_recordings())
@@ -2291,7 +2209,7 @@ def main(argv):
         return status()
     if cmd == 'told':  # the mode last told to the model in this session (a field of the session file)
         session = current_session()
-        if (text in MODES or text in ('silent', 'split')) and session:
+        if (text in MODES or text == 'silent') and session:
             set_session(session, told=text)
         elif not text:
             print(read_session(session).get('told', ''))
@@ -2323,11 +2241,6 @@ def main(argv):
     if cmd == 'forgot':  # the last reply of this session (kept by `say -`) has no 🔊 line
         last = read_last(current_session())
         return 0 if last and not spoken_line(last[0]) else 1
-    if cmd == 'pending':  # this session has a reply body waiting for its 🔊 line (`speak split on`)
-        if text == 'drop':  # a new message: the line asked for never came (the turn was interrupted)
-            drop_pending(current_session())
-            return 0
-        return 0 if read_pending(current_session()) is not None else 1
     if cmd == 'silent':
         why = silent_reason()
         if why:
@@ -2341,19 +2254,8 @@ def main(argv):
         return 0
     if cmd == 'say':
         session = current_session()
-        if rest[:1] == ['-']:
+        if text == '-':
             message, how = sys.stdin.read(), mode(session)
-            # `speak split on`: a reply without the 🔊 line is kept and Claude is asked, once, for the line alone;
-            # the next stop, with only the line, joins both. The pending body is the mark (never block twice).
-            wanted = split(session) == 'on' and how == 'summary' and silent_reason() is None
-            pending = read_pending(session)
-            if wanted and not spoken_line(message) and pending is None and '--active' not in rest[1:]:
-                save_pending(session, message)
-                print(block_output(SPLIT_REASON % SIZE_SPOKEN[summary_size(session)]))
-                return 0
-            if wanted and pending is not None and only_line(message):
-                message = pending.rstrip() + '\n\n' + message.strip()
-            drop_pending(session)
             save_last(session, message, how)  # kept also with the voice off or without the engine
             return speak_background(to_speak(message, how, summary_size(session)), session, how=how)
         return speak_background(text, session)

@@ -7,6 +7,14 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.21.0] - 2026-11-05
+
+### Removido
+- Sai o **resumo em mensagem própria** (`/speak split`, a linha do painel e o pedido em palavras). No app do celular, onde ele serviria, a resposta e o resumo chegam juntos numa resposta só, e o botão de ler em voz alta lê tudo. No computador a voz do plugin já lê só o resumo. A escolha guardada e as respostas que esperavam a linha 🔊 são apagadas sozinhas.
+
+### Quebra
+- `/speak split` e `speak split` deixam de existir. O resumo volta a vir sempre no fim da resposta.
+
 ## [0.20.1] - 2026-11-05
 
 ### Alterado
@@ -340,7 +348,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.20.1...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.21.0...HEAD
+[0.21.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.20.1...v0.21.0
 [0.20.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.20.0...v0.20.1
 [0.20.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.18.0...v0.19.0

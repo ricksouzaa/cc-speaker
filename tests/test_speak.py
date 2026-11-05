@@ -1047,6 +1047,14 @@ class Migration(unittest.TestCase):
             self.assertEqual(fh.read().strip(), 'off')
         self.assertFalse(os.path.exists(data_dir(self.home, 'config', 'off')))
 
+    def test_the_removed_split_leaves_nothing_behind(self):
+        """0.19.0 to 0.20.1 had `speak split`: its choice and the replies waiting for their line go away."""
+        self.put(data_dir(self.home, 'config', 'split'), 'on')
+        self.put(data_dir(self.home, 'state', 'pending', '123-456'), '{"body": "x"}')
+        self.speak('status')
+        self.assertFalse(os.path.exists(data_dir(self.home, 'config', 'split')))
+        self.assertFalse(os.path.exists(data_dir(self.home, 'state', 'pending')))
+
     def test_old_state_marker_and_leftovers(self):
         for name in ('tudo', 'fala.pid', 'fala.dono', 'erro.log', 'fala-123.wav', 'fala-9.wav'):
             self.put(self.path('.local', 'state', 'claude-voz', name), 'x')
@@ -1146,19 +1154,6 @@ class Session(unittest.TestCase):
         self.assertIn('voz: ligada', self.speak('status', session=self.other).stdout)
         self.assertEqual(json.loads(self.speak('status', '--json', session=self.me).stdout)['power'], 'quiet')
         self.assertFalse(json.loads(self.speak('status', '--json', session=self.me).stdout)['on'])
-
-    def test_split_is_off_by_default_and_follows_the_scopes(self):
-        self.assertIn('resumo em mensagem própria: não', self.speak('status', session=self.me).stdout)
-        self.speak('split', 'on', session=self.me)
-        mine = self.speak('status', session=self.me).stdout
-        self.assertIn('resumo em mensagem própria: sim · só nesta sessão', mine)
-        self.assertIn('resumo em mensagem própria: não', self.speak('status', session=self.other).stdout)
-        data = json.loads(self.speak('status', '--json', session=self.me).stdout)
-        self.assertEqual((data['split'], data['scope']['split']), ('on', 'session'))
-        self.speak('split', 'on', 'all', session=self.me)
-        data = json.loads(self.speak('status', '--json', session=self.me).stdout)
-        self.assertEqual((data['split'], data['scope']['split']), ('on', 'all'))
-        self.assertEqual(self.speak('split', 'sim', session=self.me).returncode, 2)
 
     def test_quiet_all_is_general_and_on_all_clears_it(self):
         self.speak('quiet', 'all', session=self.me)
@@ -2330,10 +2325,7 @@ class Pause(unittest.TestCase):
         from unittest import mock
         calls = []
         data = {'last_assistant_message': 'oi', 'cwd': '/x/projeto'}
-        def run(cmd, **k):
-            calls.append(k)
-            return subprocess.CompletedProcess(cmd, 0, b'', None)
-        with mock.patch.object(speak_stop.subprocess, 'run', run), \
+        with mock.patch.object(speak_stop.subprocess, 'run', lambda cmd, **k: calls.append(k)), \
                 mock.patch.object(speak_stop.sys, 'stdin', io.StringIO(json.dumps(data))):
             speak_stop.main()
         self.assertEqual(calls[0]['env']['CLAUDE_SPEAK_CWD'], '/x/projeto')
@@ -2390,25 +2382,6 @@ class Hook(unittest.TestCase):
             took = time.time() - started
             seen = os.path.join(home, 'seen')
             return r, (open(seen).read() if os.path.exists(seen) else None), took
-
-    def test_stop_hook_passes_the_active_flag_on(self):
-        with tempfile.TemporaryDirectory() as home:
-            hook = self.plugin(home)
-            r = subprocess.run([sys.executable, '-I', hook],
-                               input=json.dumps({'last_assistant_message': 'oi', 'stop_hook_active': True}),
-                               capture_output=True, text=True, env={'HOME': home, 'PATH': '/usr/bin:/bin'})
-            self.assertEqual(r.returncode, 0)
-            with open(os.path.join(home, 'seen')) as fh:
-                self.assertEqual(fh.read(), 'say - --active|oi')
-
-    def test_stop_hook_hands_the_block_of_speak_on(self):
-        with tempfile.TemporaryDirectory() as home:
-            hook = self.plugin(home)
-            with open(os.path.join(home, 'plugin', 'bin', 'speak'), 'w') as fh:
-                fh.write('import sys\nsys.stdin.read()\nprint(\'{"decision": "block", "reason": "x"}\')\n')
-            r = subprocess.run([sys.executable, '-I', hook], input=json.dumps({'last_assistant_message': 'oi'}),
-                               capture_output=True, text=True, env={'HOME': home, 'PATH': '/usr/bin:/bin'})
-            self.assertEqual((r.returncode, r.stdout.strip()), (0, '{"decision": "block", "reason": "x"}'))
 
     def test_fim_chama_o_corte_da_sessao(self):
         r, seen, _ = self.end_hook()
@@ -2666,50 +2639,6 @@ class Silent(unittest.TestCase):
         run('say', '-', stdin='Ignorei o aviso.')
         self.assertIn('ficou sem ela', self.cut())
 
-    def test_split_tells_the_model_at_each_message_and_the_return_once(self):
-        self.env['CLAUDE_SPEAK_SESSION'] = speak.session_key(os.getpid())
-        def run(*args, stdin=None):
-            return subprocess.run([sys.executable, '-I', SPEAK, *args], capture_output=True, text=True, env=self.env,
-                                  input=stdin)
-        run('rule')
-        run('quiet')  # no engine here: in quiet the line is still wanted and nothing plays
-        run('split', 'on')
-        self.assertIn('mensagem própria', self.cut())
-        self.assertIn('mensagem própria', self.cut())
-        run('say', '-', stdin='Corpo sem linha.')  # blocked: pending body; the continuation turn skips this hook
-        run('say', '-', stdin='🔊 Linha.')
-        self.assertIn('mensagem própria', self.cut())
-        run('split', 'off')
-        self.assertIn('termine esta resposta com a linha 🔊', self.cut())
-        self.assertEqual(self.cut(), '')
-
-    def test_a_new_message_drops_a_body_left_waiting(self):
-        """Interrupted while writing the 🔊 line (Esc), the body stays pending; the next message drops it and tells
-        the model again, so the next reply is asked for its line instead of going out silent."""
-        self.env['CLAUDE_SPEAK_SESSION'] = speak.session_key(os.getpid())
-        def run(*args, stdin=None):
-            return subprocess.run([sys.executable, '-I', SPEAK, *args], capture_output=True, text=True, env=self.env,
-                                  input=stdin)
-        run('rule'); run('quiet'); run('split', 'on')
-        self.assertIn('decision', run('say', '-', stdin='Corpo velho.').stdout)
-        self.assertIn('mensagem própria', self.cut())
-        self.assertEqual(run('pending').returncode, 1)
-        self.assertIn('decision', run('say', '-', stdin='Corpo novo.').stdout)
-
-    def test_split_is_silent_with_the_voice_off_or_the_full_reading(self):
-        self.engine()
-        self.env['CLAUDE_SPEAK_SESSION'] = speak.session_key(os.getpid())
-        def run(*args):
-            return subprocess.run([sys.executable, '-I', SPEAK, *args], capture_output=True, text=True, env=self.env)
-        run('rule'); run('split', 'on'); run('off')
-        note = self.cut()
-        self.assertIn('desligada', note)
-        self.assertNotIn('mensagem própria', note)
-        run('on'); run('mode', 'full')
-        note = self.cut()
-        self.assertIn('inteira', note)
-        self.assertNotIn('mensagem própria', note)
-
     def test_quiet_brings_the_line_back_and_reminds_without_the_engine(self):
         """Off then quiet, no engine: the model is told once the line is back, then reminded while replies lack it."""
         self.env['CLAUDE_SPEAK_SESSION'] = speak.session_key(os.getpid())
@@ -2794,64 +2723,6 @@ class Again(unittest.TestCase):
 
     def spoken(self):
         return [cmd[-1] for cmd, _ in self.calls]
-
-    def test_split_asks_for_the_line_once_and_joins_it(self):
-        speak.set_session(self.me, split='on')
-        code, out, _ = self.run_speak('say', '-', stdin='Fiz tudo.')
-        self.assertEqual(code, 0)
-        self.assertEqual(json.loads(out)['decision'], 'block')
-        self.assertIn('duas ou três frases', json.loads(out)['reason'])
-        self.assertEqual(self.spoken(), [])
-        self.assertEqual(speak.read_pending(self.me), 'Fiz tudo.')
-        code, out, _ = self.run_speak('say', '-', stdin='🔊 Fiz tudo, pode testar.')
-        self.assertEqual((code, out), (0, ''))
-        self.assertEqual(self.spoken(), ['Fiz tudo, pode testar.'])
-        self.assertEqual(speak.read_last(self.me), ('Fiz tudo.\n\n🔊 Fiz tudo, pode testar.', 'summary'))
-        self.assertIsNone(speak.read_pending(self.me))
-
-    def test_split_never_blocks_twice_and_a_line_already_there_is_spoken(self):
-        speak.set_session(self.me, split='on')
-        self.run_speak('say', '-', stdin='Primeira sem linha.')
-        code, out, _ = self.run_speak('say', '-', stdin='Ainda sem linha.')  # the model ignored the request
-        self.assertEqual((code, out), (0, ''))
-        self.assertEqual(self.spoken(), [])
-        self.assertIsNone(speak.read_pending(self.me))
-        self.assertEqual(speak.read_last(self.me), ('Ainda sem linha.', 'summary'))
-        code, out, _ = self.run_speak('say', '-', stdin='Corpo e linha juntos.\n🔊 Juntos.')
-        self.assertEqual(out, '')
-        self.assertEqual(self.spoken(), ['Juntos.'])
-
-    def test_a_stale_pending_body_is_replaced_by_a_new_reply(self):
-        speak.set_session(self.me, split='on')
-        self.run_speak('say', '-', stdin='Antiga.')
-        _, out, _ = self.run_speak('say', '-', stdin='Corpo e linha.\n🔊 Linha.')
-        self.assertEqual(out, '')
-        self.assertIsNone(speak.read_pending(self.me))
-        _, out, _ = self.run_speak('say', '-', stdin='Nova sem linha.')
-        self.assertEqual(json.loads(out)['decision'], 'block')
-        self.assertEqual(speak.read_pending(self.me), 'Nova sem linha.')
-
-    def test_split_does_nothing_when_the_line_is_not_wanted_or_the_hook_is_active(self):
-        from unittest import mock
-        speak.set_session(self.me, split='on')
-        with mock.patch.object(speak, 'silent_reason', lambda: 'off'):
-            _, out, _ = self.run_speak('say', '-', stdin='Sem linha.')
-        self.assertEqual(out, '')
-        speak.set_session(self.me, mode='full')
-        _, out, _ = self.run_speak('say', '-', stdin='Sem linha.')
-        self.assertEqual(out, '')
-        speak.set_session(self.me, mode='summary')
-        _, out, _ = self.run_speak('say', '-', '--active', stdin='Sem linha.')
-        self.assertEqual(out, '')
-        self.assertIsNone(speak.read_pending(self.me))
-
-    def test_pending_of_a_dead_session_is_pruned(self):
-        speak.set_session(self.other, split='on')
-        self.run_speak('say', '-', stdin='Corpo.', session=self.other)
-        self.assertIn(self.other, os.listdir(speak.PENDING))
-        self.sleep.kill(); self.sleep.wait()
-        self.run_speak('on')  # set_session prunes the dead sessions
-        self.assertNotIn(self.other, os.listdir(speak.PENDING))
 
     def test_say_keeps_only_the_last_reply_of_each_session(self):
         self.run_speak('say', '-', stdin='Primeira.\n🔊 Um.')
@@ -3079,12 +2950,6 @@ class Rule(unittest.TestCase):
         text = self.rule(CLAUDE_SPEAK_MODE='summary')
         self.assertIn('Only in replies to the human: never in the recap (away summary', text)
         self.assertIn('nor in titles or other text Claude Code writes on its own', text)
-
-    def test_the_rule_says_the_line_goes_alone_with_split_on(self):
-        said = 'the Stop hook asks for it right after'
-        self.assertNotIn(said, self.rule())
-        self.assertIn(said, self.rule(CLAUDE_SPEAK_SPLIT='on'))
-        self.assertNotIn(said, self.rule(CLAUDE_SPEAK_SPLIT='on', CLAUDE_SPEAK_MODE='full'))
 
     def test_regra_sem_linha_no_full(self):
         full = self.rule(CLAUDE_SPEAK_MODE='full')
@@ -3908,7 +3773,7 @@ class Scope(unittest.TestCase):
     def test_status_json_scope(self):
         self.put(self.me, {'size': 'large'})
         data = json.loads(self.speak('status', '--json', session=self.me).stdout)
-        self.assertEqual(data['scope'], {'on': 'all', 'mode': 'all', 'size': 'session', 'mic': 'all', 'split': 'all'})
+        self.assertEqual(data['scope'], {'on': 'all', 'mode': 'all', 'size': 'session', 'mic': 'all'})
         self.assertEqual(data['size'], 'large')
 
     def test_limpa_copias_antigas(self):
@@ -4062,7 +3927,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.20.1')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.21.0')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

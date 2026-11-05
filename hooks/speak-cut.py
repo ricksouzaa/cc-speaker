@@ -3,8 +3,7 @@
 waits its turn in the queue (only dictation cuts the one playing). When this session will not speak (`speak silent`,
 or `speak` missing; voice `quiet` is not silent here: the line stays), or reads the whole reply (`mode full`), it prints a note that Claude reads with the message:
 leave out the 🔊 line. The rule is injected once, at the start, so the hook remembers (`speak told`) what the
-model was last told (full, silent, or split); with `speak split on` it says at each message to leave the line out of
-the reply (the Stop hook asks for it right after; nothing is said in that continuation); when the voice (`on` or `quiet`) or the summary comes back it says to write the line again, and repeats a reminder at each message while the last reply has no line (`speak forgot`). Each message also
+model was last told (full, or silent); when the voice (`on` or `quiet`) or the summary comes back it says to write the line again, and repeats a reminder at each message while the last reply has no line (`speak forgot`). Each message also
 runs `speak _mictick`: with the microphone choice on `auto`, that is where the end of the meeting (microphone busy,
 now free) sends the choice back to `wait` when no speech is playing to see it. The note says why the
 session is silent (`speak silent` prints it): voice off, engine being installed, or engine missing. Fail-open: exits 0."""
@@ -19,8 +18,6 @@ NOTE_MISSING = 'speak: o motor de voz não está instalado (rode /speak install)
 NOTE_FULL = 'speak: a leitura é da resposta inteira; não termine esta resposta com a linha 🔊.'
 NOTE_BACK = ('speak: a linha 🔊 voltou a ser pedida; termine esta resposta com a linha 🔊. '
              'Os avisos anteriores de "não escreva a linha" não valem mais.')
-NOTE_SPLIT = ('speak: o resumo vai numa mensagem própria: não termine esta resposta com a linha 🔊; o gancho de parada '
-              'vai pedir a linha logo depois, e aí responda só com ela.')
 NOTE_REMIND = ('speak: a linha 🔊 está pedida e a sua última resposta ficou sem ela; termine esta resposta com a '
                'linha 🔊. Os avisos anteriores de "não escreva a linha" não valem mais.')
 
@@ -48,22 +45,16 @@ def forgot():
 def mode_note():
     """The note for the mode in force: full says to leave the line out at every message; the return to summary says
     to write it again, and, since one note is easy to ignore (it competes with every earlier "leave it out" one in the
-    context), the reminder repeats at each message while the last reply still has no line. With `split` on, the
-    note at each message says the line goes in a message of its own (the Stop hook asks for it)."""
-    state = json.loads(speak('status', '--json'))
-    mode = state.get('mode')
+    context), the reminder repeats at each message while the last reply still has no line."""
+    mode = json.loads(speak('status', '--json')).get('mode')
     told = speak('told').strip()
     if mode == 'full':
         speak('told', 'full')
         return NOTE_FULL
-    if mode == 'summary' and state.get('split') == 'on':
-        speak('pending', 'drop')  # the Stop hook's continuation never passes here: a body still waiting was cut off
-        speak('told', 'split')
-        return NOTE_SPLIT
     if mode == 'summary':
         if told != 'summary':
             speak('told', 'summary')
-        if told in ('full', 'silent', 'split'):
+        if told in ('full', 'silent'):
             return NOTE_BACK
         if forgot():
             return NOTE_REMIND

@@ -16,8 +16,8 @@ async function setup($: any, on: any, opts: Opts = {}) {
   on('ui.log', (_: unknown, e: any) => { logs.push(e.text); return { value: undefined } })
   on('ui.toast', (_: unknown, e: any) => { toasts.push(e.text); return { value: undefined } })
   const st: any = {
-    on: true, power: 'on', mode: 'summary', size: 'medium', split: 'off', mic: 'wait', engine: true, voice: 'dora',
-    scope: { on: 'all', mode: 'all', size: 'all', split: 'all', mic: 'all', ...(opts.scope ?? {}) },
+    on: true, power: 'on', mode: 'summary', size: 'medium', mic: 'wait', engine: true, voice: 'dora',
+    scope: { on: 'all', mode: 'all', size: 'all', mic: 'all', ...(opts.scope ?? {}) },
     session: 'S-1', stateDir: '/estado',
     ...(opts.init ?? {}),
   }
@@ -73,7 +73,6 @@ async function setup($: any, on: any, opts: Opts = {}) {
     if (args[0] === 'mode') st.mode = args[1]!
     if (args[0] === 'size') st.size = args[1]!
     if (args[0] === 'mic') st.mic = args[1]!
-    if (args[0] === 'split') st.split = args[1]!
     if (args[0] === 'voice') st.voice = args[1]!
     if (args[0] === 'on' || args[0] === 'off' || args[0] === 'quiet') { st.on = args[0] === 'on'; st.power = args[0] }
     return done(0, 'ok\n')
@@ -114,29 +113,6 @@ test('o comando /speak é registrado, imediato', async ($, on) => {
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   expect(spec.name).toBe('speak')
   expect(spec.immediate).toBe(true)
-})
-
-test('a linha do resumo em mensagem própria roda speak split e diz o que vale', async ($, on) => {
-  const { ran } = await setup($, on)
-  const { ui } = await openMenu($)
-  const s = await selects(ui)
-  expect(s.split.label).toMatch(/^Resumo em mensagem própria\s*$/)
-  expect(s.split.options.map((o: any) => o.label)).toEqual(['Não', 'Sim'])
-  await ui.select({ key: 'split', value: 'on' })
-  expect(changes(ran)).toEqual(['split on all'])
-  expect(await footer(ui)).toBe('O resumo passa a vir numa mensagem própria em todas as sessões.')
-  await ui.select({ key: 'split', value: 'off' })
-  expect(await footer(ui)).toBe('O resumo volta a fechar a própria resposta em todas as sessões.')
-  await ui.unmount()
-})
-
-test('/speak split escrito roda direto; sem valor abre o painel na linha', async ($, on) => {
-  const { ran, opened } = await setup($, on)
-  const r = await $.command.run({ command: 'speak', args: 'split on' })
-  expect(changes(ran)).toEqual(['split on'])
-  expect(r.text).toBe('O resumo passa a vir numa mensagem própria nesta sessão.')
-  await $.command.run({ command: 'speak', args: 'split' })
-  expect(opened.length).toBe(1)
 })
 
 test('escolha completa roda o speak certo, sem menu', async ($, on) => {
@@ -190,7 +166,7 @@ test('/speak sozinho abre o painel com o foco, uma lista por linha e o botão Fe
   expect(opened[0].focus).toBe(true)
   expect(opened[0].closeOnEscape).toBe(true)
   const s = await selects(ui)
-  expect(Object.keys(s)).toEqual(['where', 'power', 'mode', 'size', 'split', 'voice', 'mic'])
+  expect(Object.keys(s)).toEqual(['where', 'power', 'mode', 'size', 'voice', 'mic'])
   expect(s.where.value).toBe('all')
   expect(s.power.value).toBe('on')
   expect(s.mode.value).toBe('summary')
@@ -226,7 +202,7 @@ test('escolher a leitura no painel esconde e mostra a linha do tamanho na hora',
   await ui.select({ key: 'mode', value: 'full' })
   expect(Object.keys(await selects(ui))).toEqual(['where', 'power', 'mode', 'voice', 'mic'])
   await ui.select({ key: 'mode', value: 'summary' })
-  expect(Object.keys(await selects(ui))).toEqual(['where', 'power', 'mode', 'size', 'split', 'voice', 'mic'])
+  expect(Object.keys(await selects(ui))).toEqual(['where', 'power', 'mode', 'size', 'voice', 'mic'])
   expect(changes(ran)).toEqual(['mode full all', 'mode summary all'])
   await ui.unmount()
 })
@@ -297,7 +273,7 @@ test('a linha "Ouvir de novo" do painel toca na hora, diz a frase no rodapé e n
   await ui.press({ key: 'again-full' })
   expect(changes(ran)).toEqual(['again summary', 'again full'])
   expect(await footer(ui)).toBe('Lendo de novo a última resposta inteira.')
-  expect(Object.keys(await selects(ui))).toEqual(['where', 'power', 'mode', 'size', 'split', 'voice', 'mic'])
+  expect(Object.keys(await selects(ui))).toEqual(['where', 'power', 'mode', 'size', 'voice', 'mic'])
   await ui.unmount()
 })
 
