@@ -45,12 +45,6 @@ def forgot():
     return subprocess.run([sys.executable, '-I', SPEAK, 'forgot'], capture_output=True, timeout=10).returncode == 0
 
 
-def pending():
-    """True when this session has a reply body waiting for its 🔊 line (`speak pending`): the turn now is the
-    continuation the Stop hook asked for, so no note goes."""
-    return subprocess.run([sys.executable, '-I', SPEAK, 'pending'], capture_output=True, timeout=10).returncode == 0
-
-
 def mode_note():
     """The note for the mode in force: full says to leave the line out at every message; the return to summary says
     to write it again, and, since one note is easy to ignore (it competes with every earlier "leave it out" one in the
@@ -63,8 +57,7 @@ def mode_note():
         speak('told', 'full')
         return NOTE_FULL
     if mode == 'summary' and state.get('split') == 'on':
-        if pending():
-            return None
+        speak('pending', 'drop')  # the Stop hook's continuation never passes here: a body still waiting was cut off
         speak('told', 'split')
         return NOTE_SPLIT
     if mode == 'summary':

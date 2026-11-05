@@ -2676,13 +2676,25 @@ class Silent(unittest.TestCase):
         run('split', 'on')
         self.assertIn('mensagem própria', self.cut())
         self.assertIn('mensagem própria', self.cut())
-        run('say', '-', stdin='Corpo sem linha.')  # blocked: pending body, the continuation turn
-        self.assertEqual(self.cut(), '')
+        run('say', '-', stdin='Corpo sem linha.')  # blocked: pending body; the continuation turn skips this hook
         run('say', '-', stdin='🔊 Linha.')
         self.assertIn('mensagem própria', self.cut())
         run('split', 'off')
         self.assertIn('termine esta resposta com a linha 🔊', self.cut())
         self.assertEqual(self.cut(), '')
+
+    def test_a_new_message_drops_a_body_left_waiting(self):
+        """Interrupted while writing the 🔊 line (Esc), the body stays pending; the next message drops it and tells
+        the model again, so the next reply is asked for its line instead of going out silent."""
+        self.env['CLAUDE_SPEAK_SESSION'] = speak.session_key(os.getpid())
+        def run(*args, stdin=None):
+            return subprocess.run([sys.executable, '-I', SPEAK, *args], capture_output=True, text=True, env=self.env,
+                                  input=stdin)
+        run('rule'); run('quiet'); run('split', 'on')
+        self.assertIn('decision', run('say', '-', stdin='Corpo velho.').stdout)
+        self.assertIn('mensagem própria', self.cut())
+        self.assertEqual(run('pending').returncode, 1)
+        self.assertIn('decision', run('say', '-', stdin='Corpo novo.').stdout)
 
     def test_split_is_silent_with_the_voice_off_or_the_full_reading(self):
         self.engine()

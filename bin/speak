@@ -57,8 +57,9 @@
                            the mode; used by hooks/speak-cut.py to say when the mode or the voice comes back)
   speak forgot             exit 0 when the last reply of this session (kept by `say -`) has no 🔊 line, else 1; used by
                            hooks/speak-cut.py to remind Claude, at each new message, while the line keeps missing
-  speak pending            exit 0 when this session has a reply body waiting for its 🔊 line (`speak split on`: the
-                           Stop hook asked for the line in a message of its own), else 1; used by hooks/speak-cut.py
+  speak pending [drop]     exit 0 when this session has a reply body waiting for its 🔊 line (`speak split on`: the
+                           Stop hook asked for the line in a message of its own), else 1; `drop` forgets that body
+                           (hooks/speak-cut.py, at a new message: the line never came)
   speak silent             exit 0 when this session will not speak, else 1; when it will not, prints why: `off` (voice
                            off here), `installing [percent]` (engine being installed) or `missing` (no engine, no
                            install running); used by hooks/speak-cut.py to tell Claude to leave out the 🔊 line
@@ -2323,6 +2324,9 @@ def main(argv):
         last = read_last(current_session())
         return 0 if last and not spoken_line(last[0]) else 1
     if cmd == 'pending':  # this session has a reply body waiting for its 🔊 line (`speak split on`)
+        if text == 'drop':  # a new message: the line asked for never came (the turn was interrupted)
+            drop_pending(current_session())
+            return 0
         return 0 if read_pending(current_session()) is not None else 1
     if cmd == 'silent':
         why = silent_reason()
