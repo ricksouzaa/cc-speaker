@@ -10,6 +10,9 @@
                            summary (default): only its last line starting with 🔊 (rules/speak.md)
   speak size small|medium|large [all]  how long the spoken summary is (one short sentence; two or three sentences;
                            a paragraph); same scopes as `mode`; default medium
+  speak split on|off [all]  on: the 🔊 line goes in a message of its own after the reply (the Stop hook asks for it
+                           in one more turn), so a phone's play button reads only the summary; same scopes as `mode`;
+                           default off
   speak mic wait|play|auto [all]  what the speech does while a program records from the microphone (dictation,
                            video call); same scopes as `mode`; wait (default): the speech waits and a recording that
                            starts cuts it; play: it plays anyway, until changed, and only Claude Code's own dictation (holding the
@@ -105,6 +108,8 @@ SIZES = ('small', 'medium', 'large')
 MIC_FILE = os.path.join(CONF, 'mic')
 MICS = ('wait', 'play', 'auto')
 MIC_TEXT = {'wait': 'espera', 'play': 'toca', 'auto': 'toca nesta reunião'}
+SPLIT_FILE = os.path.join(CONF, 'split')
+SPLITS = ('on', 'off')
 MIC_SEEN = os.path.join(STATE, 'mic-seen')  # `auto` in the general setting: a busy microphone was seen under it
 RULE_LINE = {  # the first bullet of rules/speak.md, by the mode in force
     'summary': 'While the voice is on or quiet (`speak quiet`: silent, the line kept), every reply to the human '
@@ -236,6 +241,19 @@ def mic(session=None):
     return wanted if wanted in MICS else 'wait'
 
 
+def split(session=None):
+    """Whether the 🔊 line goes in a message of its own: CLAUDE_SPEAK_SPLIT, then the session's own choice, then the
+    general file, then 'off'."""
+    wanted = os.environ.get('CLAUDE_SPEAK_SPLIT') or read_session(session).get('split')
+    if not wanted:
+        try:
+            with open(SPLIT_FILE) as fh:
+                wanted = fh.read().strip()
+        except OSError:
+            pass
+    return wanted if wanted in SPLITS else 'off'
+
+
 def session_key(pid):
     """'<pid>-<start time>' of a process, which tells it from a later process that reuses the number; None if unreadable."""
     start = speak_os.started(pid)
@@ -334,6 +352,7 @@ def read_session(key):
     return {k: v for k, v in data.items() if (k == 'voice' and v in ('muted', 'speaking', 'quiet'))
             or (k == 'mode' and v in MODES) or (k == 'size' and v in SIZES)
             or (k == 'told' and (v in MODES or v == 'silent')) or (k == 'mic' and v in MICS) or (k == 'micseen' and v is True)
+            or (k == 'split' and v in SPLITS)
             or (k == 'dir' and isinstance(v, str) and v)}
 
 
@@ -1944,6 +1963,8 @@ def status():
         print('  desligada só nesta sessão (CLAUDE_SPEAK=0)')
     print('  modo: %s%s' % (mode(session), here if own_field(session, 'mode') else ''))
     print('  tamanho do resumo: %s%s' % (summary_size(session), here if own_field(session, 'size') else ''))
+    print('  resumo em mensagem própria: %s%s' % ('sim' if split(session) == 'on' else 'não',
+                                                 here if own_field(session, 'split') else ''))
     print('  microfone em uso: %s%s' % (MIC_TEXT[mic(session)], here if own_field(session, 'mic') else ''))
     print('  motor: %s' % engine_text())
     print('  voz: %s, velocidade %s' % (voice(), speed()))
@@ -2070,8 +2091,10 @@ def status_json():
     heard = sweep_now()
     print(json.dumps({'version': plugin_version(), 'session': session, 'stateDir': STATE,
                       'speaking': heard['playing'], 'paused': heard['paused'], 'on': is_on(session), 'power': power(session), 'mode': mode(session), 'size': summary_size(session), 'mic': mic(session),
+                      'split': split(session),
                       'scope': {f: 'session' if own_field(session, g) else 'all'
-                                for f, g in (('on', 'voice'), ('mode', 'mode'), ('size', 'size'), ('mic', 'mic'))},
+                                for f, g in (('on', 'voice'), ('mode', 'mode'), ('size', 'size'), ('mic', 'mic'),
+                                             ('split', 'split'))},
                       'engine': engine_ready(), 'installing': not engine_ready() and installing(),
                       'install': None if engine_ready() else install_progress(),
                       'voice': next((short for short, (full, _) in PT_VOICES.items() if full == now), now)}))
@@ -2182,6 +2205,20 @@ def main(argv):
                 pass
         if wanted == 'auto':
             track_mic(session, current_recordings())  # chosen in the middle of the meeting: it counts as seen
+        return status()
+    if cmd == 'split':
+        wanted, _, scope = text.partition(' ')
+        if wanted not in SPLITS or scope not in ('', 'all'):
+            print('voz: use "speak split on" ou "speak split off" (com "all" no fim, vale para todas as sessões)',
+                  file=sys.stderr)
+            return 2
+        session = current_session()
+        if session and not scope:
+            set_session(session, split=wanted)
+        else:
+            os.makedirs(CONF, exist_ok=True)
+            write_atomic(SPLIT_FILE, wanted + '\n')
+            clear_all_sessions('split')
         return status()
     if cmd == '_mictick':  # used by hooks/speak-cut.py at each new message: the meeting may have ended
         if mic(current_session()) == 'auto':

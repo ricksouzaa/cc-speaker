@@ -1147,6 +1147,19 @@ class Session(unittest.TestCase):
         self.assertEqual(json.loads(self.speak('status', '--json', session=self.me).stdout)['power'], 'quiet')
         self.assertFalse(json.loads(self.speak('status', '--json', session=self.me).stdout)['on'])
 
+    def test_split_is_off_by_default_and_follows_the_scopes(self):
+        self.assertIn('resumo em mensagem própria: não', self.speak('status', session=self.me).stdout)
+        self.speak('split', 'on', session=self.me)
+        mine = self.speak('status', session=self.me).stdout
+        self.assertIn('resumo em mensagem própria: sim · só nesta sessão', mine)
+        self.assertIn('resumo em mensagem própria: não', self.speak('status', session=self.other).stdout)
+        data = json.loads(self.speak('status', '--json', session=self.me).stdout)
+        self.assertEqual((data['split'], data['scope']['split']), ('on', 'session'))
+        self.speak('split', 'on', 'all', session=self.me)
+        data = json.loads(self.speak('status', '--json', session=self.me).stdout)
+        self.assertEqual((data['split'], data['scope']['split']), ('on', 'all'))
+        self.assertEqual(self.speak('split', 'sim', session=self.me).returncode, 2)
+
     def test_quiet_all_is_general_and_on_all_clears_it(self):
         self.speak('quiet', 'all', session=self.me)
         self.assertIn('geral: só o resumo escrito', self.speak('status', session=self.other).stdout)
@@ -3765,7 +3778,7 @@ class Scope(unittest.TestCase):
     def test_status_json_scope(self):
         self.put(self.me, {'size': 'large'})
         data = json.loads(self.speak('status', '--json', session=self.me).stdout)
-        self.assertEqual(data['scope'], {'on': 'all', 'mode': 'all', 'size': 'session', 'mic': 'all'})
+        self.assertEqual(data['scope'], {'on': 'all', 'mode': 'all', 'size': 'session', 'mic': 'all', 'split': 'all'})
         self.assertEqual(data['size'], 'large')
 
     def test_limpa_copias_antigas(self):
