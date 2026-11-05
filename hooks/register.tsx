@@ -2,7 +2,7 @@
 // foco): uma lista nativa (`Select`) por linha, a linha "Ouvir de novo" (dois botões que tocam na hora) e um botão Fechar; cada escolha roda o `bin/speak` na hora.
 // A primeira linha, "Mudar em", só diz onde as próximas trocas são gravadas (todas as sessões ou só esta); abre sempre
 // em "Todas as sessões" e trocá-la não roda nada. Responde sozinho, sem o modelo. Com a escolha escrita
-// (/speak voice alex), roda direto, sem menu, e responde uma linha.
+// (/speak voice alex, /speak quiet), roda direto, sem menu, e responde uma linha.
 // Também mostra, na linha de status de todas as sessões, quem está falando (lido de state/speech.json, sem abrir processo),
 // e troca o rótulo do botão que deu o play por Pausar/Continuar (/speak pause, /speak resume).
 import type { EngineInterface, Register, Timer } from 'claude-code'
@@ -11,7 +11,7 @@ type Engine = EngineInterface
 type Reply = { text?: string }
 type State = {
   version?: string
-  on: boolean; mode: string; size: string; mic?: string; voice: string; engine: boolean
+  on: boolean; power?: string; mode: string; size: string; mic?: string; voice: string; engine: boolean
   scope?: { on?: string; mode?: string; size?: string; mic?: string }
   installing?: boolean
   install?: { fase?: string; arquivo?: string; feito?: number; total?: number } | null
@@ -27,9 +27,9 @@ const SIZES: Record<string, string> = { small: 'Pequeno', medium: 'Médio', larg
 const MICS: Record<string, string> = { wait: 'Espera', play: 'Toca', auto: 'Toca nesta reunião' }
 const VOICES: Record<string, string> = { dora: 'Dora (feminina)', alex: 'Alex (masculina)', santa: 'Santa (masculina)', alice: 'Alice (feminina)' }
 const READERS: Record<string, string> = { dora: 'Dora', alex: 'Alex', santa: 'Santa', alice: 'Alice' }
-const POWER: Record<string, string> = { on: 'Ligada', off: 'Desligada' }
+const POWER: Record<string, string> = { on: 'Ligada', quiet: 'Só o resumo escrito', off: 'Desligada' }
 const USAGE =
-  'Escreva a ação: /speak on, /speak off, /speak mode full|summary, /speak size small|medium|large, /speak mic wait|play|auto, ' +
+  'Escreva a ação: /speak on, /speak quiet, /speak off, /speak mode full|summary, /speak size small|medium|large, /speak mic wait|play|auto, ' +
   '/speak voice dora|alex|santa|alice, /speak again [summary|full], /speak pause, /speak resume, /speak status, /speak stop, ' +
   '/speak install, /speak update ' +
   '(com "all" no fim, vale para todas as sessões).'
@@ -319,6 +319,7 @@ function said(args: string[], after: State | undefined): string {
   const [cmd, value] = args
   switch (cmd) {
     case 'on': return `A voz está ligada ${where(all)}.`
+    case 'quiet': return `A voz está calada ${where(all)}; o resumo continua escrito.`
     case 'off': return `A voz está desligada ${where(all)}.`
     case 'mode':
       return value === 'full'
@@ -352,6 +353,7 @@ async function direct($: Engine, body: string[], all: boolean): Promise<Reply | 
   const tail = all ? ['all'] : []
   switch (action) {
     case 'on':
+    case 'quiet':
     case 'off':
       return value ? { text: USAGE } : { text: (await change($, [action, ...tail])).text }
     case 'mode':
@@ -428,7 +430,7 @@ const AGAINS: Record<string, string> = { summary: 'Resumo', full: 'Resposta inte
 type Key = 'where' | 'power' | 'mode' | 'size' | 'voice' | 'mic'
 const ROWS: { key: Key; label: string; table: Record<string, string>; current: (s: State) => string; own: (s: State) => boolean }[] = [
   { key: 'where', label: 'Mudar em', table: WHERES, current: () => '', own: () => false },
-  { key: 'power', label: 'Voz', table: POWER, current: s => (s.on ? 'on' : 'off'), own: s => s.scope?.on === 'session' },
+  { key: 'power', label: 'Voz', table: POWER, current: s => s.power ?? (s.on ? 'on' : 'off'), own: s => s.scope?.on === 'session' },
   { key: 'mode', label: 'Leitura', table: MODES, current: s => s.mode, own: s => s.scope?.mode === 'session' },
   { key: 'size', label: 'Tamanho do resumo', table: SIZES, current: s => s.size, own: s => s.scope?.size === 'session' },
   { key: 'voice', label: 'Voz de leitura', table: READERS, current: s => s.voice, own: () => false },
@@ -603,7 +605,7 @@ export const register: Register = on => {
     await $.command.register({
       name: 'speak',
       description: 'Ajusta a voz que lê as respostas: ligar, modo, tamanho, microfone, voz; ouve de novo, pausa e continua a fala',
-      argumentHint: '[on|off|mode|size|mic|voice|again|pause|resume|status|stop|install|update] [all]',
+      argumentHint: '[on|quiet|off|mode|size|mic|voice|again|pause|resume|status|stop|install|update] [all]',
       immediate: true,
     })
     void kick($) // em segundo plano: não atrasa o registro da sessão

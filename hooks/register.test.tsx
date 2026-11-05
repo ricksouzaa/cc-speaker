@@ -16,7 +16,7 @@ async function setup($: any, on: any, opts: Opts = {}) {
   on('ui.log', (_: unknown, e: any) => { logs.push(e.text); return { value: undefined } })
   on('ui.toast', (_: unknown, e: any) => { toasts.push(e.text); return { value: undefined } })
   const st: any = {
-    on: true, mode: 'summary', size: 'medium', mic: 'wait', engine: true, voice: 'dora',
+    on: true, power: 'on', mode: 'summary', size: 'medium', mic: 'wait', engine: true, voice: 'dora',
     scope: { on: 'all', mode: 'all', size: 'all', mic: 'all', ...(opts.scope ?? {}) },
     session: 'S-1', stateDir: '/estado',
     ...(opts.init ?? {}),
@@ -74,7 +74,7 @@ async function setup($: any, on: any, opts: Opts = {}) {
     if (args[0] === 'size') st.size = args[1]!
     if (args[0] === 'mic') st.mic = args[1]!
     if (args[0] === 'voice') st.voice = args[1]!
-    if (args[0] === 'on' || args[0] === 'off') st.on = args[0] === 'on'
+    if (args[0] === 'on' || args[0] === 'off' || args[0] === 'quiet') { st.on = args[0] === 'on'; st.power = args[0] }
     return done(0, 'ok\n')
   })
   await $.session.start({ cwd: '/', surface: opts.surface ?? 'terminal', isInteractive: true })
@@ -956,4 +956,29 @@ test('/speak stop diz que as pausadas também acabaram', async ($, on) => {
   await setup($, on)
   expect((await $.command.run({ command: 'speak', args: 'stop' })).text).toBe(
     'A fala foi cortada, a fila esvaziada e as pausadas encerradas.')
+})
+
+test('a linha Voz tem o valor do meio e ele roda speak quiet', async ($, on) => {
+  const { ran } = await setup($, on)
+  const { ui } = await openMenu($)
+  expect((await selects(ui)).power.options.map((o: any) => o.label)).toEqual(['Ligada', 'Só o resumo escrito', 'Desligada'])
+  await ui.select({ key: 'power', value: 'quiet' })
+  expect(changes(ran)).toEqual(['quiet all'])
+  expect((await selects(ui)).power.value).toBe('quiet')
+  expect(await footer(ui)).toBe('A voz está calada em todas as sessões; o resumo continua escrito.')
+  await ui.unmount()
+})
+
+test('/speak quiet escrito roda direto e diz o que vale', async ($, on) => {
+  const { ran } = await setup($, on)
+  const r = await $.command.run({ command: 'speak', args: 'quiet' })
+  expect(changes(ran)).toEqual(['quiet'])
+  expect(r.text).toBe('A voz está calada nesta sessão; o resumo continua escrito.')
+})
+
+test('sem o campo power no estado, a linha Voz cai no ligada/desligada', async ($, on) => {
+  await setup($, on, { init: { power: undefined, on: false } })
+  const { ui } = await openMenu($)
+  expect((await selects(ui)).power.value).toBe('off')
+  await ui.unmount()
 })
