@@ -441,7 +441,7 @@ const ROWS: { key: Key; label: string; table: Record<string, string>; current: (
   { key: 'power', label: 'Voz', table: POWER, current: s => s.power ?? (s.on ? 'on' : 'off'), own: s => s.scope?.on === 'session' },
   { key: 'mode', label: 'Leitura', table: MODES, current: s => s.mode, own: s => s.scope?.mode === 'session' },
   { key: 'size', label: 'Tamanho do resumo', table: SIZES, current: s => s.size, own: s => s.scope?.size === 'session' },
-  { key: 'split', label: 'Resumo em mensagem própria', table: SPLITS, current: s => s.split ?? 'off', own: s => s.scope?.split === 'session' },
+  { key: 'split', label: 'Resumo em mensagem própria', table: SPLITS, current: s => s.split ?? 'on', own: s => s.scope?.split === 'session' },
   { key: 'voice', label: 'Voz de leitura', table: READERS, current: s => s.voice, own: () => false },
   { key: 'mic', label: 'Com o microfone em uso', table: MICS, current: s => s.mic ?? 'wait', own: s => s.scope?.mic === 'session' },
 ]

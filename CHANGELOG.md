@@ -7,6 +7,12 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.20.0] - 2026-11-05
+
+### Alterado
+- O resumo em mensagem própria passa a vir **ligado**: o Claude responde sem a linha 🔊 e manda a linha sozinha logo depois, pronta para o botão de ler em voz alta do app do celular. Quem já escolheu desligado continua assim. Para voltar ao resumo no fim da resposta, use `/speak split off all`, o painel ou peça em palavras.
+- Com isso, cada resposta custa uma chamada a mais do modelo enquanto a escolha estiver ligada.
+
 ## [0.19.0] - 2026-11-05
 
 ### Adicionado
@@ -329,7 +335,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.19.0...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.20.0...HEAD
+[0.20.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.17.2...v0.18.0
 [0.17.2]: https://github.com/ricksouzaa/cc-speaker/compare/v0.17.1...v0.17.2
