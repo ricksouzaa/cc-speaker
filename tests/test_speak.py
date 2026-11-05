@@ -1414,6 +1414,14 @@ class Session(unittest.TestCase):
         self.speak('off', session=self.me)
         self.assertTrue(self.ends(speech))
 
+    def test_quiet_here_cuts_only_my_speech(self):
+        speech = self.speech(self.other)
+        self.speak('quiet', session=self.me)
+        self.assertFalse(self.ends(speech, 0.5))
+        speech = self.speech(self.me)
+        self.speak('quiet', session=self.me)
+        self.assertTrue(self.ends(speech))
+
     def test_muted_session_neither_speaks_nor_cuts(self):
         from unittest import mock
         speech = self.speech(self.other)
@@ -1748,6 +1756,25 @@ class Session(unittest.TestCase):
         later = self.waiter('d', self.me)
         self.assertTrue(self.until(lambda: len(self.tickets()) == 3))
         self.speak('off', session=self.me, **{k: v for k, v in self.env.items() if k != 'HOME'})
+        self.assertTrue(self.ends(mine, 5))
+        self.assertTrue(self.ends(later, 5))
+        self.assertEqual(len(self.tickets()), 1)
+        self.assertIsNone(playing.poll())
+        self.assertIsNone(theirs.poll())
+        self.let_go('a')
+        self.assertTrue(self.until(lambda: self.started() == ['a', 'c']))
+        self.let_go('c')
+        self.assertEqual(theirs.wait(timeout=5), 0)
+
+    def test_quiet_in_a_session_drops_only_its_speeches(self):
+        self.queue_setup()
+        playing = self.waiter('a', self.other)
+        self.assertTrue(self.until(lambda: self.started() == ['a']))
+        mine = self.waiter('b', self.me)
+        theirs = self.waiter('c', self.other)
+        later = self.waiter('d', self.me)
+        self.assertTrue(self.until(lambda: len(self.tickets()) == 3))
+        self.speak('quiet', session=self.me, **{k: v for k, v in self.env.items() if k != 'HOME'})
         self.assertTrue(self.ends(mine, 5))
         self.assertTrue(self.ends(later, 5))
         self.assertEqual(len(self.tickets()), 1)
