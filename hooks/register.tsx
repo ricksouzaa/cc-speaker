@@ -2,7 +2,7 @@
 // foco): uma lista nativa (`Select`) por linha, a linha "Ouvir de novo" (dois botões que tocam na hora) e um botão Fechar; cada escolha roda o `bin/speak` na hora.
 // A primeira linha, "Mudar em", só diz onde as próximas trocas são gravadas (todas as sessões ou só esta); abre sempre
 // em "Todas as sessões" e trocá-la não roda nada. Responde sozinho, sem o modelo. Com a escolha escrita
-// (/speak voice alex, /speak quiet), roda direto, sem menu, e responde uma linha.
+// (/speak voice alex, /speak quiet, /speak split on), roda direto, sem menu, e responde uma linha.
 // Também mostra, na linha de status de todas as sessões, quem está falando (lido de state/speech.json, sem abrir processo),
 // e troca o rótulo do botão que deu o play por Pausar/Continuar (/speak pause, /speak resume).
 import type { EngineInterface, Register, Timer } from 'claude-code'
@@ -11,8 +11,8 @@ type Engine = EngineInterface
 type Reply = { text?: string }
 type State = {
   version?: string
-  on: boolean; power?: string; mode: string; size: string; mic?: string; voice: string; engine: boolean
-  scope?: { on?: string; mode?: string; size?: string; mic?: string }
+  on: boolean; power?: string; mode: string; size: string; split?: string; mic?: string; voice: string; engine: boolean
+  scope?: { on?: string; mode?: string; size?: string; split?: string; mic?: string }
   installing?: boolean
   install?: { fase?: string; arquivo?: string; feito?: number; total?: number } | null
   session?: string | null; stateDir?: string
@@ -24,12 +24,14 @@ type Heard = { playing: Speech | null; paused: Speech[] }
 
 const MODES: Record<string, string> = { full: 'Resposta inteira', summary: 'Só o resumo' }
 const SIZES: Record<string, string> = { small: 'Pequeno', medium: 'Médio', large: 'Grande' }
+const SPLITS: Record<string, string> = { off: 'Não', on: 'Sim' }
 const MICS: Record<string, string> = { wait: 'Espera', play: 'Toca', auto: 'Toca nesta reunião' }
 const VOICES: Record<string, string> = { dora: 'Dora (feminina)', alex: 'Alex (masculina)', santa: 'Santa (masculina)', alice: 'Alice (feminina)' }
 const READERS: Record<string, string> = { dora: 'Dora', alex: 'Alex', santa: 'Santa', alice: 'Alice' }
 const POWER: Record<string, string> = { on: 'Ligada', quiet: 'Só o resumo escrito', off: 'Desligada' }
 const USAGE =
-  'Escreva a ação: /speak on, /speak quiet, /speak off, /speak mode full|summary, /speak size small|medium|large, /speak mic wait|play|auto, ' +
+  'Escreva a ação: /speak on, /speak quiet, /speak off, /speak mode full|summary, /speak size small|medium|large, /speak split on|off, ' +
+  '/speak mic wait|play|auto, ' +
   '/speak voice dora|alex|santa|alice, /speak again [summary|full], /speak pause, /speak resume, /speak status, /speak stop, ' +
   '/speak install, /speak update ' +
   '(com "all" no fim, vale para todas as sessões).'
@@ -326,6 +328,10 @@ function said(args: string[], after: State | undefined): string {
         ? `A voz passa a ler a resposta inteira ${where(all)}.`
         : `A voz passa a ler só o resumo ${where(all)}.`
     case 'size': return `O resumo falado passa a ser ${(SIZES[value ?? ''] ?? '').toLowerCase()}, ${where(all)}.`
+    case 'split':
+      return value === 'on'
+        ? `O resumo passa a vir numa mensagem própria ${where(all)}.`
+        : `O resumo volta a fechar a própria resposta ${where(all)}.`
     case 'mic':
       return value === 'wait'
         ? `A voz passa a esperar o microfone ficar livre ${where(all)}.`
@@ -337,7 +343,7 @@ function said(args: string[], after: State | undefined): string {
   }
 }
 
-// Roda uma mudança (on, off, mode, size, voice) e devolve a frase, ou a mensagem de erro do speak.
+// Roda uma mudança (on, quiet, off, mode, size, split, mic, voice) e devolve a frase, ou a mensagem de erro do speak.
 // Lê o estado uma vez, depois da mudança, e o devolve para quem quiser redesenhar.
 async function change($: Engine, args: string[]): Promise<{ ok: boolean; text: string; after: State | undefined }> {
   const r = await run($, args)
@@ -360,6 +366,8 @@ async function direct($: Engine, body: string[], all: boolean): Promise<Reply | 
       return value ? runChoice($, 'mode', value, MODES, tail) : undefined
     case 'size':
       return value ? runChoice($, 'size', value, SIZES, tail) : undefined
+    case 'split':
+      return value ? runChoice($, 'split', value, SPLITS, tail) : undefined
     case 'mic':
       return value ? runChoice($, 'mic', value, MICS, tail) : undefined
     case 'voice':
@@ -427,18 +435,19 @@ const UNREAD = 'Não deu para ler o estado da voz.'
 const AGAIN_LABEL = 'Ouvir de novo'
 const AGAINS: Record<string, string> = { summary: 'Resumo', full: 'Resposta inteira' }
 
-type Key = 'where' | 'power' | 'mode' | 'size' | 'voice' | 'mic'
+type Key = 'where' | 'power' | 'mode' | 'size' | 'split' | 'voice' | 'mic'
 const ROWS: { key: Key; label: string; table: Record<string, string>; current: (s: State) => string; own: (s: State) => boolean }[] = [
   { key: 'where', label: 'Mudar em', table: WHERES, current: () => '', own: () => false },
   { key: 'power', label: 'Voz', table: POWER, current: s => s.power ?? (s.on ? 'on' : 'off'), own: s => s.scope?.on === 'session' },
   { key: 'mode', label: 'Leitura', table: MODES, current: s => s.mode, own: s => s.scope?.mode === 'session' },
   { key: 'size', label: 'Tamanho do resumo', table: SIZES, current: s => s.size, own: s => s.scope?.size === 'session' },
+  { key: 'split', label: 'Resumo em mensagem própria', table: SPLITS, current: s => s.split ?? 'off', own: s => s.scope?.split === 'session' },
   { key: 'voice', label: 'Voz de leitura', table: READERS, current: s => s.voice, own: () => false },
   { key: 'mic', label: 'Com o microfone em uso', table: MICS, current: s => s.mic ?? 'wait', own: s => s.scope?.mic === 'session' },
 ]
 // A linha do tamanho só aparece com a leitura em "só o resumo": na resposta inteira o tamanho não é usado. Vale o
 // valor que a linha Leitura mostra (o do alcance de "Mudar em"); sem estado lido, todas as linhas aparecem.
-const shown = (key: Key, now: State | undefined): boolean => !(key === 'size' && now?.mode === 'full')
+const shown = (key: Key, now: State | undefined): boolean => !((key === 'size' || key === 'split') && now?.mode === 'full')
 const MIC_WARNING = 'Com o microfone em uso, a voz toca: ele pode captar a voz e quem está na reunião ouve.'
 
 // O estado da voz lido para o desenho: vazio ao abrir (o desenho lê), e trocado a cada mudança pela leitura que a
@@ -529,8 +538,9 @@ async function menuTree($: Engine, e: any): Promise<unknown> {
     install: progressNow,
     where: (await $.state.get(STATE)).value ?? 'all',
     note: (await $.state.get(NOTE)).value ?? '',
-    // o foco pedido numa linha que não aparece (o tamanho, na resposta inteira) vai para a linha Leitura
-    first: (ROWS.some(r => r.key === focus && shown(r.key, view!.now)) ? focus : focus === 'size' ? 'mode' : 'where') as Key,
+    // o foco pedido numa linha que não aparece (o tamanho ou o resumo em mensagem própria, na resposta inteira) vai
+    // para a linha Leitura
+    first: (ROWS.some(r => r.key === focus && shown(r.key, view!.now)) ? focus : focus === 'size' || focus === 'split' ? 'mode' : 'where') as Key,
     choose: (key, value) => enqueue(() => menuChange($, key, value)),
     again: which => enqueue(() => menuAgain($, which)),
     close: () => $.ui.close({ id: PANE }),
@@ -605,7 +615,7 @@ export const register: Register = on => {
     await $.command.register({
       name: 'speak',
       description: 'Ajusta a voz que lê as respostas: ligar, modo, tamanho, microfone, voz; ouve de novo, pausa e continua a fala',
-      argumentHint: '[on|quiet|off|mode|size|mic|voice|again|pause|resume|status|stop|install|update] [all]',
+      argumentHint: '[on|quiet|off|mode|size|split|mic|voice|again|pause|resume|status|stop|install|update] [all]',
       immediate: true,
     })
     void kick($) // em segundo plano: não atrasa o registro da sessão
