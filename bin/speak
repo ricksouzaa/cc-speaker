@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """speak: speaks aloud each Claude Code reply, with Kokoro running locally (no network, no cost).
 
-  speak on | off [all]     turn the voice on or off for this Claude Code session (the nearest ancestor process
-                           named `claude`); `all` (or outside a session) acts on every session and the general switch
+  speak on | quiet | off [all]  turn the voice on, keep only the written 🔊 summary (`quiet`: no sound) or turn it off
+                           for this Claude Code session (the nearest ancestor process named `claude`); `all` (or
+                           outside a session) acts on every session and the general switch
   speak status             show the version of the plugin (first line) and the state: effective here, general, this session, mode, engine, voice
   speak mode full|summary [all]  for this session (with `all`, or outside a session: the general mode and every
                            session); full: the whole reply without code, paths, links and file names;
@@ -90,7 +91,10 @@ import speak_update  # noqa: E402
 
 HOME = os.path.expanduser('~')
 DATA, CONF, STATE = speak_paths.paths(os.path.realpath(__file__))  # engine, choices, state: see lib/speak_paths.py
-OFF_FLAG = os.path.join(CONF, 'off')
+OFF_FLAG = os.path.join(CONF, 'off')  # the two-state switch of the older versions; migrated into POWER_FILE
+POWER_FILE = os.path.join(CONF, 'power')  # the general switch: on|quiet|off (missing: on)
+POWERS = ('on', 'quiet', 'off')
+POWER_TEXT = {'on': 'ligada', 'quiet': 'só o resumo escrito', 'off': 'desligada'}
 ALL_MARK = os.path.join(STATE, 'all')  # its modification time: when the last request for every session was made
 SESSIONS = os.path.join(STATE, 'sessions')  # one file per session: name = key, content = JSON
 LAST = os.path.join(STATE, 'last')  # one file per session: the last raw reply and the mode it was read in (JSON)
@@ -312,7 +316,7 @@ def session_alive(key):
 
 
 def read_session(key):
-    """The fields of a session file: {'voice': 'muted'|'speaking', 'mode': 'full'|'summary', 'size': 'small'|'medium'|'large'}, each optional.
+    """The fields of a session file: {'voice': 'muted'|'speaking'|'quiet', 'mode': 'full'|'summary', 'size': 'small'|'medium'|'large'}, each optional.
     A bare `muted` or `speaking` (a file of the first format) counts as the voice."""
     if not key:
         return {}
@@ -327,7 +331,7 @@ def read_session(key):
         data = {'voice': raw}
     if not isinstance(data, dict):
         return {}
-    return {k: v for k, v in data.items() if (k == 'voice' and v in ('muted', 'speaking'))
+    return {k: v for k, v in data.items() if (k == 'voice' and v in ('muted', 'speaking', 'quiet'))
             or (k == 'mode' and v in MODES) or (k == 'size' and v in SIZES)
             or (k == 'told' and (v in MODES or v == 'silent')) or (k == 'mic' and v in MICS) or (k == 'micseen' and v is True)
             or (k == 'dir' and isinstance(v, str) and v)}
@@ -339,7 +343,7 @@ def session_mode(key):
 
 
 def session_choice(key):
-    """'muted', 'speaking' or None (follows the general switch).
+    """'muted', 'speaking', 'quiet' or None (follows the general switch).
     CLAUDE_SPEAK=0 seeds a session once, when it has no file."""
     if not key:
         return None
@@ -423,13 +427,43 @@ def read_last(session):
     return (message, how) if isinstance(message, str) and message.strip() and how in MODES else None
 
 
-def is_on(session=None):
+def general_power():
+    """The general switch: 'on', 'quiet' or 'off' (POWER_FILE; else the old flag file; else on)."""
+    try:
+        with open(POWER_FILE) as fh:
+            value = fh.read().strip()
+        if value in POWERS:
+            return value
+    except OSError:
+        pass
+    return 'off' if os.path.exists(OFF_FLAG) else 'on'
+
+
+def set_general_power(value):
+    """Writes the general switch; `on` removes the file (absence means on). The old flag file always goes."""
+    if value != 'on':
+        os.makedirs(CONF, exist_ok=True)
+        write_atomic(POWER_FILE, value + '\n')
+    for path in (OFF_FLAG,) if value != 'on' else (OFF_FLAG, POWER_FILE):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def power(session=None):
+    """'on', 'quiet' or 'off' in force for the session (the session's own choice, else CLAUDE_SPEAK=0 outside a
+    session, else the general switch)."""
     choice = session_choice(session)
     if choice:
-        return choice == 'speaking'
+        return {'speaking': 'on', 'quiet': 'quiet', 'muted': 'off'}[choice]
     if not session and os.environ.get('CLAUDE_SPEAK', '1') == '0':
-        return False
-    return not os.path.exists(OFF_FLAG)
+        return 'off'
+    return general_power()
+
+
+def is_on(session=None):
+    return power(session) == 'on'
 
 
 def engine_ready():
@@ -1900,11 +1934,11 @@ def status():
     if plugin_version():
         print('versão: %s' % plugin_version())
     here = ' \u00b7 s\u00f3 nesta sess\u00e3o'
-    print('voz: %s%s' % ('ligada' if is_on(session) else 'desligada', here if own_field(session, 'voice') else ''))
-    print('  geral: %s' % ('desligada' if os.path.exists(OFF_FLAG) else 'ligada'))
+    print('voz: %s%s' % (POWER_TEXT[power(session)], here if own_field(session, 'voice') else ''))
+    print('  geral: %s' % POWER_TEXT[general_power()])
     choice = session_choice(session)
     if session:
-        print('  esta sessão: %s, modo %s' % ({'muted': 'muda', 'speaking': 'falando'}.get(choice, 'segue a geral'),
+        print('  esta sessão: %s, modo %s' % ({'muted': 'muda', 'speaking': 'falando', 'quiet': 'só o resumo'}.get(choice, 'segue a geral'),
                                               session_mode(session) or 'segue o geral'))
     else:
         print('  fora de uma sessão do Claude Code')
@@ -1952,7 +1986,18 @@ def migrate():
                         pass
 
 
+    _migrate_off_flag()
     _drop_copied_fields()
+
+
+def _migrate_off_flag():
+    """Once: the old `off` flag file becomes `power` with the value off."""
+    if os.path.exists(OFF_FLAG) and not os.path.exists(POWER_FILE):
+        try:
+            write_atomic(POWER_FILE, 'off\n')
+            os.remove(OFF_FLAG)
+        except OSError:
+            pass
 
 
 def _drop_copied_fields():
@@ -2008,8 +2053,11 @@ def _translate_config():
 
 def silent_reason():
     """Why this session will not speak: `off`, `installing [percent]`, `missing`; None when it will."""
-    if not is_on(current_session()):
+    wanted = power(current_session())
+    if wanted == 'off':
         return 'off'
+    if wanted == 'quiet':
+        return None
     if engine_ready():
         return None
     if installing():
@@ -2024,7 +2072,7 @@ def status_json():
     now = voice()
     heard = sweep_now()
     print(json.dumps({'version': plugin_version(), 'session': session, 'stateDir': STATE,
-                      'speaking': heard['playing'], 'paused': heard['paused'], 'on': is_on(session), 'mode': mode(session), 'size': summary_size(session), 'mic': mic(session),
+                      'speaking': heard['playing'], 'paused': heard['paused'], 'on': is_on(session), 'power': power(session), 'mode': mode(session), 'size': summary_size(session), 'mic': mic(session),
                       'scope': {f: 'session' if own_field(session, g) else 'all'
                                 for f, g in (('on', 'voice'), ('mode', 'mode'), ('size', 'size'), ('mic', 'mic'))},
                       'engine': engine_ready(), 'installing': not engine_ready() and installing(),
@@ -2037,23 +2085,21 @@ def main(argv):
     migrate()
     cmd, rest = (argv[0], argv[1:]) if argv else ('status', [])
     text = ' '.join(rest)
-    if cmd in ('on', 'off'):
+    if cmd in ('on', 'off', 'quiet'):
         if text not in ('', 'all'):
-            print('voz: use "speak off", "speak on", "speak off all" ou "speak on all"', file=sys.stderr)
+            print('voz: use "speak on", "speak quiet", "speak off", ou um deles com "all"', file=sys.stderr)
             return 2
         session = current_session()
-        if cmd == 'off' and (text or not session):
-            os.makedirs(CONF, exist_ok=True)
-            open(OFF_FLAG, 'w').close()
+        if cmd != 'on' and (text or not session):
+            set_general_power(cmd)
             mark_all()
             clear_all_sessions('voice')
             stop_current()
-        elif cmd == 'off':
-            set_session(session, voice='muted')
+        elif cmd != 'on':
+            set_session(session, voice='quiet' if cmd == 'quiet' else 'muted')
             stop_if_mine(session)
         elif text or not session:
-            if os.path.exists(OFF_FLAG):
-                os.remove(OFF_FLAG)
+            set_general_power('on')
             mark_all()
             clear_all_sessions('voice')
         else:

@@ -1031,12 +1031,21 @@ class Migration(unittest.TestCase):
         self.assertIn('voz: desligada', out)
         self.assertIn('modo: summary', out)
         self.assertTrue(os.path.exists(data_dir(self.home, 'engine', 'kokoro-v1.0.onnx')))
-        self.assertTrue(os.path.exists(data_dir(self.home, 'config', 'off')))
+        self.assertTrue(os.path.exists(data_dir(self.home, 'config', 'power')))
         with open(data_dir(self.home, 'config', 'mode')) as fh:
             self.assertEqual(fh.read().strip(), 'summary')
         for old in ('.local/share', '.config', '.local/state'):
             self.assertFalse(os.path.exists(self.path(old, 'claude-voz')), old)
         self.assertFalse(os.path.exists(data_dir(self.home, 'state', 'sessoes')))
+
+    def test_off_flag_becomes_the_power_file(self):
+        self.put(data_dir(self.home, 'config', 'off'))
+        out = self.speak('status').stdout
+        self.assertIn('voz: desligada', out)
+        self.assertIn('geral: desligada', out)
+        with open(data_dir(self.home, 'config', 'power')) as fh:
+            self.assertEqual(fh.read().strip(), 'off')
+        self.assertFalse(os.path.exists(data_dir(self.home, 'config', 'off')))
 
     def test_old_state_marker_and_leftovers(self):
         for name in ('tudo', 'fala.pid', 'fala.dono', 'erro.log', 'fala-123.wav', 'fala-9.wav'):
@@ -1078,7 +1087,7 @@ class Toggle(unittest.TestCase):
     def test_off_then_on(self):
         self.assertIn('voz: ligada', self.speak('status').stdout)
         self.assertIn('voz: desligada', self.speak('off').stdout)
-        self.assertTrue(os.path.exists(data_dir(self.tmp.name, 'config', 'off')))
+        self.assertTrue(os.path.exists(data_dir(self.tmp.name, 'config', 'power')))
         self.assertIn('voz: ligada', self.speak('on').stdout)
 
     def test_session_switch(self):
@@ -1128,6 +1137,33 @@ class Session(unittest.TestCase):
     def speak(self, *args, session, input=None, **env):
         return subprocess.run([sys.executable, '-I', SPEAK, *args], capture_output=True, text=True, input=input,
                               env={**self.env, 'CLAUDE_SPEAK_SESSION': session, **env})
+
+    def test_quiet_mutes_this_session_and_keeps_the_line(self):
+        self.speak('quiet', session=self.me)
+        mine = self.speak('status', session=self.me).stdout
+        self.assertIn('voz: só o resumo escrito · só nesta sessão', mine)
+        self.assertIn('esta sessão: só o resumo', mine)
+        self.assertIn('voz: ligada', self.speak('status', session=self.other).stdout)
+        self.assertEqual(json.loads(self.speak('status', '--json', session=self.me).stdout)['power'], 'quiet')
+        self.assertFalse(json.loads(self.speak('status', '--json', session=self.me).stdout)['on'])
+
+    def test_quiet_all_is_general_and_on_all_clears_it(self):
+        self.speak('quiet', 'all', session=self.me)
+        self.assertIn('geral: só o resumo escrito', self.speak('status', session=self.other).stdout)
+        self.speak('quiet', session=self.other)
+        self.speak('on', 'all', session=self.me)
+        other = self.speak('status', session=self.other).stdout
+        self.assertIn('voz: ligada', other)
+        self.assertIn('segue a geral', other)
+
+    def test_env_mute_does_not_overwrite_a_quiet_session(self):
+        self.speak('quiet', session=self.me)
+        self.assertIn('esta sessão: só o resumo', self.speak('status', session=self.me, CLAUDE_SPEAK='0').stdout)
+
+    def test_quiet_with_bad_scope_is_refused(self):
+        r = self.speak('quiet', 'todas', session=self.me)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('speak quiet', r.stderr)
 
     def test_off_mutes_only_this_session(self):
         self.speak('off', session=self.me)
@@ -1254,7 +1290,7 @@ class Session(unittest.TestCase):
     def test_forced_key_with_slash_is_no_session(self):
         self.assertIn('fora de uma sessão do Claude Code', self.speak('status', session='../x').stdout)
         self.speak('off', session='../x')
-        self.assertTrue(os.path.exists(data_dir(self.tmp.name, 'config', 'off')))
+        self.assertTrue(os.path.exists(data_dir(self.tmp.name, 'config', 'power')))
         self.assertFalse(os.path.exists(data_dir(self.tmp.name, 'state', 'x')))
         self.assertEqual(os.listdir(self.state) if os.path.isdir(self.state) else [], [])
 
@@ -1284,7 +1320,7 @@ class Session(unittest.TestCase):
     def test_unknown_scope_is_refused(self):
         r = self.speak('off', 'todas', session=self.me)
         self.assertEqual(r.returncode, 2)
-        self.assertIn('use "speak off"', r.stderr)
+        self.assertIn('"speak off"', r.stderr)
         self.assertIn('voz: ligada', self.speak('status', session=self.me).stdout)
 
     def test_session_found_through_shells(self):
@@ -1342,7 +1378,7 @@ class Session(unittest.TestCase):
 
     def test_outside_a_session_off_is_global(self):
         self.speak('off', session='-')
-        self.assertTrue(os.path.exists(data_dir(self.tmp.name, 'config', 'off')))
+        self.assertTrue(os.path.exists(data_dir(self.tmp.name, 'config', 'power')))
         self.assertIn('voz: desligada', self.speak('status', session=self.me).stdout)
 
 
@@ -2392,6 +2428,12 @@ class Silent(unittest.TestCase):
         self.engine()
         self.assertEqual(self.silent().returncode, 1)
         self.assertEqual(self.cut(), '')
+
+    def test_quiet_asks_for_the_line_with_or_without_the_engine(self):
+        subprocess.run([sys.executable, '-I', SPEAK, 'quiet'], capture_output=True, env=self.env)
+        self.assertEqual(self.silent().returncode, 1)  # no engine: the line is still wanted
+        self.engine()
+        self.assertEqual(self.silent().returncode, 1)
 
     def test_off_here_is_silent(self):
         self.engine()
@@ -3616,7 +3658,7 @@ class InstallProgress(unittest.TestCase):
         self.put(fase='baixando', arquivo='kokoro-v1.0.onnx', feito=77, total=100, passo=2, passos=3)
         self.assertEqual(why(), (0, 'installing 77\n'))
         self.fcntl.flock(held, self.fcntl.LOCK_UN)
-        with self.mock.patch.object(speak, 'is_on', return_value=False):
+        with self.mock.patch.object(speak, 'power', return_value='off'):
             self.assertEqual(why(), (0, 'off\n'))
 
 
