@@ -53,10 +53,12 @@
   speak again [summary|full]  speak the last reply of this session again, even with the voice off: as it played
                            (no word), only its 🔊 line (`summary`; the whole reply when it had none) or the whole
                            reply (`full`); `speak say -` keeps the last reply of each session for this
-  speak told [full|summary|silent] print, or record, what the model was last told in this session (`rule` records
+  speak told [full|summary|silent|split] print, or record, what the model was last told in this session (`rule` records
                            the mode; used by hooks/speak-cut.py to say when the mode or the voice comes back)
   speak forgot             exit 0 when the last reply of this session (kept by `say -`) has no 🔊 line, else 1; used by
                            hooks/speak-cut.py to remind Claude, at each new message, while the line keeps missing
+  speak pending            exit 0 when this session has a reply body waiting for its 🔊 line (`speak split on`: the
+                           Stop hook asked for the line in a message of its own), else 1; used by hooks/speak-cut.py
   speak silent             exit 0 when this session will not speak, else 1; when it will not, prints why: `off` (voice
                            off here), `installing [percent]` (engine being installed) or `missing` (no engine, no
                            install running); used by hooks/speak-cut.py to tell Claude to leave out the 🔊 line
@@ -352,7 +354,7 @@ def read_session(key):
         return {}
     return {k: v for k, v in data.items() if (k == 'voice' and v in ('muted', 'speaking', 'quiet'))
             or (k == 'mode' and v in MODES) or (k == 'size' and v in SIZES)
-            or (k == 'told' and (v in MODES or v == 'silent')) or (k == 'mic' and v in MICS) or (k == 'micseen' and v is True)
+            or (k == 'told' and (v in MODES or v in ('silent', 'split'))) or (k == 'mic' and v in MICS) or (k == 'micseen' and v is True)
             or (k == 'split' and v in SPLITS)
             or (k == 'dir' and isinstance(v, str) and v)}
 
@@ -1956,6 +1958,9 @@ def rule():
         text = fh.read()
     session = current_session()
     line = RULE_LINE[mode(session)].replace('{size}', SIZE_TEXT[summary_size(session)])
+    if mode(session) == 'summary' and split(session) == 'on':
+        line += (' The summary goes in its own message (`speak split on`): do not end the reply with the `🔊` line; '
+                 'the Stop hook asks for it right after, and then you answer with only that line.')
     return text.replace('{line}', line)
 
 
@@ -2285,7 +2290,7 @@ def main(argv):
         return status()
     if cmd == 'told':  # the mode last told to the model in this session (a field of the session file)
         session = current_session()
-        if (text in MODES or text == 'silent') and session:
+        if (text in MODES or text in ('silent', 'split')) and session:
             set_session(session, told=text)
         elif not text:
             print(read_session(session).get('told', ''))
@@ -2317,6 +2322,8 @@ def main(argv):
     if cmd == 'forgot':  # the last reply of this session (kept by `say -`) has no 🔊 line
         last = read_last(current_session())
         return 0 if last and not spoken_line(last[0]) else 1
+    if cmd == 'pending':  # this session has a reply body waiting for its 🔊 line (`speak split on`)
+        return 0 if read_pending(current_session()) is not None else 1
     if cmd == 'silent':
         why = silent_reason()
         if why:

@@ -2666,6 +2666,38 @@ class Silent(unittest.TestCase):
         run('say', '-', stdin='Ignorei o aviso.')
         self.assertIn('ficou sem ela', self.cut())
 
+    def test_split_tells_the_model_at_each_message_and_the_return_once(self):
+        self.env['CLAUDE_SPEAK_SESSION'] = speak.session_key(os.getpid())
+        def run(*args, stdin=None):
+            return subprocess.run([sys.executable, '-I', SPEAK, *args], capture_output=True, text=True, env=self.env,
+                                  input=stdin)
+        run('rule')
+        run('quiet')  # no engine here: in quiet the line is still wanted and nothing plays
+        run('split', 'on')
+        self.assertIn('mensagem própria', self.cut())
+        self.assertIn('mensagem própria', self.cut())
+        run('say', '-', stdin='Corpo sem linha.')  # blocked: pending body, the continuation turn
+        self.assertEqual(self.cut(), '')
+        run('say', '-', stdin='🔊 Linha.')
+        self.assertIn('mensagem própria', self.cut())
+        run('split', 'off')
+        self.assertIn('termine esta resposta com a linha 🔊', self.cut())
+        self.assertEqual(self.cut(), '')
+
+    def test_split_is_silent_with_the_voice_off_or_the_full_reading(self):
+        self.engine()
+        self.env['CLAUDE_SPEAK_SESSION'] = speak.session_key(os.getpid())
+        def run(*args):
+            return subprocess.run([sys.executable, '-I', SPEAK, *args], capture_output=True, text=True, env=self.env)
+        run('rule'); run('split', 'on'); run('off')
+        note = self.cut()
+        self.assertIn('desligada', note)
+        self.assertNotIn('mensagem própria', note)
+        run('on'); run('mode', 'full')
+        note = self.cut()
+        self.assertIn('inteira', note)
+        self.assertNotIn('mensagem própria', note)
+
     def test_quiet_brings_the_line_back_and_reminds_without_the_engine(self):
         """Off then quiet, no engine: the model is told once the line is back, then reminded while replies lack it."""
         self.env['CLAUDE_SPEAK_SESSION'] = speak.session_key(os.getpid())
@@ -3035,6 +3067,12 @@ class Rule(unittest.TestCase):
         text = self.rule(CLAUDE_SPEAK_MODE='summary')
         self.assertIn('Only in replies to the human: never in the recap (away summary', text)
         self.assertIn('nor in titles or other text Claude Code writes on its own', text)
+
+    def test_the_rule_says_the_line_goes_alone_with_split_on(self):
+        said = 'the Stop hook asks for it right after'
+        self.assertNotIn(said, self.rule())
+        self.assertIn(said, self.rule(CLAUDE_SPEAK_SPLIT='on'))
+        self.assertNotIn(said, self.rule(CLAUDE_SPEAK_SPLIT='on', CLAUDE_SPEAK_MODE='full'))
 
     def test_regra_sem_linha_no_full(self):
         full = self.rule(CLAUDE_SPEAK_MODE='full')
