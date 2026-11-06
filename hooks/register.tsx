@@ -82,6 +82,32 @@ let live: State | undefined // a última leitura do relógio, só para o progres
 let footLine = '' // a linha de progresso já desenhada no rodapé
 let installShowing = false // a linha de status está com a instalação do motor: ela vence a do aviso de fala
 
+// Há uma tela do Claude Code que desenha a linha de status (terminal, VS Code, o app que se liga à sessão). Numa sessão
+// sem tela (o chat do Orca e outros clientes do SDK), cada aviso vira uma linha solta na conversa e o de apagar não
+// apaga nada: ali a linha fica muda. Conferido no começo da sessão e a cada mensagem nova, porque uma tela pode se ligar.
+let canDraw = true
+let startSurface = '' // a tela com que a sessão começou (terminal, VS Code); com ela, a linha nunca fica muda
+async function lookDraw($: Engine, surface?: string) {
+  if (surface !== undefined) startSurface = surface
+  let any = !!startSurface
+  if (!any) {
+    try {
+      any = (await $.session.surfaces()).length > 0
+    } catch {
+      any = false
+    }
+  }
+  const back = any && !canDraw
+  canDraw = any
+  if (back) {
+    shownSpeech = undefined
+    paintSpeech($)
+  }
+}
+const status = ($: Engine, line: string | undefined) => {
+  if (canDraw) $.ui.status(line)
+}
+
 function stopWatch($: Engine) {
   watch?.cancel()
   watch = undefined
@@ -89,7 +115,7 @@ function stopWatch($: Engine) {
   live = undefined
   installShowing = false
   shownSpeech = undefined // a linha foi limpa: o aviso de fala, se houver, volta a ser desenhado
-  $.ui.status(undefined)
+  status($, undefined)
   paintSpeech($)
 }
 
@@ -126,7 +152,7 @@ function startWatch($: Engine, why?: Why) {
         shown = ''
         const line = installLine(now)
         installShowing = true
-        $.ui.status(line)
+        status($, line)
         // O menu aberto só troca o progresso do rodapé, e só quando o texto muda; as linhas não são tocadas.
         if (view && line !== footLine) {
           footLine = line
@@ -143,7 +169,7 @@ function startWatch($: Engine, why?: Why) {
         if (shown !== warn) {
           shown = warn
           installShowing = true
-          $.ui.status(warn)
+          status($, warn)
         }
         return
       }
@@ -201,7 +227,7 @@ function paintSpeech($: Engine) {
   const line = speechLine(heard)
   if (line === shownSpeech) return
   shownSpeech = line
-  $.ui.status(line)
+  status($, line)
 }
 
 // O que o botão de cada modo faz agora: pausar a fala desta sessão que toca nesse modo, continuar a que está pausada
@@ -572,6 +598,7 @@ function drawAgainButtons(el: any, withSummary: boolean, press: (which: string) 
 
 export const register: Register = on => {
   on('turn.start', async ($, e, next) => {
+    if (e.agentId === undefined) await lookDraw($)
     if (e.agentId === undefined && lastAnswer) {
       lastAnswer = ''
       $.ui.invalidate('ui.render')
@@ -602,6 +629,7 @@ export const register: Register = on => {
 
   on('session.start', async ($, e, next) => {
     lastAnswer = ''
+    await lookDraw($, e.surface ?? '')
     await $.command.register({
       name: 'speak',
       description: 'Ajusta a voz que lê as respostas: ligar, modo, tamanho, microfone, voz; ouve de novo, pausa e continua a fala',

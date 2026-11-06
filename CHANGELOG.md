@@ -7,6 +7,11 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.21.1] - 2026-11-06
+
+### Corrigido
+- No chat do **Orca** (e em outros programas que abrem o Claude Code sem a tela dele), o aviso "🔊 falando agora" ficava na conversa depois que a fala acabava, e cada aviso virava uma linha a mais. Agora, sem uma tela do Claude Code que desenhe a linha de estado, o plugin não manda esses avisos. A voz, os comandos `/speak` e os pedidos em palavras funcionam igual. O painel do `/speak` e os botões embaixo da resposta continuam só no terminal e no VS Code, porque o Orca desenha a conversa com a própria tela.
+
 ## [0.21.0] - 2026-11-05
 
 ### Removido
@@ -348,7 +353,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.21.0...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.21.1...HEAD
+[0.21.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.21.0...v0.21.1
 [0.21.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.20.1...v0.21.0
 [0.20.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.20.0...v0.20.1
 [0.20.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.19.0...v0.20.0

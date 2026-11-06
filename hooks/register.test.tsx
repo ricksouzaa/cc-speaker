@@ -3,7 +3,7 @@ import { expect, mock, test } from 'claude-code/testing'
 // Nada aqui toca o motor, o áudio nem as pastas reais: `process.run` é respondido pelo teste, que guarda o estado
 // do speak numa variável. O menu é montado no painel `speak` da superfície `terminal` e operado pela escolha nas listas.
 
-type Opts = { noFile?: boolean; proc?: boolean; autoinstall?: string; fail?: boolean; statusFails?: boolean; scope?: Record<string, string>; placed?: boolean; again?: string; surface?: string; init?: Record<string, unknown> }
+type Opts = { noFile?: boolean; proc?: boolean; autoinstall?: string; fail?: boolean; statusFails?: boolean; scope?: Record<string, string>; placed?: boolean; again?: string; surface?: string; headless?: boolean; init?: Record<string, unknown> }
 
 async function setup($: any, on: any, opts: Opts = {}) {
   const ran: string[][] = []
@@ -37,7 +37,8 @@ async function setup($: any, on: any, opts: Opts = {}) {
   })
   on('command.register', () => ({ value: { command: 'speak' } }))
   on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
-  on('session.surfaces', () => ({ value: [opts.surface ?? 'terminal'] }))
+  const drawn: string[] = opts.headless ? [] : [opts.surface ?? 'terminal']
+  on('session.surfaces', () => ({ value: drawn }))
   on('ui.open', (_: unknown, e: any) => {
     opened.push(e)
     return { value: opts.placed === false ? { isPlaced: false, reason: 'sem lugar' } : { isPlaced: true } }
@@ -77,9 +78,10 @@ async function setup($: any, on: any, opts: Opts = {}) {
     if (args[0] === 'on' || args[0] === 'off' || args[0] === 'quiet') { st.on = args[0] === 'on'; st.power = args[0] }
     return done(0, 'ok\n')
   })
-  await $.session.start({ cwd: '/', surface: opts.surface ?? 'terminal', isInteractive: true })
+  await $.session.start(opts.headless ? { cwd: '/', isInteractive: false }
+    : { cwd: '/', surface: opts.surface ?? 'terminal', isInteractive: true })
   await clock.advance(0) // deixa o autoinstall do começo (em segundo plano) terminar
-  return { ran, opened, st, lines, toasts, clock, logs, speech, gone, reads }
+  return { ran, opened, st, lines, toasts, clock, logs, speech, gone, reads, drawn }
 }
 
 const PANE = {
@@ -770,6 +772,23 @@ test('a fala desta sessão: "falando agora"; a de outra sessão: "falando: pasta
   speech.playing = null
   await clock.advance(500)
   expect(lines.at(-1)).toBeUndefined()
+})
+
+// Sem tela do Claude Code (o chat do Orca e outros clientes do SDK), cada aviso vira uma linha solta na conversa e o
+// de apagar não apaga nada: a linha de status fica muda até uma tela se ligar.
+test('sem tela que desenhe, nenhuma linha de status; com uma tela ligada depois, o aviso volta', async ($, on) => {
+  on('turn.start', (_: unknown, e: any) => ({ turnId: e.turnId }))
+  const { lines, clock, speech, drawn } = await setup($, on, { headless: true })
+  speech.playing = OWN
+  await clock.advance(500)
+  speech.playing = null
+  await clock.advance(500)
+  expect(lines).toEqual([])
+  drawn.push('desktop')
+  await $.turn.start({ text: 'oi', turnId: 't1' })
+  speech.playing = OWN
+  await clock.advance(500)
+  expect(lines.at(-1)).toBe('🔊 falando agora')
 })
 
 test('fala pausada: a sessão dona vê "fala pausada"; as outras não veem nada', async ($, on) => {
