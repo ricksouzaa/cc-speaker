@@ -7,6 +7,11 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.21.2] - 2026-11-10
+
+### Corrigido
+- Numa conversa reaberta num processo novo (o **Orca** faz isso ao reabrir as sessões, e também `claude --resume`), a primeira resposta depois de ligar a voz ou o "só o resumo escrito" vinha sem a linha 🔊, e o resumo só voltava na mensagem seguinte. O plugin achava que a conversa era nova e não avisava o modelo, que seguia os avisos antigos de "não escreva a linha". Agora, nessa primeira mensagem, o modelo é avisado uma vez de que a linha voltou a ser pedida.
+
 ## [0.21.1] - 2026-11-06
 
 ### Corrigido
@@ -353,7 +358,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.21.1...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.21.2...HEAD
+[0.21.2]: https://github.com/ricksouzaa/cc-speaker/compare/v0.21.1...v0.21.2
 [0.21.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.21.0...v0.21.1
 [0.21.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.20.1...v0.21.0
 [0.20.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.20.0...v0.20.1

@@ -2459,8 +2459,13 @@ class Silent(unittest.TestCase):
         self.assertEqual((r.returncode, r.stderr), (0, ''))
         return r.stdout
 
+    def rule(self):
+        """The session started and heard the rule (a session with nothing recorded is told the line is back)."""
+        subprocess.run([sys.executable, '-I', SPEAK, 'rule'], capture_output=True, env=self.env)
+
     def test_on_with_engine_speaks(self):
         self.engine()
+        self.rule()
         self.assertEqual(self.silent().returncode, 1)
         self.assertEqual(self.cut(), '')
 
@@ -2527,6 +2532,7 @@ class Silent(unittest.TestCase):
         for name, text in (('speech.pid', str(speech.pid)), ('speech.owner', 'sessao-1')):
             with open(os.path.join(folder, name), 'w') as fh:
                 fh.write(text)
+        self.rule()
         self.assertEqual(self.cut(), '')
         time.sleep(0.5)
         self.assertIsNone(speech.poll())
@@ -2541,6 +2547,7 @@ class Silent(unittest.TestCase):
         subprocess.run([sys.executable, '-I', SPEAK, 'mode', 'full'], capture_output=True, env=self.env)
         self.assertEqual(self.cut(), full)
         subprocess.run([sys.executable, '-I', SPEAK, 'mode', 'summary'], capture_output=True, env=self.env)
+        self.assertEqual(self.cut(), self.BACK)  # back to the summary: the line is asked again, once
         self.assertEqual(self.cut(), '')
         subprocess.run([sys.executable, '-I', SPEAK, 'mode', 'full'], capture_output=True, env=self.env)
         subprocess.run([sys.executable, '-I', SPEAK, 'off'], capture_output=True, env=self.env)
@@ -2672,6 +2679,50 @@ class Silent(unittest.TestCase):
         run('mode', 'summary')
         run('off')
         self.assertIn('desligada', self.cut())
+
+    def reopened(self):
+        """An old process whose conversation was told "leave the line out" (voice off, a reply without the line), the
+        voice then set to quiet for all, and a new live process key for the same conversation reopened."""
+        self.engine()
+        sleepers = [subprocess.Popen(['sleep', '60']) for _ in range(2)]
+        for sleeper in sleepers:
+            self.addCleanup(sleeper.wait)
+            self.addCleanup(sleeper.kill)
+        old, new = (speak.session_key(s.pid) for s in sleepers)
+
+        def run(key, *args, stdin=None):
+            return subprocess.run([sys.executable, '-I', SPEAK, *args], capture_output=True, text=True,
+                                  env={**self.env, 'CLAUDE_SPEAK_SESSION': key}, input=stdin)
+        run(old, 'rule')
+        run(old, 'off', 'all')
+        self.assertIn('desligada', self.cut(CLAUDE_SPEAK_SESSION=old))
+        run(old, 'say', '-', stdin='Sem linha, a voz estava desligada.')
+        run(old, 'quiet', 'all')
+        return new, run
+
+    BACK = ('speak: a linha 🔊 voltou a ser pedida; termine esta resposta com a linha 🔊. '
+            'Os avisos anteriores de "não escreva a linha" não valem mais.\n')
+
+    def test_a_conversation_reopened_in_a_new_process_is_told_the_line_is_back(self):
+        """Orca, or `claude --resume`, reopens the conversation in a new process: a new session key, with nothing
+        recorded, while the conversation still holds the "leave the line out" notes. The rule of a resumed start
+        (`speak rule resumed`) records nothing, so the first message says once that the line is back."""
+        new, run = self.reopened()
+        run(new, 'rule', 'resumed')
+        self.assertEqual(self.cut(CLAUDE_SPEAK_SESSION=new), self.BACK)
+        run(new, 'say', '-', stdin='Pronto.\n🔊 Pronto.')
+        self.assertEqual(self.cut(CLAUDE_SPEAK_SESSION=new), '')
+
+    def test_a_session_that_never_heard_the_rule_is_told_the_line_is_back(self):
+        """A live session with nothing recorded (its start hook did not run) may hold old "leave it out" notes."""
+        new, run = self.reopened()
+        self.assertEqual(self.cut(CLAUDE_SPEAK_SESSION=new), self.BACK)
+        self.assertEqual(self.cut(CLAUDE_SPEAK_SESSION=new), '')
+
+    def test_a_fresh_start_in_summary_needs_no_note(self):
+        new, run = self.reopened()
+        run(new, 'rule')
+        self.assertEqual(self.cut(CLAUDE_SPEAK_SESSION=new), '')
 
     def test_without_speak_the_hook_still_notes(self):
         hook = Hook().plugin(self.home, 'speak-cut.py', fake=False)
@@ -3007,6 +3058,42 @@ class StartHook(unittest.TestCase):
         out = self.run_hook()
         self.assertIn('🔊', out)
         self.assertNotIn('{size}', out)
+
+    def told_after_start(self, hook_input):
+        """What `speak told` holds for a live session after the start hook ran with the given input."""
+        sleeper = subprocess.Popen(['sleep', '60'])
+        self.addCleanup(sleeper.wait)
+        self.addCleanup(sleeper.kill)
+        env = {**self.env, 'CLAUDE_SPEAK_SESSION': speak.session_key(sleeper.pid)}
+        r = subprocess.run([sys.executable, '-I', START], input=json.dumps(hook_input), capture_output=True,
+                           text=True, env=env)
+        self.assertEqual((r.returncode, r.stderr), (0, ''))
+        self.assertIn('🔊', r.stdout)
+        return subprocess.run([sys.executable, '-I', SPEAK, 'told'], capture_output=True, text=True,
+                              env=env).stdout.strip()
+
+    def transcript(self, *entries):
+        path = os.path.join(self.home, 'conversa.jsonl')
+        with open(path, 'w') as fh:
+            for entry in entries:
+                fh.write(json.dumps(entry) + '\n')
+        return path
+
+    def test_a_fresh_start_records_the_mode_told(self):
+        self.assertEqual(self.told_after_start({'source': 'startup'}), 'summary')
+        self.assertEqual(self.told_after_start({}), 'summary')
+        empty = self.transcript({'type': 'user', 'message': {'content': 'oi'}})
+        self.assertEqual(self.told_after_start({'source': 'startup', 'transcript_path': empty}), 'summary')
+        self.assertEqual(self.told_after_start({'source': 'clear', 'transcript_path': empty}), 'summary')
+
+    def test_a_resumed_conversation_records_nothing(self):
+        """The conversation may hold "leave the line out" notes the new process never saw: nothing is recorded, so the
+        first message says the line is back. A start that is not called resume but whose transcript already has a reply
+        (Orca reopening a conversation) counts as resumed too."""
+        self.assertEqual(self.told_after_start({'source': 'resume'}), '')
+        old = self.transcript({'type': 'user', 'message': {'content': 'oi'}},
+                              {'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': 'Olá.'}]}})
+        self.assertEqual(self.told_after_start({'source': 'startup', 'transcript_path': old}), '')
 
     def test_with_engine_and_player_there_is_no_notice(self):
         self.engine()
@@ -3927,7 +4014,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.21.1')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.21.2')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

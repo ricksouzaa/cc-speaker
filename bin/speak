@@ -24,6 +24,7 @@
   speak voice [name]       without a name: list the Portuguese voices (dora, alex, santa, alice) and mark the current one;
                            with a name (short or full, e.g. dora or pf_dora): choose it for every session
   speak rule               print rules/speak.md with {line} replaced by the line of the mode and size in force
+                           (`rule resumed`: a reopened conversation, nothing is recorded as told)
                            (the SessionStart hook hands it to Claude)
   speak check              print `engine` and/or `player` for what is missing; exit 0 when nothing is
                            (on stderr, a line "processos acima: pid nome, ...": the ancestors, to find the session)
@@ -51,7 +52,7 @@
                            (no word), only its 🔊 line (`summary`; the whole reply when it had none) or the whole
                            reply (`full`); `speak say -` keeps the last reply of each session for this
   speak told [full|summary|silent] print, or record, what the model was last told in this session (`rule` records
-                           the mode; used by hooks/speak-cut.py to say when the mode or the voice comes back)
+                           the mode, `rule resumed` nothing; used by hooks/speak-cut.py to say when the mode or the voice comes back)
   speak forgot             exit 0 when the last reply of this session (kept by `say -`) has no 🔊 line, else 1; used by
                            hooks/speak-cut.py to remind Claude, at each new message, while the line keeps missing
   speak silent             exit 0 when this session will not speak, else 1; when it will not, prints why: `off` (voice
@@ -2215,10 +2216,16 @@ def main(argv):
             print(read_session(session).get('told', ''))
         return 0
     if cmd == 'rule':
+        if text not in ('', 'resumed'):
+            print('voz: use "speak rule" ou "speak rule resumed"', file=sys.stderr)
+            return 2
         try:
             sys.stdout.write(rule())
-            if current_session():  # the session starts knowing the mode this rule told
-                set_session(current_session(), told=mode(current_session()))
+            # A fresh session starts knowing the mode this rule told. A reopened conversation (`resumed`) may still
+            # hold "leave the line out" notes this process never saw: nothing is recorded, so the new-message hook
+            # says once that the line is wanted.
+            if current_session():
+                set_session(current_session(), told=None if text else mode(current_session()))
         except OSError:
             return 1
         return 0

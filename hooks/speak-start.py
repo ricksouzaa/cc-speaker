@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""SessionStart hook: prints the spoken-reply rule (`speak rule`), which Claude Code puts in the context, plus a notice
+"""SessionStart hook: prints the spoken-reply rule (`speak rule`, or `speak rule resumed` for a reopened
+conversation), which Claude Code puts in the context, plus a notice
 when the engine or an audio player is missing. Without the engine it also starts `speak install` in the background,
 detached from the session, once at a time (CLAUDE_SPEAK_AUTOINSTALL=0 turns that off). Fail-open: exits 0 in every case."""
 import sys
@@ -79,13 +80,44 @@ def share_root():
         fh.write(line)
 
 
+def resumed(data):
+    """True when this start continues a conversation that already had replies: `resume`, or a start whose transcript
+    already holds an assistant entry (Orca reopens its conversations in a new process). Those replies may have been
+    told to leave the 🔊 line out, which the new process never saw. `clear` and `compact` keep the old behaviour."""
+    source = data.get('source')
+    if source == 'resume':
+        return True
+    path = data.get('transcript_path')
+    if source not in (None, '', 'startup') or not isinstance(path, str) or not os.path.isfile(path):
+        return False
+    with open(path, 'rb') as fh:
+        for raw in fh:
+            if b'"assistant"' not in raw:
+                continue
+            try:
+                if json.loads(raw).get('type') == 'assistant':
+                    return True
+            except (ValueError, AttributeError):
+                continue
+    return False
+
+
 def main():
-    sys.stdin.read()
+    try:
+        data = json.loads(sys.stdin.read() or '{}')
+    except ValueError:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
     try:
         share_root()
     except (OSError, ValueError):
         pass
-    out = run('rule').stdout
+    try:
+        again = resumed(data)
+    except OSError:
+        again = False
+    out = run('rule', 'resumed').stdout if again else run('rule').stdout
     if not out.strip():
         return
     missing = run('check').stdout.split()

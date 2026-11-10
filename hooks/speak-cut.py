@@ -3,7 +3,7 @@
 waits its turn in the queue (only dictation cuts the one playing). When this session will not speak (`speak silent`,
 or `speak` missing; voice `quiet` is not silent here: the line stays), or reads the whole reply (`mode full`), it prints a note that Claude reads with the message:
 leave out the 🔊 line. The rule is injected once, at the start, so the hook remembers (`speak told`) what the
-model was last told (full, or silent); when the voice (`on` or `quiet`) or the summary comes back it says to write the line again, and repeats a reminder at each message while the last reply has no line (`speak forgot`). Each message also
+model was last told (full, or silent; nothing, in a conversation reopened in a new process); when the voice (`on` or `quiet`) or the summary comes back it says to write the line again, and repeats a reminder at each message while the last reply has no line (`speak forgot`). Each message also
 runs `speak _mictick`: with the microphone choice on `auto`, that is where the end of the meeting (microphone busy,
 now free) sends the choice back to `wait` when no speech is playing to see it. The note says why the
 session is silent (`speak silent` prints it): voice off, engine being installed, or engine missing. Fail-open: exits 0."""
@@ -46,7 +46,8 @@ def mode_note():
     """The note for the mode in force: full says to leave the line out at every message; the return to summary says
     to write it again, and, since one note is easy to ignore (it competes with every earlier "leave it out" one in the
     context), the reminder repeats at each message while the last reply still has no line."""
-    mode = json.loads(speak('status', '--json')).get('mode')
+    state = json.loads(speak('status', '--json'))
+    mode = state.get('mode')
     told = speak('told').strip()
     if mode == 'full':
         speak('told', 'full')
@@ -54,7 +55,9 @@ def mode_note():
     if mode == 'summary':
         if told != 'summary':
             speak('told', 'summary')
-        if told in ('full', 'silent'):
+        # nothing recorded for a live session: a conversation reopened in a new process (Orca, `claude --resume`),
+        # which may still hold the "leave the line out" notes of when the voice was off
+        if told in ('full', 'silent') or (not told and state.get('session')):
             return NOTE_BACK
         if forgot():
             return NOTE_REMIND
