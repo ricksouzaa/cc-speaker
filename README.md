@@ -55,13 +55,13 @@ Digite `/speak` sozinho. Abre um painel com uma lista por linha, já com o tecla
 | Leitura | só o resumo (padrão) ou a resposta inteira |
 | Tamanho do resumo | pequeno (uma frase), médio (padrão, duas ou três frases) ou grande (um parágrafo); a linha só aparece com a leitura em "só o resumo" (o `/speak size` escrito vale em qualquer modo) |
 | Voz de leitura | Dora (padrão, feminina), Alex ou Santa (masculinas); vale sempre para todas as sessões |
-| Velocidade da fala | de 0,5x a 2x; o 1x (padrão) é a velocidade normal da voz escolhida. Vale a partir da próxima fala (veja [Velocidade](#velocidade)) |
+| Velocidade da fala | de 0.5x a 2x; o 1x (padrão) é a velocidade normal da voz escolhida. Vale a partir da próxima fala (veja [Velocidade](#velocidade)) |
 | Com o microfone em uso | Espera (padrão), Toca ou Toca nesta reunião (veja [Microfone](#microfone)) |
 | Ouvir de novo | dois botões, Resumo e Resposta inteira: tocam na hora a última fala desta sessão; a linha não guarda valor |
 
 Abaixo da última resposta (só depois que o turno termina) aparecem os mesmos dois botões, `[ ▶ Resumo ]` e `[ ▶ Resposta inteira ]`; sem a linha 🔊 só o segundo. Somem quando começa o turno seguinte. Clicar só funciona no terminal em tela cheia.
 
-Enquanto a fala desta sessão toca, o botão do modo dela (Resumo ou Resposta inteira, tanto sob a resposta quanto na linha do painel) vira `[ ⏸ Pausar ]`; pausada, vira `[ ▶ Continuar ]`; ao acabar, volta ao normal. A linha de status sob o campo de texto, em todas as sessões, diz quem fala e com que voz: "🔊 Dora falando agora" na sessão dona da fala, "🔊 Dora falando em <pasta do projeto>" nas outras, e "⏸ fala pausada" na dona, quando pausada. Enquanto a instalação do motor usa essa linha, ela vence o aviso.
+Enquanto a fala desta sessão toca, o botão do modo dela (Resumo ou Resposta inteira, tanto sob a resposta quanto na linha do painel) vira `[ ⏸ Pausar ]`; pausada, vira `[ ▶ Continuar ]`; ao acabar, volta ao normal. Embaixo do campo de texto, em todas as sessões, um aviso diz quem fala e com que voz: "🔊 Dora falando agora" na sessão dona da fala, "🔊 Dora falando em <pasta do projeto>" nas outras, e "⏸ fala pausada" na dona, quando pausada. No terminal o aviso fica no canto direito do rodapé, na linha do modo, só do ícone em diante (num terminal estreito, na linha de baixo). No VS Code e nos aplicativos ele sai na linha de status, que o Claude Code sempre começa com o nome do plugin (`speak: 🔊 Dora falando agora`); ali, enquanto a instalação do motor usa a linha, ela vence o aviso.
 
 A pausa congela o tocador e a síntese (o sinal SIGSTOP no grupo de processos da fala) e continua com SIGCONT. Foi testada no Linux com o `pw-play`; com `paplay`, `aplay` e no Mac (`afplay`) o código é o mesmo, mas não foi testado num Mac de verdade.
 
@@ -77,7 +77,7 @@ Para pular o painel, escreva a ação. Com `all` no fim, vale para todas as sess
 | `/speak mode summary` · `full` | lê só o resumo ou a resposta inteira (padrão: `summary`) |
 | `/speak size small` · `medium` · `large` | tamanho do resumo (padrão: `medium`) |
 | `/speak voice dora` · `alex` · `santa` | troca a voz, sempre em todas as sessões (padrão: `dora`) |
-| `/speak speed 0,9` · `1` · `1,25` | velocidade da fala: um número de 0,5 a 2, em que 1 é a velocidade normal da voz (padrão: `1`) |
+| `/speak speed 0.9` · `1` · `1.25` | velocidade da fala: um número de 0.5 a 2, em que 1 é a velocidade normal da voz (padrão: `1`) |
 | `/speak mic wait` · `play` · `auto` | o que fazer com o microfone em uso (padrão: `wait`) |
 | `/speak again` · `again summary` · `again full` | ouve de novo a última fala desta sessão, mesmo com a voz desligada: do jeito em que tocou, só o resumo ou a resposta inteira |
 | `/speak pause` | congela a fala que está tocando, de qualquer sessão, no ponto exato; a vez passa para a próxima da fila, e a pausada espera você pedir |
@@ -95,11 +95,11 @@ Também dá para pedir ao Claude, escrevendo ou ditando: "fala só o resumo", "r
 
 ## Velocidade
 
-A velocidade é um número que multiplica a velocidade normal da voz escolhida: `1` é o normal, `0,9` um pouco mais devagar, `1,25` mais rápido. O painel oferece 0,5x, 0,75x, 0,9x, 1x, 1,1x, 1,25x, 1,5x, 1,75x e 2x; escrita, vale qualquer número de 0,5 a 2, com vírgula ou ponto (`/speak speed 0,95`).
+A velocidade é um número que multiplica a velocidade normal da voz escolhida: `1` é o normal, `0.9` um pouco mais devagar, `1.25` mais rápido. O painel oferece 0.5x, 0.75x, 0.9x, 1x, 1.1x, 1.25x, 1.5x, 1.75x e 2x; escrita, vale qualquer número de 0.5 a 2 (`/speak speed 0.95`). O plugin mostra a velocidade com ponto; ao escrever, a vírgula vale igual (`/speak speed 0,95`).
 
 - **Vale a partir da próxima fala.** A fala que está tocando termina na velocidade em que começou.
 - **Para comparar de ouvido,** troque a velocidade e use "Ouvir de novo": a mesma resposta é lida outra vez, já na velocidade nova.
-- **O motor aceita de 0,5 a 2 no número dele,** e a velocidade normal das vozes hoje é um pouco acima de 1 (1,1). Por isso o 2x fica um pouco abaixo do dobro.
+- **O motor aceita de 0.5 a 2 no número dele,** e a velocidade normal das vozes hoje é um pouco acima de 1 (1.1). Por isso o 2x fica um pouco abaixo do dobro.
 - **Com a variável `CLAUDE_SPEAK_SPEED` definida,** a escolha fica guardada, mas não vale: a voz segue no número da variável. O painel, o `/speak status` e a resposta do `/speak speed` avisam; para a escolha valer, tire a variável.
 
 ## Microfone

@@ -225,6 +225,16 @@ class Filter(unittest.TestCase):
         self.assertEqual(speak.clean('Rode `speak update` na 0.9.1.'), 'Rode speak update na 0 ponto 9 ponto 1.')
         self.assertEqual(speak.clean('e 1.2.3.4.5 ficam'), 'e 1.2.3.4.5 ficam')
 
+    def test_a_speed_written_with_a_dot_is_heard_with_the_dot(self):
+        # the engine reads "0.9x" as "zero nove xis": the dot is spelled, so the number is heard whole
+        self.assertEqual(speak.clean('A voz passa a falar a 0.9x nesta sessão.'),
+                         'A voz passa a falar a 0 ponto 9x nesta sessão.')
+        self.assertEqual(speak.clean('de 0.5x a 2x, hoje em 1.25x'), 'de 0 ponto 5x a 2x, hoje em 1 ponto 25x')
+        self.assertEqual(speak.clean('a 1.25X, e 1x é o normal'), 'a 1 ponto 25X, e 1x é o normal')
+        self.assertEqual(speak.clean('a 0,9x fica como está'), 'a 0,9x fica como está')  # the comma is read already
+        self.assertEqual(speak.clean('a grade 1.5x2.5 e o 0.9xyz'), 'a grade 1.5x2.5 e o 0.9xyz')  # not a speed
+        self.assertEqual(speak.full_text('A voz passa a falar a 1.25x.'), 'A voz passa a falar a 1 ponto 25x.')
+
     def test_paths_still_go(self):
         for path in ('/home/x/y', '~/.claude/x', 'dir/arquivo', '/tmp/a.txt', './bin/speak', '../x', '/usr/bin/env',
                      'https://x.y/speak'):
@@ -2935,7 +2945,7 @@ class Speed(unittest.TestCase):
 
     def test_the_choice_multiplies_the_speed_of_the_voice_in_force(self):
         out = self.speak('speed', '0.9').stdout
-        self.assertIn('  velocidade da fala: 0,9x\n', out)
+        self.assertIn('  velocidade da fala: 0.9x\n', out)
         self.assertIn('velocidade no motor 0.99\n', out)
         self.assertEqual(self.saved(), '0.9')
         self.speak('voice', 'alex')  # the choice stays when the voice changes
@@ -2943,9 +2953,9 @@ class Speed(unittest.TestCase):
         self.assertEqual(json.loads(self.speak('status', '--json').stdout)['speed'], '0.9')
 
     def test_comma_dot_and_a_final_x_are_accepted(self):
-        for typed, shown, kept in (('0,75', '0,75x', '0.75'), ('1.25x', '1,25x', '1.25'), ('2X', '2x', '2'),
-                                   ('1,0', '1x', '1'), ('0.95', '0,95x', '0.95'), ('1.234', '1,23x', '1.23'),
-                                   ('0.5', '0,5x', '0.5'), ('.9', '0,9x', '0.9'), (',75x', '0,75x', '0.75')):
+        for typed, shown, kept in (('0,75', '0.75x', '0.75'), ('1.25x', '1.25x', '1.25'), ('2X', '2x', '2'),
+                                   ('1,0', '1x', '1'), ('0.95', '0.95x', '0.95'), ('1.234', '1.23x', '1.23'),
+                                   ('0.5', '0.5x', '0.5'), ('.9', '0.9x', '0.9'), (',75x', '0.75x', '0.75')):
             r = self.speak('speed', typed)
             self.assertEqual(r.returncode, 0, typed)
             self.assertIn('  velocidade da fala: %s\n' % shown, r.stdout)
@@ -2959,7 +2969,7 @@ class Speed(unittest.TestCase):
             r = self.speak(*args)
             self.assertEqual(r.returncode, 2, args)
             self.assertIn('voz: use "speak speed', r.stderr)
-            self.assertIn('de 0,5 a 2', r.stderr)
+            self.assertIn('de 0.5 a 2', r.stderr)
             self.assertEqual(r.stdout, '')
         self.assertFalse(os.path.exists(data_dir(self.tmp.name, 'config', 'speed')))
 
@@ -2978,7 +2988,7 @@ class Speed(unittest.TestCase):
         self.speak('speed', '0.75')
         out = self.speak('status', CLAUDE_SPEAK_SPEED='1.3').stdout
         self.assertIn('velocidade no motor 1.3\n', out)
-        self.assertIn('  velocidade da fala: 0,75x (CLAUDE_SPEAK_SPEED vale mais)\n', out)
+        self.assertIn('  velocidade da fala: 0.75x (CLAUDE_SPEAK_SPEED vale mais)\n', out)
         out = self.speak('status', CLAUDE_SPEAK_SPEED='x').stdout  # not a number: ignored, the choice holds
         self.assertIn('velocidade no motor 0.825\n', out)
         self.assertNotIn('CLAUDE_SPEAK_SPEED', out)
@@ -2994,7 +3004,7 @@ class Speed(unittest.TestCase):
         key = '%d-%s' % (os.getpid(), speak_stat_start())
         folder = data_dir(self.tmp.name, 'state', 'sessions')
         out = self.speak('speed', '1,25', key=key).stdout
-        self.assertIn('  velocidade da fala: 1,25x · só nesta sessão\n', out)
+        self.assertIn('  velocidade da fala: 1.25x · só nesta sessão\n', out)
         self.assertIn('velocidade no motor 1.375\n', out)
         self.assertEqual(speak_read(folder, key)['speed'], '1.25')
         self.assertFalse(os.path.exists(data_dir(self.tmp.name, 'config', 'speed')))
@@ -3002,7 +3012,7 @@ class Speed(unittest.TestCase):
         data = json.loads(self.speak('status', '--json', key=key).stdout)
         self.assertEqual((data['speed'], data['scope']['speed']), ('1.25', 'session'))
         out = self.speak('speed', '0.9', 'all', key=key).stdout
-        self.assertIn('  velocidade da fala: 0,9x\n', out)
+        self.assertIn('  velocidade da fala: 0.9x\n', out)
         self.assertNotIn('speed', speak_read(folder, key))  # removed, not copied
         self.assertEqual(self.saved(), '0.9')
         data = json.loads(self.speak('status', '--json', key=key).stdout)
@@ -4221,7 +4231,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.22.0')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.22.1')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

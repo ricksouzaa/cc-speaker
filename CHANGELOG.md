@@ -7,6 +7,13 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.22.1] - 2026-11-13
+
+### Alterado
+- **A velocidade da fala agora aparece com ponto,** como os tocadores de vídeo e de áudio mostram: `0.9x`, `1.25x`. Vale para o painel, o `/speak status` e as respostas do `/speak speed`. Para escrever nada muda: `/speak speed 0.9` e `/speak speed 0,9` continuam valendo igual.
+- Quando uma resposta cita a velocidade desse jeito, a voz lê o número inteiro ("um ponto vinte e cinco xis"), sem engolir o ponto.
+- **No terminal, o aviso de quem está falando perdeu o `speak:` da frente** e aparece só do ícone em diante: "🔊 Dora falando agora". O Claude Code escreve o nome do plugin antes de toda linha de status e não deixa tirar; por isso o aviso mudou de lugar e agora fica no canto direito do rodapé, na linha do modo (num terminal estreito, na linha de baixo). No VS Code e nos aplicativos ele continua na linha de status, com o `speak:`. Os avisos da instalação do motor seguem na linha de status em todo lugar.
+
 ## [0.22.0] - 2026-11-13
 
 ### Adicionado
@@ -376,7 +383,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.22.0...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.22.1...HEAD
+[0.22.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.22.0...v0.22.1
 [0.22.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.21.2...v0.22.0
 [0.21.2]: https://github.com/ricksouzaa/cc-speaker/compare/v0.21.1...v0.21.2
 [0.21.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.21.0...v0.21.1

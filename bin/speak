@@ -226,8 +226,9 @@ def speed_key(value):
 
 
 def speed_text(value):
-    """A speed choice as people read it: `1x`, `0,9x`, `1,25x`."""
-    return speed_key(value).replace('.', ',') + 'x'
+    """A speed choice as people read it: `1x`, `0.9x`, `1.25x` (with a dot, as players show it; typed, the comma
+    counts the same)."""
+    return speed_key(value) + 'x'
 
 
 def speed_choice(session=None):
@@ -535,7 +536,8 @@ VERSION = r'v?(\d+(?:\.\d+){1,3})'  # two to four numbers separated by dots, an 
 
 
 def _version_spoken(match):
-    """0.9.1 -> "0 ponto 9 ponto 1": spelled so the voice reads neither a date nor a decimal number."""
+    """0.9.1 -> "0 ponto 9 ponto 1": spelled so the voice reads neither a date nor a decimal number. The same for a
+    speed, 0.9x -> "0 ponto 9x": left as written, the engine drops the dot and says "zero nove xis"."""
     return match.group(1).replace('.', ' ponto ')
 
 
@@ -605,6 +607,7 @@ def clean(text):
     text = re.sub(r'`([^`]*)`', _inline_code, text)
     text = re.sub(r'https?://\S+', '', text)
     text = re.sub(r'(?<![\w-])(?=[0-9a-fA-F]*\d)(?=[0-9a-fA-F]*[a-fA-F])[0-9a-fA-F]{7,40}(?![\w-])', '', text)  # commit code
+    text = re.sub(r'(?<![\w.-])(\d+\.\d+)(?=[xX](?![\w-]))', _version_spoken, text)  # 0.9x: a speed, the dot is said
     text = re.sub(r'(?<![\w.-])' + VERSION + r'(?![\w-]|\.\d)', _version_spoken, text)  # 0.9.1, v2.1.312
     text = re.sub(r'\bHEAD\b', '', text)
     text = spelled_acronyms(text)
@@ -2263,8 +2266,8 @@ def main(argv):
         wanted, _, scope = text.partition(' ')
         value = parse_speed(wanted)
         if value is None or scope not in ('', 'all'):
-            print('voz: use "speak speed" com um número de 0,5 a 2: 1 é a velocidade normal da voz, 0,9 um pouco mais '
-                  'devagar, 1,25 mais rápido (com "all" no fim, vale para todas as sessões)', file=sys.stderr)
+            print('voz: use "speak speed" com um número de 0.5 a 2: 1 é a velocidade normal da voz, 0.9 um pouco mais '
+                  'devagar, 1.25 mais rápido (com "all" no fim, vale para todas as sessões)', file=sys.stderr)
             return 2
         session = current_session()
         if session and not scope:

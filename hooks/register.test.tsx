@@ -75,9 +75,9 @@ async function setup($: any, on: any, opts: Opts = {}) {
     if (args[0] === 'size') st.size = args[1]!
     if (args[0] === 'mic') st.mic = args[1]!
     if (args[0] === 'speed') {
-      // como o speak: só um número de 0,5 a 2 vale, e o estado o guarda sem zeros à toa (1.0 vira 1)
+      // como o speak: só um número de 0.5 a 2 vale, e o estado o guarda sem zeros à toa (1.0 vira 1)
       const n = Number(args[1])
-      if (!(n >= 0.5 && n <= 2)) return done(2, '', 'voz: use "speak speed" com um número de 0,5 a 2\n')
+      if (!(n >= 0.5 && n <= 2)) return done(2, '', 'voz: use "speak speed" com um número de 0.5 a 2\n')
       st.speed = String(n)
     }
     if (args[0] === 'voice') {
@@ -88,10 +88,22 @@ async function setup($: any, on: any, opts: Opts = {}) {
     if (args[0] === 'on' || args[0] === 'off' || args[0] === 'quiet') { st.on = args[0] === 'on'; st.power = args[0] }
     return done(0, 'ok\n')
   })
+  // O rodapé do terminal, por baixo do plugin: desenha os rótulos de modo que recebe, juntos por " & ", como o Claude
+  // Code. `notice()` é o que ele mostra: no terminal, o aviso de quem fala vai ali, sem o nome do plugin na frente.
+  on('ui.render', { component: 'SessionMode' }, ($$: any, e: any) => {
+    const { Text } = $$.ui.resolve(e)
+    return <Text>{e.props.modes.join(' & ')}</Text>
+  })
+  const notice = async (modes: string[] = [], surface = 'terminal'): Promise<string> => {
+    const ui = await $.ui.mount({ plugin: 'speak', component: 'SessionMode', surface, requestId: 'session-mode', props: { modes } })
+    const text = ((await texts(ui, 'Text'))[0] as any)?.text ?? ''
+    await ui.unmount()
+    return text
+  }
   await $.session.start(opts.headless ? { cwd: '/', isInteractive: false }
     : { cwd: '/', surface: opts.surface ?? 'terminal', isInteractive: true })
   await clock.advance(0) // deixa o autoinstall do começo (em segundo plano) terminar
-  return { ran, opened, st, lines, toasts, clock, logs, speech, gone, reads, drawn }
+  return { ran, opened, st, lines, toasts, clock, logs, speech, gone, reads, drawn, notice }
 }
 
 const PANE = {
@@ -191,7 +203,7 @@ test('/speak sozinho abre o painel com o foco, uma lista por linha e o botão Fe
   expect(s.speed.label).toMatch(/^Velocidade da fala\s*$/)
   expect(s.speed.options.map((o: any) => o.value)).toEqual(['0.5', '0.75', '0.9', '1', '1.1', '1.25', '1.5', '1.75', '2'])
   expect(s.speed.options.map((o: any) => o.label)).toEqual(
-    ['0,5x', '0,75x', '0,9x', '1x (normal)', '1,1x', '1,25x', '1,5x', '1,75x', '2x'])
+    ['0.5x', '0.75x', '0.9x', '1x (normal)', '1.1x', '1.25x', '1.5x', '1.75x', '2x'])
   expect(s.where.label).toMatch(/^Mudar em\s*$/)
   expect(s.where.options.map((o: any) => o.label)).toEqual(['Todas as sessões', 'Só nesta sessão'])
   expect(s.where.autoFocus).toBe(true)
@@ -382,7 +394,7 @@ test('a linha da velocidade troca com "all", diz o que passou a valer e segue o 
   await ui.select({ key: 'speed', value: '0.9' })
   expect(changes(ran)).toEqual(['speed 0.9 all'])
   expect((await selects(ui)).speed.value).toBe('0.9')
-  expect(await footer(ui)).toBe('A voz passa a falar a 0,9x em todas as sessões, a partir da próxima fala.')
+  expect(await footer(ui)).toBe('A voz passa a falar a 0.9x em todas as sessões, a partir da próxima fala.')
   await ui.select({ key: 'where', value: 'session' })
   await ui.select({ key: 'speed', value: '1' })
   expect(changes(ran)).toEqual(['speed 0.9 all', 'speed 1'])
@@ -397,7 +409,7 @@ test('a velocidade escrita fora da lista aparece no painel, no lugar dela, e lev
   expect(s.speed.value).toBe('0.95')
   expect(s.speed.label).toContain('só nesta sessão')
   expect(s.speed.options.map((o: any) => o.label)).toEqual(
-    ['0,5x', '0,75x', '0,9x', '0,95x', '1x (normal)', '1,1x', '1,25x', '1,5x', '1,75x', '2x'])
+    ['0.5x', '0.75x', '0.9x', '0.95x', '1x (normal)', '1.1x', '1.25x', '1.5x', '1.75x', '2x'])
   await ui.unmount()
 })
 
@@ -412,12 +424,12 @@ test('sem o campo speed no estado, a linha da velocidade mostra o normal', async
 test('/speak speed escrito aceita vírgula, ponto e x, e diz o que passou a valer', async ($, on) => {
   const { ran, opened } = await setup($, on)
   const say = async (args: string) => (await $.command.run({ command: 'speak', args })).text
-  expect(await say('speed 0,9')).toBe('A voz passa a falar a 0,9x nesta sessão, a partir da próxima fala.')
-  expect(await say('speed 1.25x all')).toBe('A voz passa a falar a 1,25x em todas as sessões, a partir da próxima fala.')
+  expect(await say('speed 0,9')).toBe('A voz passa a falar a 0.9x nesta sessão, a partir da próxima fala.')
+  expect(await say('speed 1.25x all')).toBe('A voz passa a falar a 1.25x em todas as sessões, a partir da próxima fala.')
   expect(await say('speed 1,0')).toBe('A voz passa a falar na velocidade normal (1x) nesta sessão, a partir da próxima fala.')
-  expect(await say('speed 0.95')).toBe('A voz passa a falar a 0,95x nesta sessão, a partir da próxima fala.')
-  expect(await say('speed ,75x')).toBe('A voz passa a falar a 0,75x nesta sessão, a partir da próxima fala.')
-  expect(await say('speed .9 all')).toBe('A voz passa a falar a 0,9x em todas as sessões, a partir da próxima fala.')
+  expect(await say('speed 0.95')).toBe('A voz passa a falar a 0.95x nesta sessão, a partir da próxima fala.')
+  expect(await say('speed ,75x')).toBe('A voz passa a falar a 0.75x nesta sessão, a partir da próxima fala.')
+  expect(await say('speed .9 all')).toBe('A voz passa a falar a 0.9x em todas as sessões, a partir da próxima fala.')
   expect(changes(ran)).toEqual(['speed 0.9', 'speed 1.25 all', 'speed 1.0', 'speed 0.95', 'speed 0.75', 'speed 0.9 all'])
   expect(opened).toEqual([])
 })
@@ -427,7 +439,7 @@ test('com CLAUDE_SPEAK_SPEED definida, a troca da velocidade avisa que a variáv
   const warning = 'A variável CLAUDE_SPEAK_SPEED está definida e vale mais: a velocidade escolhida aqui só vale sem ela.'
   const said = (label: string, where: string) =>
     `A velocidade ${label} ficou guardada ${where}, mas ainda não vale: a variável CLAUDE_SPEAK_SPEED está definida e vale mais que a escolha.`
-  expect((await $.command.run({ command: 'speak', args: 'speed 0,75' })).text).toBe(said('0,75x', 'nesta sessão'))
+  expect((await $.command.run({ command: 'speak', args: 'speed 0,75' })).text).toBe(said('0.75x', 'nesta sessão'))
   const { ui } = await openMenu($)
   expect((await texts(ui, 'Text')).map((t: any) => t.text)).toContain(warning)
   await ui.select({ key: 'speed', value: '1' })
@@ -435,7 +447,7 @@ test('com CLAUDE_SPEAK_SPEED definida, a troca da velocidade avisa que a variáv
   expect(await footer(ui)).toBe(said('1x', 'em todas as sessões'))
   st.speedFixed = null // a variável saiu: a escolha vale e o aviso some
   await ui.select({ key: 'speed', value: '0.9' })
-  expect(await footer(ui)).toBe('A voz passa a falar a 0,9x em todas as sessões, a partir da próxima fala.')
+  expect(await footer(ui)).toBe('A voz passa a falar a 0.9x em todas as sessões, a partir da próxima fala.')
   expect((await texts(ui, 'Text')).map((t: any) => t.text)).not.toContain(warning)
   await ui.unmount()
 })
@@ -447,7 +459,7 @@ test('/speak speed com o que não é número mostra o uso; fora da faixa, o erro
     expect(await say(args)).toContain('/speak speed')
   }
   expect(changes(ran)).toEqual([])
-  expect(await say('speed 3')).toBe('voz: use "speak speed" com um número de 0,5 a 2')
+  expect(await say('speed 3')).toBe('voz: use "speak speed" com um número de 0.5 a 2')
   expect(changes(ran)).toEqual(['speed 3'])
 })
 
@@ -858,60 +870,97 @@ test('turno de subagente e turno interrompido não mexem nos botões', async ($,
 })
 
 
-// Quem fala: a linha de status de todas as sessões e os botões Pausar/Continuar.
+// Quem fala: o aviso em todas as sessões e os botões Pausar/Continuar. O Claude Code põe o nome do plugin na frente de
+// toda linha de status ("speak: 🔊 ..."); por isso, no terminal, o aviso vai entre os rótulos de modo do rodapé, que
+// saem como o plugin os escreve. Nas outras telas (VS Code, app de mesa, celular) ele segue na linha de status.
 const OWN = { pid: 10, session: 'S-1', dir: '/home/r/meu-projeto', how: 'summary' }
 const OTHER = { pid: 20, session: 'S-2', dir: '/home/r/outro-projeto', how: 'full' }
 
-test('a fala desta sessão: "falando agora"; a de outra sessão: "falando: pasta"; sem pasta, aviso geral', async ($, on) => {
-  const { lines, clock, speech } = await setup($, on)
-  speech.playing = OWN
+test('no terminal o aviso de quem fala sai sem o nome do plugin: vai nos rótulos do rodapé, não na linha de status', async ($, on) => {
+  const { notice, lines, clock, speech } = await setup($, on)
+  speech.playing = { ...OWN, voice: 'dora' }
   await clock.advance(500)
-  expect(lines.at(-1)).toBe('🔊 falando agora')
-  speech.playing = OTHER
+  expect(await notice()).toBe('🔊 Dora falando agora')
+  speech.playing = { ...OTHER, voice: 'alex' }
   await clock.advance(500)
-  expect(lines.at(-1)).toBe('🔊 falando: outro-projeto')
-  speech.playing = { ...OTHER, dir: '' }
-  await clock.advance(500)
-  expect(lines.at(-1)).toBe('🔊 outra sessão está falando')
+  expect(await notice()).toBe('🔊 Alex falando em outro-projeto')
   speech.playing = null
   await clock.advance(500)
-  expect(lines.at(-1)).toBeUndefined()
+  expect(await notice()).toBe('')
+  expect(lines.filter(l => l !== undefined)).toEqual([]) // nenhum texto na linha de status, onde sairia "speak: 🔊 ..."
+})
+
+test('os rótulos do próprio Claude Code ficam, e o aviso vai depois deles', async ($, on) => {
+  const { notice, clock, speech } = await setup($, on)
+  expect(await notice(['focus'])).toBe('focus')
+  speech.playing = { ...OWN, voice: 'dora' }
+  await clock.advance(500)
+  expect(await notice(['focus', 'memory paused'])).toBe('focus & memory paused & 🔊 Dora falando agora')
+})
+
+for (const surface of ['vscode', 'desktop', 'mobile']) {
+  test(`fora do terminal (${surface}) o aviso segue na linha de status, e os rótulos do rodapé não são tocados`, async ($, on) => {
+    const { notice, lines, clock, speech } = await setup($, on, { surface })
+    speech.playing = { ...OWN, voice: 'alex' }
+    await clock.advance(500)
+    expect(lines.at(-1)).toBe('🔊 Alex falando agora')
+    expect(await notice(['focus'], 'desktop')).toBe('focus')
+    speech.playing = null
+    await clock.advance(500)
+    expect(lines.at(-1)).toBeUndefined()
+  })
+}
+
+test('a fala desta sessão: "falando agora"; a de outra sessão: "falando: pasta"; sem pasta, aviso geral', async ($, on) => {
+  const { notice, clock, speech } = await setup($, on)
+  speech.playing = OWN
+  await clock.advance(500)
+  expect(await notice()).toBe('🔊 falando agora')
+  speech.playing = OTHER
+  await clock.advance(500)
+  expect(await notice()).toBe('🔊 falando: outro-projeto')
+  speech.playing = { ...OTHER, dir: '' }
+  await clock.advance(500)
+  expect(await notice()).toBe('🔊 outra sessão está falando')
+  speech.playing = null
+  await clock.advance(500)
+  expect(await notice()).toBe('')
 })
 
 test('com a voz anotada na fala, a linha diz quem fala: "Alex falando agora", "Dora falando em pasta"', async ($, on) => {
-  const { lines, clock, speech } = await setup($, on)
+  const { notice, clock, speech } = await setup($, on)
   speech.playing = { ...OWN, voice: 'alex' }
   await clock.advance(500)
-  expect(lines.at(-1)).toBe('🔊 Alex falando agora')
+  expect(await notice()).toBe('🔊 Alex falando agora')
   speech.playing = { ...OTHER, voice: 'dora' }
   await clock.advance(500)
-  expect(lines.at(-1)).toBe('🔊 Dora falando em outro-projeto')
+  expect(await notice()).toBe('🔊 Dora falando em outro-projeto')
   speech.playing = { ...OTHER, dir: '', voice: 'santa' }
   await clock.advance(500)
-  expect(lines.at(-1)).toBe('🔊 Santa falando em outra sessão')
+  expect(await notice()).toBe('🔊 Santa falando em outra sessão')
   speech.paused = [{ ...OWN, voice: 'alex' }]
   speech.playing = { ...OTHER, voice: 'dora' }
   await clock.advance(500)
-  expect(lines.at(-1)).toBe('🔊 Dora falando em outro-projeto · ⏸ sua fala pausada')
+  expect(await notice()).toBe('🔊 Dora falando em outro-projeto · ⏸ sua fala pausada')
   speech.playing = null
   await clock.advance(500)
-  expect(lines.at(-1)).toBe('⏸ fala pausada')
+  expect(await notice()).toBe('⏸ fala pausada')
 })
 
 // A fala de uma versão antiga do plugin não anota a voz, e a variável CLAUDE_SPEAK_VOICE aceita uma voz do motor que
 // não é das de leitura: sem um nome que o painel conheça, a linha fica como era.
 test('voz que o painel não conhece ou fala sem voz anotada: a linha fica sem nome', async ($, on) => {
-  const { lines, clock, speech } = await setup($, on)
+  const { notice, clock, speech } = await setup($, on)
   for (const voice of ['af_heart', 'constructor', 'Dora', '', 7, null]) {
     speech.playing = { ...OWN, voice }
     await clock.advance(500)
-    expect(lines.at(-1)).toBe('🔊 falando agora')
+    expect(await notice()).toBe('🔊 falando agora')
     speech.playing = { ...OTHER, voice }
     await clock.advance(500)
-    expect(lines.at(-1)).toBe('🔊 falando: outro-projeto')
+    expect(await notice()).toBe('🔊 falando: outro-projeto')
     speech.playing = { ...OTHER, dir: '', voice }
     await clock.advance(500)
-    expect(lines.at(-1)).toBe('🔊 outra sessão está falando')
+    expect(await notice()).toBe('🔊 outra sessão está falando')
   }
 })
 
@@ -932,18 +981,47 @@ test('sem tela que desenhe, nenhuma linha de status; com uma tela ligada depois,
   expect(lines.at(-1)).toBe('🔊 falando agora')
 })
 
+test('sem tela no começo e com o terminal ligado depois, o aviso vai nos rótulos do rodapé', async ($, on) => {
+  on('turn.start', (_: unknown, e: any) => ({ turnId: e.turnId }))
+  const { notice, lines, clock, speech, drawn } = await setup($, on, { headless: true })
+  speech.playing = OWN
+  await clock.advance(500)
+  expect(await notice()).toBe('') // nenhuma tela desenha: os rótulos ficam como o Claude Code os entrega
+  drawn.push('terminal')
+  await $.turn.start({ text: 'oi', turnId: 't1' })
+  expect(await notice()).toBe('🔊 falando agora')
+  expect(lines).toEqual([])
+})
+
+// Uma sessão que troca de tela no meio da fala (o VS Code some e o terminal aparece): o aviso sai da linha de status,
+// que é limpa, e passa para os rótulos; nunca fica nos dois lugares.
+test('quando o terminal passa a desenhar, o aviso deixa a linha de status e vai para os rótulos', async ($, on) => {
+  on('turn.start', (_: unknown, e: any) => ({ turnId: e.turnId }))
+  const { notice, lines, clock, speech, drawn } = await setup($, on, { headless: true })
+  drawn.push('vscode')
+  await $.turn.start({ text: 'oi', turnId: 't1' })
+  speech.playing = OWN
+  await clock.advance(500)
+  expect(lines.at(-1)).toBe('🔊 falando agora')
+  expect(await notice()).toBe('')
+  drawn.push('terminal')
+  await $.turn.start({ text: 'de novo', turnId: 't2' })
+  expect(lines.at(-1)).toBeUndefined()
+  expect(await notice()).toBe('🔊 falando agora')
+})
+
 test('fala pausada: a sessão dona vê "fala pausada"; as outras não veem nada', async ($, on) => {
-  const { lines, clock, speech } = await setup($, on)
+  const { notice, clock, speech } = await setup($, on)
   speech.paused = [OWN]
   await clock.advance(500)
-  expect(lines.at(-1)).toBe('⏸ fala pausada')
+  expect(await notice()).toBe('⏸ fala pausada')
   speech.paused = [OTHER]
   await clock.advance(500)
-  expect(lines.at(-1)).toBeUndefined()
+  expect(await notice()).toBe('')
   speech.paused = [OWN]
   speech.playing = OTHER
   await clock.advance(500)
-  expect(lines.at(-1)).toBe('🔊 falando: outro-projeto · ⏸ sua fala pausada')
+  expect(await notice()).toBe('🔊 falando: outro-projeto · ⏸ sua fala pausada')
 })
 
 test('o relógio da fala lê o arquivo e não abre processo nenhum a cada volta', async ($, on) => {
@@ -958,27 +1036,41 @@ test('o relógio da fala lê o arquivo e não abre processo nenhum a cada volta'
 })
 
 test('a linha só é redesenhada quando o estado muda', async ($, on) => {
-  const { lines, clock, speech } = await setup($, on)
+  const { lines, clock, speech } = await setup($, on, { surface: 'vscode' })
   speech.playing = OTHER
   await clock.advance(500)
   const count = lines.length
+  expect(lines.at(-1)).toBe('🔊 falando: outro-projeto')
   await clock.advance(10000)
   expect(lines.length).toBe(count)
 })
 
-test('processo que morreu sem limpar o arquivo some do aviso', async ($, on) => {
-  const { lines, clock, speech, gone } = await setup($, on)
+test('no terminal, o rodapé só é redesenhado quando o estado muda', async ($, on) => {
+  let redraws = 0
+  on('ui.invalidate', () => { redraws++; return { value: undefined } })
+  const { clock, speech } = await setup($, on)
   speech.playing = OTHER
   await clock.advance(500)
-  expect(lines.at(-1)).toBe('🔊 falando: outro-projeto')
+  const count = redraws
+  expect(count).toBeGreaterThan(0)
+  await clock.advance(10000)
+  expect(redraws).toBe(count)
+})
+
+test('processo que morreu sem limpar o arquivo some do aviso', async ($, on) => {
+  const { notice, clock, speech, gone } = await setup($, on)
+  speech.playing = OTHER
+  await clock.advance(500)
+  expect(await notice()).toBe('🔊 falando: outro-projeto')
   gone.add(20) // o processo da fala morreu sem limpar o arquivo
   await clock.advance(500)
-  expect(lines.at(-1)).toBeUndefined()
+  expect(await notice()).toBe('')
 })
 
 test('arquivo que falta é "ninguém fala"', async ($, on) => {
-  const { lines, clock } = await setup($, on, { noFile: true })
+  const { notice, lines, clock } = await setup($, on, { noFile: true })
   await clock.advance(2000)
+  expect(await notice()).toBe('')
   expect(lines.filter(l => l !== undefined)).toEqual([])
 })
 
@@ -1004,9 +1096,10 @@ test('sem ler o estado do speak, o relógio da fala desiste depois de algumas te
   expect(reads).toEqual([])
 })
 
+// Fora do terminal a linha de status é uma só por plugin, e a instalação do motor fica com ela.
 test('a linha de status da instalação vence a do aviso de fala, que volta ao fim', async ($, on) => {
   const { lines, clock, st, speech } = await setup($, on, {
-    init: { engine: false, installing: true, install: { fase: 'dependências' } },
+    surface: 'vscode', init: { engine: false, installing: true, install: { fase: 'dependências' } },
   })
   speech.playing = OTHER
   await clock.advance(2000)
@@ -1020,11 +1113,38 @@ test('a linha de status da instalação vence a do aviso de fala, que volta ao f
 })
 
 test('o aviso fixo (sem uv) também vence a do aviso de fala', async ($, on) => {
-  const { lines, clock, speech } = await setup($, on, { autoinstall: 'no-uv', init: { engine: false } })
+  const { lines, clock, speech } = await setup($, on, { surface: 'vscode', autoinstall: 'no-uv', init: { engine: false } })
   speech.playing = OTHER
   await clock.advance(10000)
   expect(lines).not.toContain('🔊 falando: outro-projeto')
   expect(lines.at(-1)).toBe('🔊 Voz não instalada: falta o uv; instale-o e rode /speak install')
+})
+
+// No terminal são dois lugares: a instalação segue na linha de status e o aviso de fala nos rótulos, ao mesmo tempo.
+test('no terminal, a instalação fica na linha de status e o aviso de fala nos rótulos do rodapé', async ($, on) => {
+  const { notice, lines, clock, st, speech } = await setup($, on, {
+    init: { engine: false, installing: true, install: { fase: 'dependências' } },
+  })
+  speech.playing = OTHER
+  await clock.advance(2000)
+  expect(lines.at(-1)).toBe('🔊 Instalando a voz: dependências')
+  expect(await notice()).toBe('🔊 falando: outro-projeto')
+  st.engine = true
+  st.installing = false
+  st.install = null
+  await clock.advance(2000)
+  expect(lines.at(-1)).toBeUndefined() // a linha da instalação sai, e o aviso de fala não entra no lugar dela
+  expect(lines).not.toContain('🔊 falando: outro-projeto')
+  expect(await notice()).toBe('🔊 falando: outro-projeto')
+})
+
+test('no terminal, o aviso fixo (sem uv) fica na linha de status e o de fala nos rótulos', async ($, on) => {
+  const { notice, lines, clock, speech } = await setup($, on, { autoinstall: 'no-uv', init: { engine: false } })
+  speech.playing = OTHER
+  await clock.advance(10000)
+  expect(lines.at(-1)).toBe('🔊 Voz não instalada: falta o uv; instale-o e rode /speak install')
+  expect(lines).not.toContain('🔊 falando: outro-projeto')
+  expect(await notice()).toBe('🔊 falando: outro-projeto')
 })
 
 test('o botão do modo da fala que toca vira Pausar; pausada, Continuar; o outro botão não muda', async ($, on) => {

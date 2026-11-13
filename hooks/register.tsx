@@ -3,8 +3,9 @@
 // A primeira linha, "Mudar em", só diz onde as próximas trocas são gravadas (todas as sessões ou só esta); abre sempre
 // em "Todas as sessões" e trocá-la não roda nada. Responde sozinho, sem o modelo. Com a escolha escrita
 // (/speak voice alex, /speak quiet), roda direto, sem menu, e responde uma linha.
-// Também mostra, na linha de status de todas as sessões, quem está falando (lido de state/speech.json, sem abrir processo),
-// e troca o rótulo do botão que deu o play por Pausar/Continuar (/speak pause, /speak resume).
+// Também mostra, embaixo do campo de texto de todas as sessões, quem está falando (lido de state/speech.json, sem abrir
+// processo): no terminal, entre os rótulos de modo do rodapé, sem o nome do plugin na frente; nas outras telas, na linha
+// de status. E troca o rótulo do botão que deu o play por Pausar/Continuar (/speak pause, /speak resume).
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
 type Engine = EngineInterface
@@ -31,13 +32,14 @@ const MICS: Record<string, string> = { wait: 'Espera', play: 'Toca', auto: 'Toca
 const VOICES: Record<string, string> = { dora: 'Dora (feminina)', alex: 'Alex (masculina)', santa: 'Santa (masculina)' }
 const READERS: Record<string, string> = { dora: 'Dora', alex: 'Alex', santa: 'Santa' }
 const POWER: Record<string, string> = { on: 'Ligada', quiet: 'Só o resumo escrito', off: 'Desligada' }
-// A velocidade da fala é um número de 0,5 a 2 que multiplica a velocidade normal da voz (1 é o normal). O painel
-// oferece estes passos; escrita (/speak speed 0,95), vale qualquer número da faixa, que o speak confere.
+// A velocidade da fala é um número de 0.5 a 2 que multiplica a velocidade normal da voz (1 é o normal). O painel
+// oferece estes passos; escrita (/speak speed 0.95), vale qualquer número da faixa, que o speak confere.
 const SPEED_STEPS = ['0.5', '0.75', '0.9', '1', '1.1', '1.25', '1.5', '1.75', '2']
 const isSpeed = (v: string) => /^\d+(\.\d+)?$/.test(v)
 // O que a pessoa escreveu (0,9 · 1.25x · ,9) no jeito que o speak guarda (0.9 · 1.25 · 0.9).
 const speedValue = (typed: string) => typed.toLowerCase().replace(',', '.').replace(/x$/, '').replace(/^\./, '0.')
-const speedLabel = (v: string) => v.replace('.', ',') + 'x'
+// Como a velocidade aparece: com ponto (0.9x), do jeito que os tocadores mostram; na escrita, a vírgula vale igual.
+const speedLabel = (v: string) => v + 'x'
 const SPEED_FIXED_WARNING = 'A variável CLAUDE_SPEAK_SPEED está definida e vale mais: a velocidade escolhida aqui só vale sem ela.'
 // Os passos e, fora deles, a velocidade em vigor (escrita com outro número), em ordem crescente.
 const speedOptions = (now: State | undefined) =>
@@ -46,7 +48,7 @@ const speedOptions = (now: State | undefined) =>
     .map(v => ({ value: v, label: speedLabel(v) + (v === '1' ? ' (normal)' : '') }))
 const USAGE =
   'Escreva a ação: /speak on, /speak quiet, /speak off, /speak mode full|summary, /speak size small|medium|large, /speak mic wait|play|auto, ' +
-  '/speak speed <número de 0,5 a 2; 1 é o normal>, ' +
+  '/speak speed <número de 0.5 a 2; 1 é o normal>, ' +
   '/speak voice dora|alex|santa, /speak again [summary|full], /speak pause, /speak resume, /speak status, /speak stop, ' +
   '/speak install, /speak update ' +
   '(com "all" no fim, vale para todas as sessões).'
@@ -104,21 +106,32 @@ let installShowing = false // a linha de status está com a instalação do moto
 // apaga nada: ali a linha fica muda. Conferido no começo da sessão e a cada mensagem nova, porque uma tela pode se ligar.
 let canDraw = true
 let startSurface = '' // a tela com que a sessão começou (terminal, VS Code); com ela, a linha nunca fica muda
+// O Claude Code escreve o nome do plugin na frente de toda linha de status ("speak: 🔊 Dora falando agora") e não dá
+// como tirar. Por isso, onde o terminal desenha, o aviso de quem fala vai entre os rótulos de modo do rodapé
+// (SessionMode), que saem como o plugin os escreve. Nas outras telas (VS Code, app de mesa, celular) o aviso segue na
+// linha de status, que continua também com a instalação do motor, onde o nome do plugin ajuda.
+const MODE_SURFACE = 'terminal'
+let modeSite = false // o terminal desenha esta sessão: o aviso de fala vai nos rótulos de modo, não na linha de status
 async function lookDraw($: Engine, surface?: string) {
   if (surface !== undefined) startSurface = surface
-  let any = !!startSurface
-  if (!any) {
+  let surfaces: readonly string[] = startSurface ? [startSurface] : []
+  if (!startSurface) {
     try {
-      any = (await $.session.surfaces()).length > 0
+      surfaces = await $.session.surfaces()
     } catch {
-      any = false
+      surfaces = []
     }
   }
+  const any = surfaces.length > 0
+  const modes = surfaces.includes(MODE_SURFACE)
   const back = any && !canDraw
+  const moved = modes !== modeSite
   canDraw = any
-  if (back) {
-    shownSpeech = undefined
-    paintSpeech($)
+  modeSite = modes
+  if (back) shownSpeech = undefined
+  if (back || moved) {
+    paintSpeech($) // se o aviso mudou de lugar, a linha de status é limpa (ou volta a tê-lo)
+    $.ui.invalidate('ui.render')
   }
 }
 const status = ($: Engine, line: string | undefined) => {
@@ -246,10 +259,11 @@ function speechLine(h: Heard): string | undefined {
   return ownPaused ? '⏸ fala pausada' : undefined
 }
 
-// Desenha a linha de aviso na linha de status, a menos que a instalação do motor a esteja usando.
+// Desenha a linha de aviso na linha de status, a menos que a instalação do motor a esteja usando. No terminal a linha
+// de status fica sem o aviso: ele vai nos rótulos de modo (o gancho de SessionMode, em `register`), lido de `heard`.
 function paintSpeech($: Engine) {
   if (installShowing) return
-  const line = speechLine(heard)
+  const line = modeSite ? undefined : speechLine(heard)
   if (line === shownSpeech) return
   shownSpeech = line
   status($, line)
@@ -682,6 +696,13 @@ export const register: Register = on => {
         {drawAgainButtons($.ui.resolve(e), hasSummaryLine(lastAnswer), which => enqueue(() => menuAgain($, which)))}
       </Box>
     )
+  })
+
+  // O aviso de quem fala no rodapé do terminal, depois dos rótulos do próprio Claude Code ("focus & 🔊 Dora falando
+  // agora"). O relógio da fala pede o redesenho a cada mudança.
+  on('ui.render', { component: 'SessionMode' }, ($, e, next) => {
+    const line = modeSite && e.surface === MODE_SURFACE ? speechLine(heard) : undefined
+    return line ? next({ ...e, props: { ...e.props, modes: [...e.props.modes, line] } }) : next(e)
   })
 
   on('session.start', async ($, e, next) => {
