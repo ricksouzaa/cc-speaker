@@ -180,6 +180,71 @@ class Filter(unittest.TestCase):
     def test_enem_is_respelt_and_the_letter_e_is_stressed(self):
         self.assertEqual(speak.clean('O Enem e o IBGE.'), 'O ênêi e o i bê gê éh.')
 
+    def test_english_terms_are_marked_and_neighbours_join(self):
+        S, E = speak.EN_START, speak.EN_END
+        self.assertEqual(speak.english_terms(speak.clean('Rode /reload-plugins e faça o deploy.')),
+                         'Rode barra %sreload plugins%s e faça o %sdeploy%s.' % (S, E, S, E))
+        self.assertEqual(speak.english_terms(speak.clean('Abri um Pull Request no GitHub, com o bug fix.')),
+                         'Abri um %sPull Request%s no %sGitHub%s, com o %sbug fix%s.' % (S, E, S, E, S, E))
+        self.assertEqual(speak.english_terms(speak.clean('Nada em inglês aqui.')), 'Nada em inglês aqui.')
+        # part of a longer word or of a hyphenated name: left alone
+        self.assertEqual(speak.english_terms('o pré-commit e os commitados'), 'o pré-commit e os commitados')
+        self.assertEqual(speak.unmarked('Faça o %sdeploy%s.' % (S, E)), 'Faça o deploy.')
+
+    def test_own_english_file(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        isolate(self, tmp.name)
+        os.makedirs(speak.CONF, exist_ok=True)
+        with open(os.path.join(speak.CONF, 'english'), 'w') as fh:
+            fh.write('# inglês\nKubernetes\n  code review \n')
+        S, E = speak.EN_START, speak.EN_END
+        self.assertEqual(speak.english_terms(speak.clean('Usa kubernetes.')), 'Usa %skubernetes%s.' % (S, E))
+        # a line with two words: both are terms, and side by side they are one stretch
+        self.assertEqual(speak.english_terms('Pedi um code review hoje.'), 'Pedi um %scode review%s hoje.' % (S, E))
+
+    def test_a_mark_already_in_the_text_is_dropped(self):
+        S, E = speak.EN_START, speak.EN_END
+        self.assertEqual(speak.english_terms('Ícone %s e o deploy %s feito.' % (S, E)),
+                         'Ícone  e o %sdeploy%s  feito.' % (S, E))
+
+    def test_english_sounds_are_written_as_the_engine_learned_english(self):
+        # espeak's American English (the tie mark joins the sounds said as one) -> the symbols of the official Kokoro
+        for raw, sounds in (('plˈʌɡɪn ', 'plˈʌɡɪn'), ('ɡˈɪt hˈʌb ', 'ɡˈɪt hˈʌb'), ('dᵻplˈɔ^ɪ ', 'dᵻplˈY'),
+                            ('mˈɜːd^ʒ ', 'mˈɜɹʤ'), ('tˈo^ʊkən ', 'tˈOkən'), ('tˈa^ɪma^ʊt ', 'tˈImWt'),
+                            ('fɹˈe^ɪmwɜːk ', 'fɹˈAmwɜɹk'), ('fˈiːt^ʃɚ ', 'fˈiʧəɹ'), ('dˈæʃbɔː^ɹd ', 'dˈæʃbɔɹd'),
+                            ('lˈɑːɡɪn ', 'lˈɑɡɪn'), ('bˈɛɾɚ ', 'bˈɛTəɹ'), ('bˈʌʔn̩ ', 'bˈʌtn'),
+                            ('ɹᵻlˈo^ʊd plˈʌɡɪnz ', 'ɹᵻlˈOd plˈʌɡɪnz'), ('bˈɑːɾə^l ', 'bˈɑTᵊl'),
+                            ('ɹˈɪðm\u0329 ', 'ɹˈɪðᵊm')):
+            self.assertEqual(speak.english_sounds(raw), sounds, raw)
+
+    def test_a_piece_with_english_becomes_one_run_of_sounds(self):
+        S, E = speak.EN_START, speak.EN_END
+        asked = []
+
+        def portuguese(text):  # the Portuguese of the whole piece, with a guide word where each English stretch goes
+            asked.append(text)
+            return {'Rode o zazá agora, e o xuxu depois.': 'xˈɔdʒy ʊ zazˈa aɡˈɔɾæ, i ʊ ʃuʃˈu depˈoɪs.',
+                    'zazá': 'zazˈa',
+                    'Os zazá e os xuxu.': 'ʊz zazˈa i ʊs ʃuʃˈu.',
+                    'O zazá do zazá.': 'ʊ zazˈa dʊ zˈazæ.',
+                    'O xuxu do zazá.': 'ʊ zazˈa dʊ ʃuʃˈu.'}[text]
+        english = {'deploy': 'dᵻplˈY', 'pull request': 'pˈʊl ɹᵻkwˈɛst', 'issues': 'ˈɪʃuz', 'commits': 'kəmˈɪts'}.get
+        piece = 'Rode o %sdeploy%s agora, e o %spull request%s depois.' % (S, E, S, E)
+        self.assertEqual(speak.mixed_sounds(piece, portuguese, english),
+                         'xˈɔdʒy ʊ dᵻplˈY aɡˈɔɾæ, i ʊ pˈʊl ɹᵻkwˈɛst depˈoɪs.')
+        # one call, so the words keep their neighbours; and the guide word starts as the English stretch does, with
+        # or without voice, so the "s" before it is the one the stretch asks for ("oz issues", "os commits")
+        self.assertEqual(asked, ['Rode o zazá agora, e o xuxu depois.'])
+        self.assertEqual(speak.mixed_sounds('Os %sissues%s e os %scommits%s.' % (S, E, S, E), portuguese, english),
+                         'ʊz ˈɪʃuz i ʊs kəmˈɪts.')
+        self.assertEqual(speak.mixed_sounds('%sdeploy%s' % (S, E), portuguese, english), 'dᵻplˈY')
+        # the guide words did not come back one per stretch and in order (one is in the text, or the engine read it
+        # another way): no sounds, and the piece is spoken as plain text
+        self.assertIsNone(speak.mixed_sounds('O %sdeploy%s do %sdeploy%s.' % (S, E, S, E), portuguese, english))
+        self.assertIsNone(speak.mixed_sounds('O %spull request%s do %sdeploy%s.' % (S, E, S, E), portuguese, english))
+        self.assertIsNone(speak.mixed_sounds('Nada em inglês aqui.', portuguese, english))
+
     def test_commit_codes_and_head_go(self):
         self.assertEqual(speak.clean('Commit b48e609 e 93a66bd prontos.'), 'Commit e prontos.')
         self.assertEqual(speak.clean('Está no HEAD agora.'), 'Está no agora.')
@@ -3102,6 +3167,60 @@ class Speed(unittest.TestCase):
         self.assertEqual(seen[1:], [('pm_alex', 2.0, 'pt-br')])
 
 
+class English(unittest.TestCase):
+    """English terms in the middle of the Portuguese are said with English sounds, in the same run of speech."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def play(self, text, tokenizer):
+        import types
+        isolate(self, self.tmp.name)
+        seen = []
+
+        class Engine:
+            voices = {}
+
+            def __init__(self, *files):
+                self.tokenizer = tokenizer
+
+            def create(self, piece, voice, speed, lang, is_phonemes=False):
+                seen.append((piece, lang, is_phonemes))
+                return [0.0] * 8, speak.RATE
+
+        fake = types.ModuleType('kokoro_onnx')
+        fake.Kokoro = Engine
+        with mock.patch.dict(sys.modules, {'kokoro_onnx': fake}), \
+                mock.patch.dict(os.environ, {'CLAUDE_SPEAK_SESSION': '-'}), \
+                mock.patch.object(speak, 'wait_turn', return_value=True), \
+                mock.patch.object(speak, 'player_command', return_value=['tocador-de-teste']), \
+                mock.patch.object(speak.speak_os, 'streams', return_value=False), \
+                mock.patch.object(speak, 'english_raw', side_effect=lambda term: {'deploy': 'dᵻplˈɔ^ɪ '}[term]), \
+                mock.patch.object(speak, 'play_files', side_effect=lambda command, chunks, watch, session=None:
+                                  len(list(chunks)) and 0):
+            self.assertEqual(speak.play(text), 0)
+        return seen
+
+    class Tokenizer:
+        def phonemize(self, text, lang):
+            return {('Fiz o zazá agora.', 'pt-br'): 'fˈiz ʊ zazˈa aɡˈɔɾæ.'}[(text, lang)]
+
+    def test_a_piece_with_an_english_term_goes_to_the_engine_as_sounds(self):
+        self.assertEqual(self.play('Fiz o deploy agora.', self.Tokenizer()),
+                         [('fˈiz ʊ dᵻplˈY aɡˈɔɾæ.', 'pt-br', True)])
+
+    def test_a_piece_without_english_goes_as_text_as_before(self):
+        self.assertEqual(self.play('Tudo certo agora.', self.Tokenizer()), [('Tudo certo agora.', 'pt-br', False)])
+
+    def test_when_the_sounds_fail_the_piece_is_spoken_as_plain_text(self):
+        class Broken:
+            def phonemize(self, text, lang):
+                raise RuntimeError('sem espeak')
+        self.assertEqual(self.play('Fiz o deploy agora.', Broken()), [('Fiz o deploy agora.', 'pt-br', False)])
+        self.assertEqual(self.play('Fiz o deploy agora.', None), [('Fiz o deploy agora.', 'pt-br', False)])
+
+
 class Voice(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -4231,7 +4350,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.22.1')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.23.0')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

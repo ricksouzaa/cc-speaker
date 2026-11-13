@@ -596,6 +596,99 @@ def spelled_acronyms(text):
 
 # Respelt for the engine: ENEM comes out as "eneɪŋ"; written so it is said "ê-nêi".
 RESPELL = {'ENEM': 'ênêi'}
+# English terms inside Portuguese text are said with English sounds, in the same voice and in the same run of speech:
+# the piece goes to the engine as sounds (phonemes), the Portuguese ones with the English ones in their place, so no
+# audio is joined (0.16.0 made one audio per language and joined them; the seam was heard, and 0.17.0 dropped it).
+# The terms are marked with private-use characters after `clean`, so the marks never reach what tests and `speak say`
+# print. The person adds more in CONF/english, one or more per line.
+EN_START, EN_END = '\ue000', '\ue001'
+ENGLISH = frozenset((
+    'reload plugin plugins commit commits push pull request requests branch branches merge deploy build hook hooks '
+    'github worktree release rebase checkout stash lint workflow pipeline dashboard feedback download upload login '
+    'logout backup prompt token tokens endpoint backend frontend framework script scripts bug bugs fix debug timeout '
+    'cache fallback rollback webhook staging cluster slash review issue issues feature features').split())
+# A guide word stands where an English stretch goes while espeak reads the Portuguese of the whole piece, so the
+# Portuguese words keep their neighbours (alone, a final "o" is read as the letter, "ó"). There are two, each read the
+# same way wherever it is: one starts without voice and the other with it, as the English stretch does, because the
+# "s" or "z" that ends the word before depends on that ("os commits" with "s", "os issues" with "z").
+GUIDES = {False: ('xuxu', 'ʃuʃˈu'), True: ('zazá', 'zazˈa')}
+VOICELESS = 'ptkfθsʃʧh'
+# espeak's American English, written with the symbols the engine learned English with (the table of the official
+# Kokoro, misaki's EspeakFallback): "^" is the tie mark between two sounds said as one.
+ENGLISH_SOUNDS = sorted({
+    'ʔˌn\u0329': 'ʔn', 'ʔn\u0329': 'ʔn', 'a^ɪ': 'I', 'a^ʊ': 'W', 'd^ʒ': 'ʤ', 'e^ɪ': 'A', 'e': 'A', 't^ʃ': 'ʧ',
+    'ɔ^ɪ': 'Y', 'ə^l': 'ᵊl', 'ʲo': 'jo', 'ʲə': 'jə', 'ʲ': '', 'ɚ': 'əɹ', 'r': 'ɹ', 'x': 'k', 'ç': 'k', 'ɐ': 'ə',
+    'ɬ': 'l', '\u0303': ''}.items(), key=lambda pair: -len(pair[0]))
+ENGLISH_AMERICAN = (('o^ʊ', 'O'), ('ɜːɹ', 'ɜɹ'), ('ɜː', 'ɜɹ'), ('ɪə', 'iə'), ('ː', ''), ('o', 'ɔ'), ('ɾ', 'T'),
+                    ('ʔ', 't'), ('^', ''))
+
+
+def english_terms(text):
+    """Wraps the English terms (ENGLISH plus CONF/english) in marks; neighbours join into one stretch."""
+    try:
+        with open(os.path.join(CONF, 'english')) as fh:
+            own = {word.lower() for line in fh if not line.lstrip().startswith('#') for word in line.split()}
+    except OSError:
+        own = set()
+    known = ENGLISH | own
+    text = re.sub(r'(?<![\w-])[A-Za-z]+(?![\w-])',
+                  lambda m: EN_START + m.group(0) + EN_END if m.group(0).lower() in known else m.group(0),
+                  unmarked(text))  # a mark that came in the text itself would pair with ours
+    return re.sub(EN_END + r'(\s+)' + EN_START, r'\1', text)
+
+
+def unmarked(piece):
+    """The piece without the marks of the English terms: plain text again."""
+    return piece.replace(EN_START, '').replace(EN_END, '')
+
+
+def english_raw(term):
+    """espeak's American English sounds of a term, with the tie mark between the sounds said as one."""
+    import phonemizer
+    from kokoro_onnx import tokenizer
+    with getattr(tokenizer, '_espeak_lock', threading.Lock()):  # espeak keeps one state for the whole process
+        return phonemizer.phonemize(term, 'en-us', preserve_punctuation=True, with_stress=True, tie='^')
+
+
+def english_sounds(raw):
+    """What `english_raw` gives, in the symbols the engine learned English with."""
+    sounds = raw.strip()
+    for old, new in ENGLISH_SOUNDS:
+        sounds = sounds.replace(old, new)
+    sounds = re.sub('(\\S)\u0329', r'ᵊ\1', sounds).replace('\u0329', '')
+    for old, new in ENGLISH_AMERICAN:
+        sounds = sounds.replace(old, new)
+    return sounds
+
+
+def mixed_sounds(piece, portuguese, english):
+    """The sounds of a piece with marked English terms: `english(term)` gives the sounds of each stretch, and
+    `portuguese(text)` reads the whole piece once, with a guide word where each stretch goes (the one that starts
+    as the stretch does, with or without voice). None when there is no English, or when the guide words do not come
+    back one per stretch and in order (one is in the text itself, or the engine read it another way)."""
+    parts = re.split(EN_START + '(.*?)' + EN_END, piece)
+    if len(parts) < 2:
+        return None
+    said = [english(term) for term in parts[1::2]]
+    guides = [GUIDES[sounds.lstrip('ˈˌ')[:1] not in VOICELESS] for sounds in said]
+    words = iter(guides)
+    around = re.split('(%s)' % '|'.join(re.escape(sounds) for _, sounds in GUIDES.values()),
+                      portuguese(''.join(next(words)[0] if i % 2 else part for i, part in enumerate(parts))))
+    if around[1::2] != [sounds for _, sounds in guides]:
+        return None
+    return ''.join(said[i // 2] if i % 2 else part for i, part in enumerate(around))
+
+
+def piece_sounds(kokoro, piece):
+    """The sounds of a piece that has English terms; None when it has none or the sounds cannot be made (no espeak
+    at hand, an engine of another shape): then the piece is spoken as plain text, the terms read as Portuguese."""
+    if EN_START not in piece:
+        return None
+    try:
+        return mixed_sounds(piece, lambda text: kokoro.tokenizer.phonemize(text, 'pt-br'),
+                            lambda term: english_sounds(english_raw(term))) or None
+    except Exception:
+        return None
 
 
 def clean(text):
@@ -1613,8 +1706,13 @@ def play(text):
         kokoro = Kokoro(MODEL, VOICES)
         style = voice_style(kokoro.voices, mix)
 
+        text = english_terms(text)  # after `clean`, so the marks never reach what tests and `speak say` print
+
         def synth(piece):
-            return kokoro.create(piece, voice=style, speed=rate, lang='pt-br')[0]
+            sounds = piece_sounds(kokoro, piece)
+            if sounds:
+                return kokoro.create(sounds, voice=style, speed=rate, lang='pt-br', is_phonemes=True)[0]
+            return kokoro.create(unmarked(piece), voice=style, speed=rate, lang='pt-br')[0]
 
         if not speak_os.streams():
             return play_files(player, synthesize_ahead(pieces(text), synth), watch, session)

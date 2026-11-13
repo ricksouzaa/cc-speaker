@@ -7,6 +7,12 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.23.0] - 2026-11-13
+
+### Adicionado
+- **Termos técnicos em inglês voltam a ser falados com a pronúncia do inglês,** na mesma voz: plugin, commit, push, deploy, build, pull request, GitHub, backend, token, cache e outros. Antes saíam aportuguesados ("plu-jín", "jítch-úb"). Desta vez a frase inteira é gerada de uma vez, com os sons do inglês no lugar dos termos, sem a emenda de áudios que deixou a 0.16.0 estranha.
+- Para incluir outros termos, escreva-os no arquivo `config/english` da pasta de dados, um por linha ou vários na mesma linha, separados por espaço (as linhas que começam com `#` são comentários).
+
 ## [0.22.1] - 2026-11-13
 
 ### Alterado
@@ -383,7 +389,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.22.1...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.23.0...HEAD
+[0.23.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.22.1...v0.23.0
 [0.22.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.22.0...v0.22.1
 [0.22.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.21.2...v0.22.0
 [0.21.2]: https://github.com/ricksouzaa/cc-speaker/compare/v0.21.1...v0.21.2
