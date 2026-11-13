@@ -7,6 +7,24 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.22.0] - 2026-11-13
+
+### Adicionado
+- **Velocidade da fala.** Agora você escolhe se a voz fala mais devagar ou mais rápido, de 0,5x a 2x. O 1x é a velocidade normal da voz escolhida, a mesma de antes: quem não mexer não nota diferença. Escolha pelo painel (linha "Velocidade da fala"), por `/speak speed 0,9` (qualquer número de 0,5 a 2, com vírgula ou ponto; com `all` no fim, vale para todas as sessões) ou em palavras, como "fala mais devagar".
+- A velocidade nova vale a partir da próxima fala. Para ouvir a diferença na hora, use "Ouvir de novo": a mesma resposta é lida outra vez, já na velocidade escolhida.
+- `/speak status` mostra a escolha na linha `velocidade da fala`.
+- **O aviso de quem está falando agora diz a voz.** Na linha embaixo do campo de texto aparece "🔊 Alex falando agora" na sessão que fala e "🔊 Dora falando em <pasta do projeto>" nas outras sessões.
+
+### Alterado
+- No `/speak status`, a linha da voz passa a dizer `velocidade no motor`, para não se confundir com a escolha: é o número que o motor recebe, a velocidade normal da voz vezes a escolha. O motor aceita de 0,5 a 2 nesse número, e por isso o 2x fica hoje um pouco abaixo do dobro.
+- `CLAUDE_SPEAK_SPEED` continua valendo mais que a escolha, como antes. Quando ela está definida, a escolha fica guardada mas não vale, e o plugin avisa: no `/speak status`, no painel e na resposta do `/speak speed`.
+
+### Removido
+- Sai a **voz Alice**. Ela era a Dora misturada com uma voz americana e, de ouvido, não ficou muito diferente da Dora. Ficam a Dora, o Alex e o Santa.
+
+### Quebra
+- `/speak voice alice` deixa de existir, e a Alice sai do painel. Quem a tinha escolhido passa a ouvir a Dora, sem erro e sem precisar fazer nada; para outra voz, use o painel ou `/speak voice alex`.
+
 ## [0.21.2] - 2026-11-10
 
 ### Corrigido
@@ -358,7 +376,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.21.2...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.22.0...HEAD
+[0.22.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.21.2...v0.22.0
 [0.21.2]: https://github.com/ricksouzaa/cc-speaker/compare/v0.21.1...v0.21.2
 [0.21.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.21.0...v0.21.1
 [0.21.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.20.1...v0.21.0

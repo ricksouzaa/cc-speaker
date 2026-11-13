@@ -16,8 +16,8 @@ async function setup($: any, on: any, opts: Opts = {}) {
   on('ui.log', (_: unknown, e: any) => { logs.push(e.text); return { value: undefined } })
   on('ui.toast', (_: unknown, e: any) => { toasts.push(e.text); return { value: undefined } })
   const st: any = {
-    on: true, power: 'on', mode: 'summary', size: 'medium', mic: 'wait', engine: true, voice: 'dora',
-    scope: { on: 'all', mode: 'all', size: 'all', mic: 'all', ...(opts.scope ?? {}) },
+    on: true, power: 'on', mode: 'summary', size: 'medium', mic: 'wait', speed: '1', engine: true, voice: 'dora',
+    scope: { on: 'all', mode: 'all', size: 'all', mic: 'all', speed: 'all', ...(opts.scope ?? {}) },
     session: 'S-1', stateDir: '/estado',
     ...(opts.init ?? {}),
   }
@@ -74,7 +74,17 @@ async function setup($: any, on: any, opts: Opts = {}) {
     if (args[0] === 'mode') st.mode = args[1]!
     if (args[0] === 'size') st.size = args[1]!
     if (args[0] === 'mic') st.mic = args[1]!
-    if (args[0] === 'voice') st.voice = args[1]!
+    if (args[0] === 'speed') {
+      // como o speak: só um número de 0,5 a 2 vale, e o estado o guarda sem zeros à toa (1.0 vira 1)
+      const n = Number(args[1])
+      if (!(n >= 0.5 && n <= 2)) return done(2, '', 'voz: use "speak speed" com um número de 0,5 a 2\n')
+      st.speed = String(n)
+    }
+    if (args[0] === 'voice') {
+      // como o speak: só as vozes de leitura valem
+      if (!['dora', 'alex', 'santa'].includes(args[1]!)) return done(2, '', 'voz: voz desconhecida; use uma de: dora, alex, santa\n')
+      st.voice = args[1]!
+    }
     if (args[0] === 'on' || args[0] === 'off' || args[0] === 'quiet') { st.on = args[0] === 'on'; st.power = args[0] }
     return done(0, 'ok\n')
   })
@@ -120,10 +130,10 @@ test('o comando /speak é registrado, imediato', async ($, on) => {
 test('escolha completa roda o speak certo, sem menu', async ($, on) => {
   const { ran } = await setup($, on)
   const args = ['on', 'off all', 'mode summary', 'mode full all', 'size large', 'size small all',
-    'mic play', 'mic auto all', 'voice alex', 'stop']
+    'mic play', 'mic auto all', 'speed 1.5', 'speed 0.75 all', 'voice alex', 'stop']
   for (const a of args) await $.command.run({ command: 'speak', args: a })
   expect(changes(ran)).toEqual(['on', 'off all', 'mode summary', 'mode full all', 'size large', 'size small all',
-    'mic play', 'mic auto all', 'voice alex', 'stop'])
+    'mic play', 'mic auto all', 'speed 1.5', 'speed 0.75 all', 'voice alex', 'stop'])
 })
 
 test('status mostra o estado do speak e install roda direto', async ($, on) => {
@@ -168,7 +178,7 @@ test('/speak sozinho abre o painel com o foco, uma lista por linha e o botão Fe
   expect(opened[0].focus).toBe(true)
   expect(opened[0].closeOnEscape).toBe(true)
   const s = await selects(ui)
-  expect(Object.keys(s)).toEqual(['where', 'power', 'mode', 'size', 'voice', 'mic'])
+  expect(Object.keys(s)).toEqual(['where', 'power', 'mode', 'size', 'voice', 'speed', 'mic'])
   expect(s.where.value).toBe('all')
   expect(s.power.value).toBe('on')
   expect(s.mode.value).toBe('summary')
@@ -177,10 +187,15 @@ test('/speak sozinho abre o painel com o foco, uma lista por linha e o botão Fe
   expect(s.mic.value).toBe('wait')
   expect(s.mic.label).toMatch(/^Com o microfone em uso\s*$/)
   expect(s.mic.options.map((o: any) => o.label)).toEqual(['Espera', 'Toca', 'Toca nesta reunião'])
+  expect(s.speed.value).toBe('1')
+  expect(s.speed.label).toMatch(/^Velocidade da fala\s*$/)
+  expect(s.speed.options.map((o: any) => o.value)).toEqual(['0.5', '0.75', '0.9', '1', '1.1', '1.25', '1.5', '1.75', '2'])
+  expect(s.speed.options.map((o: any) => o.label)).toEqual(
+    ['0,5x', '0,75x', '0,9x', '1x (normal)', '1,1x', '1,25x', '1,5x', '1,75x', '2x'])
   expect(s.where.label).toMatch(/^Mudar em\s*$/)
   expect(s.where.options.map((o: any) => o.label)).toEqual(['Todas as sessões', 'Só nesta sessão'])
   expect(s.where.autoFocus).toBe(true)
-  for (const k of ['power', 'mode', 'size', 'voice', 'mic']) expect(s[k].autoFocus).toBeUndefined()
+  for (const k of ['power', 'mode', 'size', 'voice', 'speed', 'mic']) expect(s[k].autoFocus).toBeUndefined()
   expect((await texts(ui, 'Button')).map((b: any) => b.props.label)).toEqual(['Resumo', 'Resposta inteira', 'Fechar'])
   expect((await texts(ui, 'Text')).map((t: any) => t.text.trim())).toContain('Ouvir de novo')
   expect(await footer(ui)).toBe(HELP)
@@ -192,7 +207,7 @@ test('o tamanho do resumo só aparece com a leitura em "só o resumo"', async ($
   const { st } = await setup($, on)
   st.mode = 'full'
   const { ui } = await openMenu($)
-  expect(Object.keys(await selects(ui))).toEqual(['where', 'power', 'mode', 'voice', 'mic'])
+  expect(Object.keys(await selects(ui))).toEqual(['where', 'power', 'mode', 'voice', 'speed', 'mic'])
   expect((await texts(ui, 'Button')).map((b: any) => b.props.label)).toEqual(['Resumo', 'Resposta inteira', 'Fechar'])
   await ui.unmount()
 })
@@ -202,9 +217,9 @@ test('escolher a leitura no painel esconde e mostra a linha do tamanho na hora',
   const { ui } = await openMenu($, 'mode')
   expect(Object.keys(await selects(ui))).toContain('size')
   await ui.select({ key: 'mode', value: 'full' })
-  expect(Object.keys(await selects(ui))).toEqual(['where', 'power', 'mode', 'voice', 'mic'])
+  expect(Object.keys(await selects(ui))).toEqual(['where', 'power', 'mode', 'voice', 'speed', 'mic'])
   await ui.select({ key: 'mode', value: 'summary' })
-  expect(Object.keys(await selects(ui))).toEqual(['where', 'power', 'mode', 'size', 'voice', 'mic'])
+  expect(Object.keys(await selects(ui))).toEqual(['where', 'power', 'mode', 'size', 'voice', 'speed', 'mic'])
   expect(changes(ran)).toEqual(['mode full all', 'mode summary all'])
   await ui.unmount()
 })
@@ -275,7 +290,7 @@ test('a linha "Ouvir de novo" do painel toca na hora, diz a frase no rodapé e n
   await ui.press({ key: 'again-full' })
   expect(changes(ran)).toEqual(['again summary', 'again full'])
   expect(await footer(ui)).toBe('Lendo de novo a última resposta inteira.')
-  expect(Object.keys(await selects(ui))).toEqual(['where', 'power', 'mode', 'size', 'voice', 'mic'])
+  expect(Object.keys(await selects(ui))).toEqual(['where', 'power', 'mode', 'size', 'voice', 'speed', 'mic'])
   await ui.unmount()
 })
 
@@ -360,14 +375,103 @@ test('a linha do microfone troca com "all" e avisa quando a voz toca na reunião
   await ui.unmount()
 })
 
-test('o painel lista a Alice e a escolha roda speak voice alice', async ($, on) => {
+test('a linha da velocidade troca com "all", diz o que passou a valer e segue o alcance de "Mudar em"', async ($, on) => {
+  const { ran } = await setup($, on)
+  const { ui } = await openMenu($, 'speed')
+  expect((await selects(ui)).speed.autoFocus).toBe(true)
+  await ui.select({ key: 'speed', value: '0.9' })
+  expect(changes(ran)).toEqual(['speed 0.9 all'])
+  expect((await selects(ui)).speed.value).toBe('0.9')
+  expect(await footer(ui)).toBe('A voz passa a falar a 0,9x em todas as sessões, a partir da próxima fala.')
+  await ui.select({ key: 'where', value: 'session' })
+  await ui.select({ key: 'speed', value: '1' })
+  expect(changes(ran)).toEqual(['speed 0.9 all', 'speed 1'])
+  expect(await footer(ui)).toBe('A voz passa a falar na velocidade normal (1x) nesta sessão, a partir da próxima fala.')
+  await ui.unmount()
+})
+
+test('a velocidade escrita fora da lista aparece no painel, no lugar dela, e leva a marca da sessão', async ($, on) => {
+  await setup($, on, { init: { speed: '0.95' }, scope: { speed: 'session' } })
+  const { ui } = await openMenu($)
+  const s = await selects(ui)
+  expect(s.speed.value).toBe('0.95')
+  expect(s.speed.label).toContain('só nesta sessão')
+  expect(s.speed.options.map((o: any) => o.label)).toEqual(
+    ['0,5x', '0,75x', '0,9x', '0,95x', '1x (normal)', '1,1x', '1,25x', '1,5x', '1,75x', '2x'])
+  await ui.unmount()
+})
+
+test('sem o campo speed no estado, a linha da velocidade mostra o normal', async ($, on) => {
+  const { st } = await setup($, on)
+  delete st.speed
+  const { ui } = await openMenu($)
+  expect((await selects(ui)).speed.value).toBe('1')
+  await ui.unmount()
+})
+
+test('/speak speed escrito aceita vírgula, ponto e x, e diz o que passou a valer', async ($, on) => {
+  const { ran, opened } = await setup($, on)
+  const say = async (args: string) => (await $.command.run({ command: 'speak', args })).text
+  expect(await say('speed 0,9')).toBe('A voz passa a falar a 0,9x nesta sessão, a partir da próxima fala.')
+  expect(await say('speed 1.25x all')).toBe('A voz passa a falar a 1,25x em todas as sessões, a partir da próxima fala.')
+  expect(await say('speed 1,0')).toBe('A voz passa a falar na velocidade normal (1x) nesta sessão, a partir da próxima fala.')
+  expect(await say('speed 0.95')).toBe('A voz passa a falar a 0,95x nesta sessão, a partir da próxima fala.')
+  expect(await say('speed ,75x')).toBe('A voz passa a falar a 0,75x nesta sessão, a partir da próxima fala.')
+  expect(await say('speed .9 all')).toBe('A voz passa a falar a 0,9x em todas as sessões, a partir da próxima fala.')
+  expect(changes(ran)).toEqual(['speed 0.9', 'speed 1.25 all', 'speed 1.0', 'speed 0.95', 'speed 0.75', 'speed 0.9 all'])
+  expect(opened).toEqual([])
+})
+
+test('com CLAUDE_SPEAK_SPEED definida, a troca da velocidade avisa que a variável vale mais, escrita e no painel', async ($, on) => {
+  const { ran, st } = await setup($, on, { init: { speedFixed: '1.3' } })
+  const warning = 'A variável CLAUDE_SPEAK_SPEED está definida e vale mais: a velocidade escolhida aqui só vale sem ela.'
+  const said = (label: string, where: string) =>
+    `A velocidade ${label} ficou guardada ${where}, mas ainda não vale: a variável CLAUDE_SPEAK_SPEED está definida e vale mais que a escolha.`
+  expect((await $.command.run({ command: 'speak', args: 'speed 0,75' })).text).toBe(said('0,75x', 'nesta sessão'))
+  const { ui } = await openMenu($)
+  expect((await texts(ui, 'Text')).map((t: any) => t.text)).toContain(warning)
+  await ui.select({ key: 'speed', value: '1' })
+  expect(changes(ran)).toEqual(['speed 0.75', 'speed 1 all'])
+  expect(await footer(ui)).toBe(said('1x', 'em todas as sessões'))
+  st.speedFixed = null // a variável saiu: a escolha vale e o aviso some
+  await ui.select({ key: 'speed', value: '0.9' })
+  expect(await footer(ui)).toBe('A voz passa a falar a 0,9x em todas as sessões, a partir da próxima fala.')
+  expect((await texts(ui, 'Text')).map((t: any) => t.text)).not.toContain(warning)
+  await ui.unmount()
+})
+
+test('/speak speed com o que não é número mostra o uso; fora da faixa, o erro do speak', async ($, on) => {
+  const { ran } = await setup($, on)
+  const say = async (args: string) => (await $.command.run({ command: 'speak', args })).text
+  for (const args of ['speed rápido', 'speed 1;rm', 'speed -1', 'speed 1 2', 'speed 1e0', 'speed x']) {
+    expect(await say(args)).toContain('/speak speed')
+  }
+  expect(changes(ran)).toEqual([])
+  expect(await say('speed 3')).toBe('voz: use "speak speed" com um número de 0,5 a 2')
+  expect(changes(ran)).toEqual(['speed 3'])
+})
+
+test('no painel, um valor de velocidade que não é número não roda nada', async ($, on) => {
+  const { ran } = await setup($, on)
+  const { ui } = await openMenu($)
+  await ui.select({ key: 'speed', value: '1; rm' })
+  await ui.select({ key: 'speed', value: 'rápido' })
+  expect(changes(ran)).toEqual([])
+  await ui.unmount()
+})
+
+test('a Alice saiu: o painel lista Dora, Alex e Santa, e a escolha escrita dela volta o erro do speak', async ($, on) => {
   const { ran } = await setup($, on)
   const { ui } = await openMenu($, 'voice')
-  expect(JSON.stringify((await selects(ui)).voice)).toContain('Alice')
-  await ui.select({ key: 'voice', value: 'alice' })
-  expect(changes(ran)).toEqual(['voice alice'])
-  expect((await selects(ui)).voice.value).toBe('alice')
+  expect((await selects(ui)).voice.options).toEqual([
+    { value: 'dora', label: 'Dora' }, { value: 'alex', label: 'Alex' }, { value: 'santa', label: 'Santa' }])
+  await ui.select({ key: 'voice', value: 'alice' }) // um valor que a lista não oferece não roda nada
+  expect(changes(ran)).toEqual([])
   await ui.unmount()
+  expect((await $.command.run({ command: 'speak', args: 'voice alice' })).text).toBe(
+    'voz: voz desconhecida; use uma de: dora, alex, santa')
+  expect(changes(ran)).toEqual(['voice alice'])
+  expect((await $.command.run({ command: 'speak', args: 'dance' })).text).not.toContain('alice')
 })
 
 test('a voz de leitura nunca leva "all"', async ($, on) => {
@@ -384,7 +488,7 @@ test('a linha com campo próprio da sessão leva a marca "só nesta sessão"', a
   const { ui } = await openMenu($)
   const s = await selects(ui)
   expect(s.mode.label).toContain('só nesta sessão')
-  for (const k of ['where', 'power', 'size', 'voice', 'mic']) expect(s[k].label).not.toContain('só nesta sessão')
+  for (const k of ['where', 'power', 'size', 'voice', 'speed', 'mic']) expect(s[k].label).not.toContain('só nesta sessão')
   await ui.unmount()
 })
 
@@ -429,7 +533,7 @@ test('quando o estado não pode ser lido, as linhas ficam vazias e o rodapé avi
   await setup($, on, { statusFails: true })
   const { ui } = await openMenu($)
   const s = await selects(ui)
-  for (const k of ['power', 'mode', 'size', 'voice', 'mic']) expect(s[k].value).toBeUndefined()
+  for (const k of ['power', 'mode', 'size', 'voice', 'speed', 'mic']) expect(s[k].value).toBeUndefined()
   expect(await footer(ui)).toBe('Não deu para ler o estado da voz.')
   await ui.unmount()
 })
@@ -772,6 +876,43 @@ test('a fala desta sessão: "falando agora"; a de outra sessão: "falando: pasta
   speech.playing = null
   await clock.advance(500)
   expect(lines.at(-1)).toBeUndefined()
+})
+
+test('com a voz anotada na fala, a linha diz quem fala: "Alex falando agora", "Dora falando em pasta"', async ($, on) => {
+  const { lines, clock, speech } = await setup($, on)
+  speech.playing = { ...OWN, voice: 'alex' }
+  await clock.advance(500)
+  expect(lines.at(-1)).toBe('🔊 Alex falando agora')
+  speech.playing = { ...OTHER, voice: 'dora' }
+  await clock.advance(500)
+  expect(lines.at(-1)).toBe('🔊 Dora falando em outro-projeto')
+  speech.playing = { ...OTHER, dir: '', voice: 'santa' }
+  await clock.advance(500)
+  expect(lines.at(-1)).toBe('🔊 Santa falando em outra sessão')
+  speech.paused = [{ ...OWN, voice: 'alex' }]
+  speech.playing = { ...OTHER, voice: 'dora' }
+  await clock.advance(500)
+  expect(lines.at(-1)).toBe('🔊 Dora falando em outro-projeto · ⏸ sua fala pausada')
+  speech.playing = null
+  await clock.advance(500)
+  expect(lines.at(-1)).toBe('⏸ fala pausada')
+})
+
+// A fala de uma versão antiga do plugin não anota a voz, e a variável CLAUDE_SPEAK_VOICE aceita uma voz do motor que
+// não é das de leitura: sem um nome que o painel conheça, a linha fica como era.
+test('voz que o painel não conhece ou fala sem voz anotada: a linha fica sem nome', async ($, on) => {
+  const { lines, clock, speech } = await setup($, on)
+  for (const voice of ['af_heart', 'constructor', 'Dora', '', 7, null]) {
+    speech.playing = { ...OWN, voice }
+    await clock.advance(500)
+    expect(lines.at(-1)).toBe('🔊 falando agora')
+    speech.playing = { ...OTHER, voice }
+    await clock.advance(500)
+    expect(lines.at(-1)).toBe('🔊 falando: outro-projeto')
+    speech.playing = { ...OTHER, dir: '', voice }
+    await clock.advance(500)
+    expect(lines.at(-1)).toBe('🔊 outra sessão está falando')
+  }
 })
 
 // Sem tela do Claude Code (o chat do Orca e outros clientes do SDK), cada aviso vira uma linha solta na conversa e o

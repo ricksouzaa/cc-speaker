@@ -2054,14 +2054,24 @@ class Pause(unittest.TestCase):
         except (OSError, ValueError):
             return None
 
-    def test_the_turn_is_written_with_session_folder_and_mode(self):
+    def test_the_turn_is_written_with_session_folder_mode_and_voice(self):
         proc = self.waiter('a', self.me, CLAUDE_SPEAK_DIR='/home/x/projeto', CLAUDE_SPEAK_HOW='summary')
         self.assertTrue(self.until(lambda: self.started() == ['a']))
         self.assertEqual(self.json(), {'playing': {'pid': proc.pid, 'session': self.me, 'dir': '/home/x/projeto',
-                                                   'how': 'summary'}, 'paused': []})
+                                                   'how': 'summary', 'voice': 'dora'}, 'paused': []})
         self.let_go('a')
         self.assertEqual(proc.wait(timeout=5), 0)
         self.assertIsNone(self.json())  # nothing playing, nothing paused: no file
+        # The voice in force when the speech takes its turn, by its short name, however the variable spells it (the
+        # speech takes `Santa` and `PM_ALEX` too); an engine voice that is not one of the reading voices goes as it
+        # is, and a voice that left the plugin as the one that took its place.
+        for name, chosen, told in (('b', 'pm_alex', 'alex'), ('c', 'af_heart', 'af_heart'), ('d', 'alice', 'dora'),
+                                   ('e', 'Santa', 'santa'), ('f', 'PM_ALEX', 'alex')):
+            proc = self.waiter(name, self.me, CLAUDE_SPEAK_VOICE=chosen)
+            self.assertTrue(self.until(lambda: self.started()[-1:] == [name]), name)
+            self.assertEqual(self.json()['playing']['voice'], told)
+            self.let_go(name)
+            self.assertEqual(proc.wait(timeout=5), 0)
 
     def test_the_folder_comes_from_the_session_file_when_the_environment_has_none(self):
         speak.set_session(self.me, dir='/home/x/outro')
@@ -2900,6 +2910,188 @@ class Size(unittest.TestCase):
         self.assertEqual(self.speak('say', '-', CLAUDE_SPEAK_MODE='summary').returncode, 0)
 
 
+class Speed(unittest.TestCase):
+    """`speak speed <n>`: how fast the voice speaks, as a multiple of the voice's own speed (1 is its normal)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.env = {'HOME': self.tmp.name, 'PATH': '/usr/bin:/bin', 'CLAUDE_SPEAK_SESSION': '-'}
+
+    def speak(self, *args, key='-', **env):
+        return subprocess.run([sys.executable, '-I', SPEAK, *args], capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                              env={**self.env, 'CLAUDE_SPEAK_SESSION': key, **env})
+
+    def saved(self):
+        with open(data_dir(self.tmp.name, 'config', 'speed')) as fh:
+            return fh.read().strip()
+
+    def test_default_is_the_normal_speed_of_the_voice(self):
+        out = self.speak('status').stdout
+        self.assertIn('  velocidade da fala: 1x\n', out)
+        self.assertIn('  voz: pf_dora, velocidade no motor 1.1\n', out)
+        data = json.loads(self.speak('status', '--json').stdout)
+        self.assertEqual((data['speed'], data['scope']['speed']), ('1', 'all'))
+
+    def test_the_choice_multiplies_the_speed_of_the_voice_in_force(self):
+        out = self.speak('speed', '0.9').stdout
+        self.assertIn('  velocidade da fala: 0,9x\n', out)
+        self.assertIn('velocidade no motor 0.99\n', out)
+        self.assertEqual(self.saved(), '0.9')
+        self.speak('voice', 'alex')  # the choice stays when the voice changes
+        self.assertIn('  voz: pm_alex, velocidade no motor 0.99\n', self.speak('status').stdout)
+        self.assertEqual(json.loads(self.speak('status', '--json').stdout)['speed'], '0.9')
+
+    def test_comma_dot_and_a_final_x_are_accepted(self):
+        for typed, shown, kept in (('0,75', '0,75x', '0.75'), ('1.25x', '1,25x', '1.25'), ('2X', '2x', '2'),
+                                   ('1,0', '1x', '1'), ('0.95', '0,95x', '0.95'), ('1.234', '1,23x', '1.23'),
+                                   ('0.5', '0,5x', '0.5'), ('.9', '0,9x', '0.9'), (',75x', '0,75x', '0.75')):
+            r = self.speak('speed', typed)
+            self.assertEqual(r.returncode, 0, typed)
+            self.assertIn('  velocidade da fala: %s\n' % shown, r.stdout)
+            self.assertEqual(self.saved(), kept)
+
+    def test_what_is_not_a_number_from_half_to_double_is_refused_and_nothing_is_saved(self):
+        for args in (('speed',), ('speed', 'rápido'), ('speed', '0.4'), ('speed', '0.499'), ('speed', '2.01'),
+                     ('speed', '0'), ('speed', '-1'), ('speed', '1', 'tudo'), ('speed', '1', 'x'),
+                     ('speed', '1.2.3'), ('speed', 'x'), ('speed', '1e0'), ('speed', 'all'), ('speed', '.'),
+                     ('speed', ','), ('speed', '1.'), ('speed', '.x'), ('speed', '.4')):
+            r = self.speak(*args)
+            self.assertEqual(r.returncode, 2, args)
+            self.assertIn('voz: use "speak speed', r.stderr)
+            self.assertIn('de 0,5 a 2', r.stderr)
+            self.assertEqual(r.stdout, '')
+        self.assertFalse(os.path.exists(data_dir(self.tmp.name, 'config', 'speed')))
+
+    def test_the_engine_never_gets_more_than_it_takes(self):
+        self.assertIn('velocidade no motor 2.0\n', self.speak('speed', '2').stdout)  # 2 x 1.1 would be 2.2
+        self.assertIn('velocidade no motor 0.55\n', self.speak('speed', '0.5').stdout)
+        isolate(self, self.tmp.name)
+        for chosen, own, engine in (('0.5', 0.95, 0.5), ('2', 1.1, 2.0), ('1', 0.95, 0.95), ('1.1', 1.1, 1.21),
+                                    ('0.9', 1.05, 0.945)):
+            with open(speak.SPEED_FILE, 'w') as fh:
+                fh.write(chosen + '\n')
+            with mock.patch.object(speak, 'recipe', return_value=((('pf_dora', 1.0),), own)):
+                self.assertEqual(speak.speed(), engine, (chosen, own))
+
+    def test_the_variable_is_the_speed_of_the_engine_and_beats_the_choice(self):
+        self.speak('speed', '0.75')
+        out = self.speak('status', CLAUDE_SPEAK_SPEED='1.3').stdout
+        self.assertIn('velocidade no motor 1.3\n', out)
+        self.assertIn('  velocidade da fala: 0,75x (CLAUDE_SPEAK_SPEED vale mais)\n', out)
+        out = self.speak('status', CLAUDE_SPEAK_SPEED='x').stdout  # not a number: ignored, the choice holds
+        self.assertIn('velocidade no motor 0.825\n', out)
+        self.assertNotIn('CLAUDE_SPEAK_SPEED', out)
+
+    def test_the_pane_is_told_when_the_variable_beats_the_choice(self):
+        self.speak('speed', '0.75')
+        data = json.loads(self.speak('status', '--json', CLAUDE_SPEAK_SPEED='1.3').stdout)
+        self.assertEqual((data['speed'], data['speedFixed']), ('0.75', '1.3'))  # the choice is kept, and does not hold
+        for env in ({}, {'CLAUDE_SPEAK_SPEED': 'x'}, {'CLAUDE_SPEAK_SPEED': ''}):
+            self.assertIsNone(json.loads(self.speak('status', '--json', **env).stdout)['speedFixed'], env)
+
+    def test_session_speed_stays_in_the_session_and_all_sets_every_one(self):
+        key = '%d-%s' % (os.getpid(), speak_stat_start())
+        folder = data_dir(self.tmp.name, 'state', 'sessions')
+        out = self.speak('speed', '1,25', key=key).stdout
+        self.assertIn('  velocidade da fala: 1,25x · só nesta sessão\n', out)
+        self.assertIn('velocidade no motor 1.375\n', out)
+        self.assertEqual(speak_read(folder, key)['speed'], '1.25')
+        self.assertFalse(os.path.exists(data_dir(self.tmp.name, 'config', 'speed')))
+        self.assertIn('  velocidade da fala: 1x\n', self.speak('status').stdout)  # out of the session: the general one
+        data = json.loads(self.speak('status', '--json', key=key).stdout)
+        self.assertEqual((data['speed'], data['scope']['speed']), ('1.25', 'session'))
+        out = self.speak('speed', '0.9', 'all', key=key).stdout
+        self.assertIn('  velocidade da fala: 0,9x\n', out)
+        self.assertNotIn('speed', speak_read(folder, key))  # removed, not copied
+        self.assertEqual(self.saved(), '0.9')
+        data = json.loads(self.speak('status', '--json', key=key).stdout)
+        self.assertEqual((data['speed'], data['scope']['speed']), ('0.9', 'all'))
+
+    def test_a_saved_value_that_is_not_a_speed_counts_as_normal(self):
+        os.makedirs(data_dir(self.tmp.name, 'config'))
+        for bad in ('rápido', '9', '', '0.1', '1 2'):
+            with open(data_dir(self.tmp.name, 'config', 'speed'), 'w') as fh:
+                fh.write(bad + '\n')
+            out = self.speak('status').stdout
+            self.assertIn('  velocidade da fala: 1x\n', out, bad)
+            self.assertIn('velocidade no motor 1.1\n', out, bad)
+        isolate(self, self.tmp.name)
+        os.makedirs(speak.SESSIONS)
+        for bad in ('x', '9', 9, 0.9, None, True, ['1']):
+            with open(os.path.join(speak.SESSIONS, 'k'), 'w') as fh:
+                fh.write(json.dumps({'mode': 'full', 'speed': bad}))
+            self.assertEqual(speak.read_session('k'), {'mode': 'full'}, bad)
+
+    def test_the_speech_is_made_at_the_speed_of_its_session(self):
+        import types
+        isolate(self, self.tmp.name)
+        me = speak.session_key(os.getpid())
+        os.makedirs(speak.CONF, exist_ok=True)
+        with open(speak.SPEED_FILE, 'w') as fh:
+            fh.write('2\n')  # the general choice, which the session's own beats
+        speak.set_session(me, speed='0.75')
+        seen = []
+
+        class Engine:
+            voices = {}
+
+            def __init__(self, *files):
+                pass
+
+            def create(self, piece, voice, speed, lang):
+                seen.append((voice, speed, lang))
+                return [0.0] * 8, speak.RATE
+
+        fake = types.ModuleType('kokoro_onnx')
+        fake.Kokoro = Engine
+        with mock.patch.dict(sys.modules, {'kokoro_onnx': fake}), \
+                mock.patch.dict(os.environ, {'CLAUDE_SPEAK_SESSION': me}), \
+                mock.patch.object(speak, 'wait_turn', return_value=True), \
+                mock.patch.object(speak, 'player_command', return_value=['tocador-de-teste']), \
+                mock.patch.object(speak.speak_os, 'streams', return_value=False), \
+                mock.patch.object(speak, 'play_files', side_effect=lambda command, chunks, watch, session=None:
+                                  len(list(chunks)) and 0) as played:
+            self.assertEqual(speak.play('Olá.'), 0)
+        self.assertEqual(seen, [('pf_dora', 0.825, 'pt-br')])
+        self.assertEqual(played.call_count, 1)
+
+    def test_the_speech_speaks_in_the_voice_and_speed_in_force_when_it_takes_its_turn(self):
+        """The voice the other sessions are told (speech_facts, written at the turn) is the one heard: a choice that
+        changes while the engine loads holds from the next speech on."""
+        import types
+        isolate(self, self.tmp.name)
+        os.makedirs(speak.CONF, exist_ok=True)
+        seen = []
+
+        class Engine:
+            voices = {}
+
+            def __init__(self, *files):  # the engine takes a moment to load: meanwhile the choices change
+                with open(speak.VOICE_FILE, 'w') as fh:
+                    fh.write('pm_alex\n')
+                with open(speak.SPEED_FILE, 'w') as fh:
+                    fh.write('2\n')
+
+            def create(self, piece, voice, speed, lang):
+                seen.append((voice, speed, lang))
+                return [0.0] * 8, speak.RATE
+
+        fake = types.ModuleType('kokoro_onnx')
+        fake.Kokoro = Engine
+        with mock.patch.dict(sys.modules, {'kokoro_onnx': fake}), \
+                mock.patch.dict(os.environ, {'CLAUDE_SPEAK_SESSION': '-'}), \
+                mock.patch.object(speak, 'wait_turn', return_value=True), \
+                mock.patch.object(speak, 'player_command', return_value=['tocador-de-teste']), \
+                mock.patch.object(speak.speak_os, 'streams', return_value=False), \
+                mock.patch.object(speak, 'play_files', side_effect=lambda command, chunks, watch, session=None:
+                                  len(list(chunks)) and 0):
+            self.assertEqual(speak.play('Olá.'), 0)
+            self.assertEqual(seen, [('pf_dora', 1.1, 'pt-br')])
+            self.assertEqual(speak.play('Olá.'), 0)  # the next speech has both
+        self.assertEqual(seen[1:], [('pm_alex', 2.0, 'pt-br')])
+
+
 class Voice(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -2935,45 +3127,60 @@ class Voice(unittest.TestCase):
         self.assertIn('voz: pm_alex', self.speak('status').stdout)
         self.assertIn('voz: pm_santa', self.speak('status', CLAUDE_SPEAK_VOICE='pm_santa').stdout)
 
-    def test_alice_is_listed_saved_and_shown_by_name(self):
-        out = self.speak('voice').stdout
-        self.assertRegex(out, r'(?m)^  alice \(alice, feminina\)')
-        self.assertIn('voz: alice', self.speak('voice', 'alice').stdout)
-        self.assertEqual(open(data_dir(self.tmp.name, 'config', 'voice')).read().strip(), 'alice')
-        self.assertRegex(self.speak('voice').stdout, r'(?m)^\* alice')
-        self.assertNotIn('[', self.speak('status').stdout.split('voz: alice')[1].splitlines()[0])
-        self.assertEqual(json.loads(self.speak('status', '--json').stdout)['voice'], 'alice')
+    def test_alice_left_and_who_had_chosen_her_hears_dora(self):
+        self.assertNotIn('alice', self.speak('voice').stdout)
+        r = self.speak('voice', 'alice')
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('voz: voz desconhecida; use uma de: dora, alex, santa\n', r.stderr)
+        self.assertFalse(os.path.exists(data_dir(self.tmp.name, 'config', 'voice')))
+        os.makedirs(data_dir(self.tmp.name, 'config'))
+        with open(data_dir(self.tmp.name, 'config', 'voice'), 'w') as fh:
+            fh.write('alice\n')  # saved by a version that had her
+        self.assertIn('  voz: pf_dora, velocidade no motor 1.1\n', self.speak('status').stdout)
+        self.assertRegex(self.speak('voice').stdout, r'(?m)^\* dora')
+        self.assertEqual(json.loads(self.speak('status', '--json').stdout)['voice'], 'dora')
+        self.assertIn('  voz: pf_dora, velocidade no motor 1.1\n', self.speak('status', CLAUDE_SPEAK_VOICE='Alice').stdout)
+        self.assertIn('voz: pm_alex', self.speak('voice', 'alex').stdout)  # and any other choice replaces it
+
+    # A voice made of two engine voices, with a speed of its own: no reading voice is like this today (Alice was),
+    # but the recipes still take it.
+    MIXED = {'full': 'suave', 'kind': 'feminina', 'mix': (('pf_dora', 0.6), ('af_heart', 0.4)), 'speed': 1.05}
 
     def test_old_saved_values_still_work(self):
         os.makedirs(os.path.dirname(data_dir(self.tmp.name, 'config', 'voice')))
         for full, short in (('pf_dora', 'dora'), ('pm_alex', 'alex'), ('pm_santa', 'santa')):
             with open(data_dir(self.tmp.name, 'config', 'voice'), 'w') as fh:
                 fh.write(full + '\n')
-            self.assertIn('voz: %s, velocidade 1.1' % full, self.speak('status').stdout)
+            self.assertIn('voz: %s, velocidade no motor 1.1' % full, self.speak('status').stdout)
             self.assertRegex(self.speak('voice').stdout, r'(?m)^\* ' + short)
 
     def test_default_speed_follows_the_voice_and_the_variable_wins(self):
-        self.assertIn('velocidade 1.1', self.speak('status').stdout)
-        self.speak('voice', 'alice')
-        self.assertIn('velocidade 1.05', self.speak('status').stdout)
-        self.assertIn('velocidade 1.3', self.speak('status', CLAUDE_SPEAK_SPEED='1.3').stdout)
-        self.assertIn('velocidade 1.05', self.speak('status', CLAUDE_SPEAK_SPEED='x').stdout)
-        self.assertIn('voz: pm_alex, velocidade 1.1', self.speak('status', CLAUDE_SPEAK_VOICE='pm_alex').stdout)
+        self.assertIn('velocidade no motor 1.1\n', self.speak('status').stdout)
+        self.assertIn('velocidade no motor 1.3\n', self.speak('status', CLAUDE_SPEAK_SPEED='1.3').stdout)
+        self.assertIn('velocidade no motor 1.1\n', self.speak('status', CLAUDE_SPEAK_SPEED='x').stdout)
+        self.assertIn('voz: pm_alex, velocidade no motor 1.1\n', self.speak('status', CLAUDE_SPEAK_VOICE='pm_alex').stdout)
+        isolate(self, self.tmp.name)
+        with mock.patch.dict(speak.READING_VOICES, {'suave': self.MIXED}), \
+                mock.patch.dict(os.environ, {'CLAUDE_SPEAK_VOICE': 'suave'}):
+            self.assertEqual(speak.speed(), 1.05)  # the speed of the voice itself
+            with mock.patch.dict(os.environ, {'CLAUDE_SPEAK_SPEED': '1.3'}):
+                self.assertEqual(speak.speed(), 1.3)
 
     def test_recipes(self):
-        self.assertEqual(speak.recipe('alice'), ((('pf_dora', 0.6), ('af_heart', 0.4)), 1.05))
         self.assertEqual(speak.recipe('pf_dora'), ((('pf_dora', 1.0),), 1.1))
         self.assertEqual(speak.recipe('pm_other'), ((('pm_other', 1.0),), 1.1))
+        with mock.patch.dict(speak.READING_VOICES, {'suave': self.MIXED}):
+            self.assertEqual(speak.recipe('suave'), ((('pf_dora', 0.6), ('af_heart', 0.4)), 1.05))
 
     @unittest.skipUnless(importlib.util.find_spec('numpy'), 'needs numpy')
-    def test_alice_style_is_the_weighted_sum_in_float32(self):
+    def test_the_style_of_a_mixed_voice_is_the_weighted_sum_in_float32(self):
         import numpy as np
         path = os.path.join(self.tmp.name, 'voices.bin')
         with open(path, 'wb') as fh:
             np.savez(fh, pf_dora=np.array([1.0, 2.0, 3.0], dtype='float32'),
                      af_heart=np.array([10.0, 20.0, 30.0], dtype='float32'))
         voices = np.load(path)
-        style = speak.voice_style(voices, speak.recipe('alice')[0])
+        style = speak.voice_style(voices, self.MIXED['mix'])
         self.assertEqual(style.dtype, np.float32)
         np.testing.assert_allclose(style, [4.6, 9.2, 13.8], rtol=1e-6)
         self.assertEqual(speak.voice_style(voices, speak.recipe('pf_dora')[0]), 'pf_dora')
@@ -3018,7 +3225,7 @@ class Rule(unittest.TestCase):
 
     def test_rule_names_the_commands(self):
         text = self.rule()
-        for name in ('on', 'off', 'quiet', 'mode', 'size', 'mic', 'voice', 'status', 'stop', 'install'):
+        for name in ('on', 'off', 'quiet', 'mode', 'size', 'mic', 'speed', 'voice', 'status', 'stop', 'install'):
             self.assertIn('`speak %s' % name, text)
         self.assertIn('`/speak`', text)
         self.assertNotIn('/speak:', text)
@@ -3860,7 +4067,7 @@ class Scope(unittest.TestCase):
     def test_status_json_scope(self):
         self.put(self.me, {'size': 'large'})
         data = json.loads(self.speak('status', '--json', session=self.me).stdout)
-        self.assertEqual(data['scope'], {'on': 'all', 'mode': 'all', 'size': 'session', 'mic': 'all'})
+        self.assertEqual(data['scope'], {'on': 'all', 'mode': 'all', 'size': 'session', 'mic': 'all', 'speed': 'all'})
         self.assertEqual(data['size'], 'large')
 
     def test_limpa_copias_antigas(self):
@@ -4014,7 +4221,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.21.2')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.22.0')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

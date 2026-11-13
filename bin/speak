@@ -17,11 +17,14 @@
                            people in the meeting hear it); auto: as play, and when the
                            microphone goes from busy to free (the meeting ends) the choice goes back to wait by itself,
                            in the scope where it was written
+  speak speed <n> [all]    how fast the voice speaks, as a multiple of the normal speed of the voice in force: a
+                           number from 0.5 to 2, with dot or comma and an optional final x (1: normal; 0.9: a bit
+                           slower; 1.25: faster); same scopes as `mode`; default 1; holds from the next speech on
   speak update             update this plugin: `claude plugin marketplace update` and `claude plugin update` (120 s each);
                            prints the version before and after, in Portuguese; the new version holds after
                            /reload-plugins or in a new session
   speak status --json      the same state as one JSON line (used by the /speak pane)
-  speak voice [name]       without a name: list the Portuguese voices (dora, alex, santa, alice) and mark the current one;
+  speak voice [name]       without a name: list the Portuguese voices (dora, alex, santa) and mark the current one;
                            with a name (short or full, e.g. dora or pf_dora): choose it for every session
   speak rule               print rules/speak.md with {line} replaced by the line of the mode and size in force
                            (`rule resumed`: a reopened conversation, nothing is recorded as told)
@@ -67,7 +70,8 @@ speeches waiting are kept and go on when the microphone is free. `speak off` in 
 Env: CLAUDE_SPEAK=0 silences one session (a first choice that a later `speak on` beats);
 CLAUDE_SPEAK_SESSION forces the session key ('-' means none; for tests and to force a key);
 CLAUDE_SPEAK_MODE overrides the mode; CLAUDE_SPEAK_SIZE the size; CLAUDE_SPEAK_MIC the microphone choice; CLAUDE_SPEAK_VOICE the voice (default pf_dora);
-CLAUDE_SPEAK_SPEED (default 1.1; 1.05 for alice).
+CLAUDE_SPEAK_SPEED the speed handed to the engine as it is, whatever `speak speed` says (without it: the speed of the
+voice, 1.1, times the `speak speed` choice, kept within the 0.5 to 2 the engine takes).
 Files live in the plugin's data folder (CLAUDE_SPEAK_DATA, else where the script is; see lib/speak_paths.py): engine/, config/, state/.
 Errors of a background speech go to state/error.log there. state/speech.json says what plays now and what is paused
 (the /speak module reads it without running a process); CLAUDE_SPEAK_CWD (set by the Stop hook) is the folder of the
@@ -118,14 +122,16 @@ SIZE_TEXT = {'small': 'one short sentence',
              'large': 'a spoken paragraph of four to six sentences: what was done, what was found, the result and '
                       'what the human must decide'}
 VOICE_FILE = os.path.join(CONF, 'voice')
+SPEED_FILE = os.path.join(CONF, 'speed')  # the general speed choice, as `speed_key` writes it
+SPEED_RANGE = (0.5, 2.0)  # of the speed choice and of what the engine takes
 DEFAULT_SPEED = 1.1
 READING_VOICES = {  # short name -> the name saved in VOICE_FILE, its kind, the recipe (engine voice, weight) and the default speed
     'dora': {'full': 'pf_dora', 'kind': 'feminina', 'mix': (('pf_dora', 1.0),), 'speed': DEFAULT_SPEED},
     'alex': {'full': 'pm_alex', 'kind': 'masculina', 'mix': (('pm_alex', 1.0),), 'speed': DEFAULT_SPEED},
     'santa': {'full': 'pm_santa', 'kind': 'masculina', 'mix': (('pm_santa', 1.0),), 'speed': DEFAULT_SPEED},
-    'alice': {'full': 'alice', 'kind': 'feminina', 'mix': (('pf_dora', 0.6), ('af_heart', 0.4)), 'speed': 1.05},
 }
 PT_VOICES = {short: (v['full'], v['kind']) for short, v in READING_VOICES.items()}
+RETIRED_VOICES = {'alice': 'pf_dora'}  # a voice that left the plugin -> the one a saved choice of it now means
 RULE = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'rules', 'speak.md')
 VENV_PY = os.path.join(DATA, '.venv', 'bin', 'python')
 MODEL = os.path.join(DATA, 'kokoro-v1.0.onnx')
@@ -149,7 +155,8 @@ MIC_WAIT_POLL = 1.0  # seconds between looks at the microphone while waiting a t
 
 
 def voice():
-    """CLAUDE_SPEAK_VOICE, then the general file, then pf_dora."""
+    """CLAUDE_SPEAK_VOICE, then the general file, then pf_dora. A voice that left the plugin (RETIRED_VOICES) counts
+    as the one that took its place, so a choice saved by an older version still speaks."""
     wanted = os.environ.get('CLAUDE_SPEAK_VOICE')
     if not wanted:
         try:
@@ -157,7 +164,16 @@ def voice():
                 wanted = fh.read().strip()
         except OSError:
             pass
-    return wanted or 'pf_dora'
+    return RETIRED_VOICES.get((wanted or '').strip().lower(), wanted) or 'pf_dora'
+
+
+def voice_short():
+    """The voice in force by the short name people know it by (`dora`), however it was spelled (`Dora`, `PF_DORA`:
+    the speech takes them too, see reading_voice); an engine voice that is not one of the reading voices goes as it
+    is."""
+    full = voice()
+    wanted = full.strip().lower()
+    return next((short for short, (name, _) in PT_VOICES.items() if wanted in (short, name)), full)
 
 
 def voice_name(wanted):
@@ -192,13 +208,57 @@ def voice_style(voices, mix):
     return sum(voices[name] * weight for name, weight in mix).astype('float32')
 
 
-def speed():
-    """CLAUDE_SPEAK_SPEED, then the default speed of the voice in force."""
-    default = recipe(voice())[1]
+def parse_speed(text):
+    """The speed choice in a text written as `1`, `0.9`, `0,9`, `.9` or `1.25x`: a number within SPEED_RANGE, rounded
+    to two decimal places; None for anything else."""
+    if not isinstance(text, str):
+        return None
+    match = re.fullmatch(r'(\d*)(?:[.,](\d+))?x?', text.strip().lower())
+    if not match or not (match.group(1) or match.group(2)):
+        return None
+    value = float('%s.%s' % (match.group(1) or '0', match.group(2) or '0'))
+    return round(value, 2) if SPEED_RANGE[0] <= value <= SPEED_RANGE[1] else None
+
+
+def speed_key(value):
+    """A speed choice as it is saved and handed to the /speak pane: `1`, `0.9`, `1.25`."""
+    return '%g' % value
+
+
+def speed_text(value):
+    """A speed choice as people read it: `1x`, `0,9x`, `1,25x`."""
+    return speed_key(value).replace('.', ',') + 'x'
+
+
+def speed_choice(session=None):
+    """How fast the voice speaks, as a multiple of the normal speed of the voice in force: the session's own choice,
+    then the general file, then 1 (the normal)."""
+    wanted = parse_speed(read_session(session).get('speed'))
+    if wanted is None:
+        try:
+            with open(SPEED_FILE) as fh:
+                wanted = parse_speed(fh.read())
+        except OSError:
+            pass
+    return 1.0 if wanted is None else wanted
+
+
+def fixed_speed():
+    """CLAUDE_SPEAK_SPEED as a number: the speed handed to the engine as it is; None when unset or not a number."""
     try:
-        return float(os.environ.get('CLAUDE_SPEAK_SPEED') or default)
+        return float(os.environ.get('CLAUDE_SPEAK_SPEED') or '')
     except ValueError:
-        return default
+        return None
+
+
+def speed(session=None):
+    """The speed handed to the engine: CLAUDE_SPEAK_SPEED, else the default speed of the voice in force times the
+    speed choice, kept within what the engine takes."""
+    fixed = fixed_speed()
+    if fixed is not None:
+        return fixed
+    low, high = SPEED_RANGE
+    return min(high, max(low, round(recipe(voice())[1] * speed_choice(session), 3)))
 
 
 def mode(session=None):
@@ -317,8 +377,8 @@ def session_alive(key):
 
 
 def read_session(key):
-    """The fields of a session file: {'voice': 'muted'|'speaking'|'quiet', 'mode': 'full'|'summary', 'size': 'small'|'medium'|'large'}, each optional.
-    A bare `muted` or `speaking` (a file of the first format) counts as the voice."""
+    """The fields of a session file: {'voice': 'muted'|'speaking'|'quiet', 'mode': 'full'|'summary', 'size': 'small'|'medium'|'large',
+    'speed': a speed choice as text}, each optional. A bare `muted` or `speaking` (a file of the first format) counts as the voice."""
     if not key:
         return {}
     try:
@@ -335,7 +395,7 @@ def read_session(key):
     return {k: v for k, v in data.items() if (k == 'voice' and v in ('muted', 'speaking', 'quiet'))
             or (k == 'mode' and v in MODES) or (k == 'size' and v in SIZES)
             or (k == 'told' and (v in MODES or v == 'silent')) or (k == 'mic' and v in MICS) or (k == 'micseen' and v is True)
-            or (k == 'dir' and isinstance(v, str) and v)}
+            or (k == 'speed' and parse_speed(v) is not None) or (k == 'dir' and isinstance(v, str) and v)}
 
 
 def session_mode(key):
@@ -370,8 +430,8 @@ def asked_after_start(key):
 
 
 def set_session(key, **fields):
-    """Updates only the given fields (voice=, mode=, size=, mic=, dir=) of a session file, keeping the others; a field
-    given as None is removed."""
+    """Updates only the given fields (voice=, mode=, size=, mic=, speed=, dir=) of a session file, keeping the others; a
+    field given as None is removed."""
     os.makedirs(SESSIONS, exist_ok=True)
     prune_sessions()
     merged = {**read_session(key), **fields}
@@ -379,7 +439,7 @@ def set_session(key, **fields):
 
 
 def clear_all_sessions(*fields):
-    """Removes the given fields (voice, mode, size, mic) from every session file, keeping the file (even empty):
+    """Removes the given fields (voice, mode, size, mic, speed) from every session file, keeping the file (even empty):
     an empty file means the session follows the general setting in everything."""
     prune_sessions()
     for key in os.listdir(SESSIONS) if os.path.isdir(SESSIONS) else ():
@@ -761,11 +821,12 @@ def write_now(playing, paused):
 
 
 def speech_facts(session, pid=None):
-    """What the other sessions are told about a speech: its pid, session key ('' = none), the folder of that session
-    and the mode it reads in ('' = unknown)."""
+    """What the other sessions are told about a speech: its pid, session key ('' = none), the folder of that session,
+    the mode it reads in ('' = unknown) and the voice that reads it, by its short name."""
     folder = os.environ.get('CLAUDE_SPEAK_DIR') or read_session(session).get('dir') or ''
     how = os.environ.get('CLAUDE_SPEAK_HOW')
-    return {'pid': pid or os.getpid(), 'session': session or '', 'dir': folder, 'how': how if how in MODES else ''}
+    return {'pid': pid or os.getpid(), 'session': session or '', 'dir': folder, 'how': how if how in MODES else '',
+            'voice': voice_short()}
 
 
 def is_helper(pid):
@@ -1537,15 +1598,17 @@ def play(text):
         if not wait_turn(session, watch) or not (is_on(session) or os.environ.get('CLAUDE_SPEAK_TEST')
                                                  or os.environ.get('CLAUDE_SPEAK_AGAIN')):
             return 0
+        # The voice and the speed of this speech are the ones in force now, as it takes its turn: the voice was just
+        # told to the other sessions (speech_facts), so a choice made while the engine loads holds from the next one.
+        mix = recipe(voice())[0]
+        rate = speed(session)
         from kokoro_onnx import Kokoro
         player = player_command()
         if player is None:
             print('voz: nenhum tocador de áudio (%s)' % speak_os.player_names(), file=sys.stderr)
             return 1
         kokoro = Kokoro(MODEL, VOICES)
-
-        style = voice_style(kokoro.voices, recipe(voice())[0])
-        rate = speed()
+        style = voice_style(kokoro.voices, mix)
 
         def synth(piece):
             return kokoro.create(piece, voice=style, speed=rate, lang='pt-br')[0]
@@ -1946,8 +2009,10 @@ def status():
     print('  modo: %s%s' % (mode(session), here if own_field(session, 'mode') else ''))
     print('  tamanho do resumo: %s%s' % (summary_size(session), here if own_field(session, 'size') else ''))
     print('  microfone em uso: %s%s' % (MIC_TEXT[mic(session)], here if own_field(session, 'mic') else ''))
+    print('  velocidade da fala: %s%s%s' % (speed_text(speed_choice(session)), here if own_field(session, 'speed') else '',
+                                              '' if fixed_speed() is None else ' (CLAUDE_SPEAK_SPEED vale mais)'))
     print('  motor: %s' % engine_text())
-    print('  voz: %s, velocidade %s' % (voice(), speed()))
+    print('  voz: %s, velocidade no motor %s' % (voice(), speed(session)))
     now = sweep_now()
     if now['playing']:
         print('  fala: tocando agora (%s)' % speech_text(now['playing'], session))
@@ -2074,15 +2139,18 @@ def silent_reason():
 def status_json():
     """The state in force here as one JSON line, for the /speak pane (hooks/register.tsx) to mark what is current."""
     session = current_session()
-    now = voice()
     heard = sweep_now()
+    fixed = fixed_speed()  # CLAUDE_SPEAK_SPEED in force: the pane says that the speed choice does not hold
     print(json.dumps({'version': plugin_version(), 'session': session, 'stateDir': STATE,
                       'speaking': heard['playing'], 'paused': heard['paused'], 'on': is_on(session), 'power': power(session), 'mode': mode(session), 'size': summary_size(session), 'mic': mic(session),
+                      'speed': speed_key(speed_choice(session)),
+                      'speedFixed': None if fixed is None else speed_key(fixed),
                       'scope': {f: 'session' if own_field(session, g) else 'all'
-                                for f, g in (('on', 'voice'), ('mode', 'mode'), ('size', 'size'), ('mic', 'mic'))},
+                                for f, g in (('on', 'voice'), ('mode', 'mode'), ('size', 'size'), ('mic', 'mic'),
+                                             ('speed', 'speed'))},
                       'engine': engine_ready(), 'installing': not engine_ready() and installing(),
                       'install': None if engine_ready() else install_progress(),
-                      'voice': next((short for short, (full, _) in PT_VOICES.items() if full == now), now)}))
+                      'voice': voice_short()}))
     return 0
 
 
@@ -2190,6 +2258,22 @@ def main(argv):
                 pass
         if wanted == 'auto':
             track_mic(session, current_recordings())  # chosen in the middle of the meeting: it counts as seen
+        return status()
+    if cmd == 'speed':
+        wanted, _, scope = text.partition(' ')
+        value = parse_speed(wanted)
+        if value is None or scope not in ('', 'all'):
+            print('voz: use "speak speed" com um número de 0,5 a 2: 1 é a velocidade normal da voz, 0,9 um pouco mais '
+                  'devagar, 1,25 mais rápido (com "all" no fim, vale para todas as sessões)', file=sys.stderr)
+            return 2
+        session = current_session()
+        if session and not scope:
+            set_session(session, speed=speed_key(value))
+        else:
+            os.makedirs(CONF, exist_ok=True)
+            with open(SPEED_FILE, 'w') as fh:
+                fh.write(speed_key(value) + '\n')
+            clear_all_sessions('speed')
         return status()
     if cmd == '_mictick':  # used by hooks/speak-cut.py at each new message: the meeting may have ended
         if mic(current_session()) == 'auto':

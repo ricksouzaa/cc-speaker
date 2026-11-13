@@ -11,26 +11,43 @@ type Engine = EngineInterface
 type Reply = { text?: string }
 type State = {
   version?: string
-  on: boolean; power?: string; mode: string; size: string; mic?: string; voice: string; engine: boolean
-  scope?: { on?: string; mode?: string; size?: string; mic?: string }
+  on: boolean; power?: string; mode: string; size: string; mic?: string; speed?: string; voice: string; engine: boolean
+  // A velocidade que a variável CLAUDE_SPEAK_SPEED entrega ao motor, quando ela está definida: a escolha não vale.
+  speedFixed?: string | null
+  scope?: { on?: string; mode?: string; size?: string; mic?: string; speed?: string }
   installing?: boolean
   install?: { fase?: string; arquivo?: string; feito?: number; total?: number } | null
   session?: string | null; stateDir?: string
   speaking?: Speech | null; paused?: Speech[]
 }
-// Uma fala, como o speak a anota em state/speech.json: a sessão dona, a pasta dela e o modo (summary ou full).
-type Speech = { pid: number; session: string; dir: string; how: string; waiting?: number }
+// Uma fala, como o speak a anota em state/speech.json: a sessão dona, a pasta dela, o modo (summary ou full) e a voz
+// que a lê, pelo nome curto (dora); a fala de uma versão anterior à 0.22.0 vem sem a voz.
+type Speech = { pid: number; session: string; dir: string; how: string; voice?: string; waiting?: number }
 type Heard = { playing: Speech | null; paused: Speech[] }
 
 const MODES: Record<string, string> = { full: 'Resposta inteira', summary: 'Só o resumo' }
 const SIZES: Record<string, string> = { small: 'Pequeno', medium: 'Médio', large: 'Grande' }
 const MICS: Record<string, string> = { wait: 'Espera', play: 'Toca', auto: 'Toca nesta reunião' }
-const VOICES: Record<string, string> = { dora: 'Dora (feminina)', alex: 'Alex (masculina)', santa: 'Santa (masculina)', alice: 'Alice (feminina)' }
-const READERS: Record<string, string> = { dora: 'Dora', alex: 'Alex', santa: 'Santa', alice: 'Alice' }
+const VOICES: Record<string, string> = { dora: 'Dora (feminina)', alex: 'Alex (masculina)', santa: 'Santa (masculina)' }
+const READERS: Record<string, string> = { dora: 'Dora', alex: 'Alex', santa: 'Santa' }
 const POWER: Record<string, string> = { on: 'Ligada', quiet: 'Só o resumo escrito', off: 'Desligada' }
+// A velocidade da fala é um número de 0,5 a 2 que multiplica a velocidade normal da voz (1 é o normal). O painel
+// oferece estes passos; escrita (/speak speed 0,95), vale qualquer número da faixa, que o speak confere.
+const SPEED_STEPS = ['0.5', '0.75', '0.9', '1', '1.1', '1.25', '1.5', '1.75', '2']
+const isSpeed = (v: string) => /^\d+(\.\d+)?$/.test(v)
+// O que a pessoa escreveu (0,9 · 1.25x · ,9) no jeito que o speak guarda (0.9 · 1.25 · 0.9).
+const speedValue = (typed: string) => typed.toLowerCase().replace(',', '.').replace(/x$/, '').replace(/^\./, '0.')
+const speedLabel = (v: string) => v.replace('.', ',') + 'x'
+const SPEED_FIXED_WARNING = 'A variável CLAUDE_SPEAK_SPEED está definida e vale mais: a velocidade escolhida aqui só vale sem ela.'
+// Os passos e, fora deles, a velocidade em vigor (escrita com outro número), em ordem crescente.
+const speedOptions = (now: State | undefined) =>
+  [...new Set([...SPEED_STEPS, ...(now?.speed && isSpeed(now.speed) ? [now.speed] : [])])]
+    .sort((a, b) => Number(a) - Number(b))
+    .map(v => ({ value: v, label: speedLabel(v) + (v === '1' ? ' (normal)' : '') }))
 const USAGE =
   'Escreva a ação: /speak on, /speak quiet, /speak off, /speak mode full|summary, /speak size small|medium|large, /speak mic wait|play|auto, ' +
-  '/speak voice dora|alex|santa|alice, /speak again [summary|full], /speak pause, /speak resume, /speak status, /speak stop, ' +
+  '/speak speed <número de 0,5 a 2; 1 é o normal>, ' +
+  '/speak voice dora|alex|santa, /speak again [summary|full], /speak pause, /speak resume, /speak status, /speak stop, ' +
   '/speak install, /speak update ' +
   '(com "all" no fim, vale para todas as sessões).'
 const where = (all: boolean) => (all ? 'em todas as sessões' : 'nesta sessão')
@@ -210,12 +227,20 @@ let shownSpeech: string | undefined // a última linha de status do aviso de fal
 
 const folderOf = (x: Speech) => (x.dir || '').replace(/\/+$/, '').split('/').pop() || ''
 const mine = (x: Speech | null | undefined) => !!x && !!me && x.session === me
+// O nome da voz que lê a fala (Dora), quando é uma das vozes de leitura; senão, nada.
+const readerOf = (x: Speech) =>
+  typeof x.voice === 'string' && Object.prototype.hasOwnProperty.call(READERS, x.voice) ? READERS[x.voice]! : ''
 
+// Com a voz conhecida, a linha diz quem fala ("Alex falando agora", "Dora falando em <pasta>"); sem ela (a fala de
+// uma versão antiga, ou uma voz do motor que não é das de leitura), fica o aviso sem nome.
 function speechLine(h: Heard): string | undefined {
   const ownPaused = h.paused.some(mine)
   if (h.playing) {
-    if (mine(h.playing)) return '🔊 falando agora'
-    const other = folderOf(h.playing) ? `🔊 falando: ${folderOf(h.playing)}` : '🔊 outra sessão está falando'
+    const reader = readerOf(h.playing)
+    const folder = folderOf(h.playing)
+    if (mine(h.playing)) return reader ? `🔊 ${reader} falando agora` : '🔊 falando agora'
+    const other = reader ? `🔊 ${reader} falando em ${folder || 'outra sessão'}`
+      : folder ? `🔊 falando: ${folder}` : '🔊 outra sessão está falando'
     return ownPaused ? `${other} · ⏸ sua fala pausada` : other
   }
   return ownPaused ? '⏸ fala pausada' : undefined
@@ -358,12 +383,23 @@ function said(args: string[], after: State | undefined): string {
         : value === 'play'
           ? `A voz passa a tocar mesmo com o microfone em uso ${where(all)}, até você mudar.`
           : `A voz passa a tocar mesmo com o microfone em uso ${where(all)}, e volta a esperar quando o microfone ficar livre.`
+    case 'speed': {
+      const now = after?.speed ?? value ?? ''
+      // Com a variável definida a escolha fica guardada, mas o motor segue no número da variável: dizer "passa a
+      // falar" seria mentira.
+      if (after?.speedFixed) {
+        return `A velocidade ${speedLabel(now)} ficou guardada ${where(all)}, mas ainda não vale: a variável CLAUDE_SPEAK_SPEED está definida e vale mais que a escolha.`
+      }
+      return now === '1'
+        ? `A voz passa a falar na velocidade normal (1x) ${where(all)}, a partir da próxima fala.`
+        : `A voz passa a falar a ${speedLabel(now)} ${where(all)}, a partir da próxima fala.`
+    }
     case 'voice': return `A voz agora é a ${cap(after?.voice ?? value ?? '')}, em todas as sessões.`
     default: return 'Pronto.'
   }
 }
 
-// Roda uma mudança (on, off, mode, size, voice) e devolve a frase, ou a mensagem de erro do speak.
+// Roda uma mudança (on, off, mode, size, mic, speed, voice) e devolve a frase, ou a mensagem de erro do speak.
 // Lê o estado uma vez, depois da mudança, e o devolve para quem quiser redesenhar.
 async function change($: Engine, args: string[]): Promise<{ ok: boolean; text: string; after: State | undefined }> {
   const r = await run($, args)
@@ -388,6 +424,12 @@ async function direct($: Engine, body: string[], all: boolean): Promise<Reply | 
       return value ? runChoice($, 'size', value, SIZES, tail) : undefined
     case 'mic':
       return value ? runChoice($, 'mic', value, MICS, tail) : undefined
+    case 'speed': {
+      // Só um número chega ao speak, que confere a faixa e explica o erro.
+      if (!value) return undefined
+      const wanted = speedValue(value)
+      return isSpeed(wanted) ? { text: (await change($, ['speed', wanted, ...tail])).text } : { text: USAGE }
+    }
     case 'voice':
       if (all) return { text: USAGE }
       return value ? runChoice($, 'voice', value, VOICES, []) : undefined
@@ -453,14 +495,28 @@ const UNREAD = 'Não deu para ler o estado da voz.'
 const AGAIN_LABEL = 'Ouvir de novo'
 const AGAINS: Record<string, string> = { summary: 'Resumo', full: 'Resposta inteira' }
 
-type Key = 'where' | 'power' | 'mode' | 'size' | 'voice' | 'mic'
-const ROWS: { key: Key; label: string; table: Record<string, string>; current: (s: State) => string; own: (s: State) => boolean }[] = [
-  { key: 'where', label: 'Mudar em', table: WHERES, current: () => '', own: () => false },
-  { key: 'power', label: 'Voz', table: POWER, current: s => s.power ?? (s.on ? 'on' : 'off'), own: s => s.scope?.on === 'session' },
-  { key: 'mode', label: 'Leitura', table: MODES, current: s => s.mode, own: s => s.scope?.mode === 'session' },
-  { key: 'size', label: 'Tamanho do resumo', table: SIZES, current: s => s.size, own: s => s.scope?.size === 'session' },
-  { key: 'voice', label: 'Voz de leitura', table: READERS, current: s => s.voice, own: () => false },
-  { key: 'mic', label: 'Com o microfone em uso', table: MICS, current: s => s.mic ?? 'wait', own: s => s.scope?.mic === 'session' },
+type Key = 'where' | 'power' | 'mode' | 'size' | 'voice' | 'speed' | 'mic'
+type Option = { value: string; label: string }
+// Uma linha do painel: os valores que ela oferece (na ordem em que aparecem), os que ela aceita, o valor em vigor e
+// se ele é só desta sessão.
+type Row = {
+  key: Key; label: string
+  options: (now: State | undefined) => Option[]; accepts: (value: string) => boolean
+  current: (s: State) => string; own: (s: State) => boolean
+}
+// A linha cujos valores são os de uma tabela fixa (valor -> rótulo).
+const fromTable = (table: Record<string, string>) => ({
+  options: (): Option[] => Object.keys(table).map(v => ({ value: v, label: table[v]! })),
+  accepts: (value: string) => value in table,
+})
+const ROWS: Row[] = [
+  { key: 'where', label: 'Mudar em', ...fromTable(WHERES), current: () => '', own: () => false },
+  { key: 'power', label: 'Voz', ...fromTable(POWER), current: s => s.power ?? (s.on ? 'on' : 'off'), own: s => s.scope?.on === 'session' },
+  { key: 'mode', label: 'Leitura', ...fromTable(MODES), current: s => s.mode, own: s => s.scope?.mode === 'session' },
+  { key: 'size', label: 'Tamanho do resumo', ...fromTable(SIZES), current: s => s.size, own: s => s.scope?.size === 'session' },
+  { key: 'voice', label: 'Voz de leitura', ...fromTable(READERS), current: s => s.voice, own: () => false },
+  { key: 'speed', label: 'Velocidade da fala', options: speedOptions, accepts: isSpeed, current: s => s.speed ?? '1', own: s => s.scope?.speed === 'session' },
+  { key: 'mic', label: 'Com o microfone em uso', ...fromTable(MICS), current: s => s.mic ?? 'wait', own: s => s.scope?.mic === 'session' },
 ]
 // A linha do tamanho só aparece com a leitura em "só o resumo": na resposta inteira o tamanho não é usado. Vale o
 // valor que a linha Leitura mostra (o do alcance de "Mudar em"); sem estado lido, todas as linhas aparecem.
@@ -479,7 +535,7 @@ const enqueue = (job: () => Promise<void>): Promise<unknown> => (queue = queue.t
 // as sessões, menos a voz de leitura, que é sempre geral) e guarda a frase, ou o erro, para o rodapé.
 async function menuChange($: Engine, key: Key, value: string): Promise<void> {
   const row = ROWS.find(r => r.key === key)
-  if (!row || !(value in row.table)) return
+  if (!row || !row.accepts(value)) return
   if (row.key === 'where') {
     await $.state.set(STATE, value as 'all' | 'session')
     await $.state.set(NOTE, '')
@@ -523,7 +579,7 @@ function drawMenu(el: any, m: Menu) {
           <Select
             key={r.key}
             label={r.label.padEnd(width) + (own ? OWN + ' ' : '')}
-            options={Object.keys(r.table).map(v => ({ value: v, label: r.table[v]! }))}
+            options={r.options(m.now)}
             value={value || undefined}
             autoFocus={r.key === m.first ? true : undefined}
             onSelect={(v: string) => m.choose(r.key, v)}
@@ -540,6 +596,7 @@ function drawMenu(el: any, m: Menu) {
       </Box>
       <Button key="fechar" label="Fechar" onPress={m.close} />
       {m.now && (m.now.mic === 'play' || m.now.mic === 'auto') ? <Text dimColor>{MIC_WARNING}</Text> : null}
+      {m.now?.speedFixed ? <Text dimColor>{SPEED_FIXED_WARNING}</Text> : null}
       <Text dimColor>{m.note || (isInstalling(m.install) ? installLine(m.install) : m.now ? HELP + (m.now.version ? ` · versão ${m.now.version}` : '') : UNREAD)}</Text>
     </Box>
   )
@@ -632,8 +689,8 @@ export const register: Register = on => {
     await lookDraw($, e.surface ?? '')
     await $.command.register({
       name: 'speak',
-      description: 'Ajusta a voz que lê as respostas: ligar, modo, tamanho, microfone, voz; ouve de novo, pausa e continua a fala',
-      argumentHint: '[on|quiet|off|mode|size|mic|voice|again|pause|resume|status|stop|install|update] [all]',
+      description: 'Ajusta a voz que lê as respostas: ligar, modo, tamanho, microfone, voz, velocidade; ouve de novo, pausa e continua a fala',
+      argumentHint: '[on|quiet|off|mode|size|mic|voice|speed|again|pause|resume|status|stop|install|update] [all]',
       immediate: true,
     })
     void kick($) // em segundo plano: não atrasa o registro da sessão
