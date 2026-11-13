@@ -54,9 +54,12 @@ class SpeechNoise(unittest.TestCase):
         for path in (state, os.path.join(state, 'queue'), os.path.join(state, 'queue', '1-2'),
                      os.path.join(state, 'queue.lock'), os.path.join(state, 'speech.owner'),
                      os.path.join(state, 'sessions', 'k'), os.path.join(state, 'error.log'),
+                     os.path.join(state, 'soft-4321'),  # the marker of a speech that pauses itself (speak.soft_marker)
                      old, os.path.join(old, 'queue'), os.path.join(old, 'speech.pid')):
             self.assertTrue(isolation.is_speech_noise(path), path)
         for path in (os.path.join(state, 'install.lock'), os.path.join(state, 'all'),
+                     os.path.join(state, 'soft-x'), os.path.join(state, 'soft-12.tmp'), os.path.join(state, 'soft-12', 'x'),
+                     os.path.join(self.HOME, '.claude', 'plugins', 'data', 'speak-cc-speaker', 'config', 'soft-12'),
                      os.path.join(self.HOME, '.claude', 'plugins', 'data', 'speak-cc-speaker', 'engine', 'queue'),
                      os.path.join(self.HOME, '.config', 'claude-speak', 'mode'),
                      os.path.join(old, 'install.progress')):
@@ -219,6 +222,169 @@ class LiveLast(unittest.TestCase):
         open(os.path.join(state, 'install.lock'), 'w').close()
         with self.assertRaises(AssertionError):  # anything else is still reported
             isolation.assert_untouched(Case(), speech_after=set(), speech_before=set(), speech_seen=set(), claude_pids={300})
+
+    def test_a_gravacao_real_do_last_passa_pela_pasta_state_e_so_ela_e_perdoada(self):
+        # The real hook saves the last reply through a temporary file in `state`, then moves it into `state/last`
+        # (speak.write_atomic): the `state` folder itself changes too. It is forgiven only with that saved reply.
+        class Case(unittest.TestCase):
+            def runTest(self):
+                pass
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = os.path.join(tmp.name, 'speak-cc-speaker')
+        state = os.path.join(root, 'state')
+        os.makedirs(os.path.join(state, 'last'))
+        saved = dict(isolation.BEFORE), isolation.ROOTS
+        self.addCleanup(lambda: (isolation.BEFORE.clear(), isolation.BEFORE.update(saved[0]),
+                                 setattr(isolation, 'ROOTS', saved[1])))
+        isolation.BEFORE.clear()
+        isolation.ROOTS = [root]
+        isolation.BEFORE.update(isolation.snapshot([root]))
+        later = os.stat(state).st_mtime + 5  # a change the snapshot surely sees, whatever the clock's grain
+
+        def check(pids, own=frozenset(), seen=frozenset()):
+            isolation.assert_untouched(Case(), speech_after=set(), speech_before=set(), speech_seen=set(seen),
+                                       claude_pids=pids, own_pids=own)
+
+        os.utime(state, (later, later))
+        with self.assertRaises(AssertionError):  # `state` alone changed: no saved reply explains it
+            check({300})
+        with open(os.path.join(state, '.tmp-300-ab12'), 'w') as fh:
+            fh.write('x')
+        os.replace(os.path.join(state, '.tmp-300-ab12'), os.path.join(state, 'last', '300-5555'))
+        os.utime(state, (later, later))
+        check({300})
+        with self.assertRaises(AssertionError):  # the same change, with no such live session
+            check({999})
+        # The session that launched the battery: a child `speak say -` with no forced session finds that key by
+        # itself, so its last reply is what a leak of the battery would write (and "Ouvir de novo" there would then
+        # repeat the text of a test). It is reported, whoever else is alive, and even while a real speech plays.
+        with self.assertRaises(AssertionError):
+            check({300}, own={300})
+        with self.assertRaises(AssertionError):
+            check({300, 301}, own={300})
+        with self.assertRaises(AssertionError) as caught:
+            check({300, 301}, own={300}, seen={7})
+        self.assertIn(os.path.join(state, 'last', '300-5555'), str(caught.exception))
+        check({300, 301}, own={301})  # the file of another live session is still noise
+        open(os.path.join(state, 'install.lock'), 'w').close()
+        with self.assertRaises(AssertionError):  # anything else is still reported
+            check({300})
+
+    def test_escolhas_de_sessao_real_viva_sao_ruido_so_elas(self):
+        sessions = os.path.join(self.STATE, 'sessions')
+        for path in (sessions, os.path.join(sessions, '300-5555'), os.path.join(sessions, '301-9')):
+            self.assertTrue(isolation.is_live_session(path, {300, 301}), path)
+        for path in (os.path.join(sessions, '302-5'), os.path.join(sessions, '300-5555.tmp'), os.path.join(sessions, 'x'),
+                     os.path.join(sessions, '300-5555', 'mais'), os.path.join(self.STATE, 'last', '300-5555'),
+                     os.path.join(self.STATE, 'all')):
+            self.assertFalse(isolation.is_live_session(path, {300, 301}), path)
+        self.assertFalse(isolation.is_live_session(sessions, set()))  # no live session: the folder is reported too
+
+    def test_a_gravacao_real_das_escolhas_da_sessao_passa_pela_pasta_state_e_so_ela_e_perdoada(self):
+        # The hooks of a live session write its own file in `state/sessions` with no speech at all: `speak rule` at the
+        # start of a conversation and after a compaction, `speak told` at a new message. The file goes through a
+        # temporary one in `state` (speak.write_atomic), so `state`, `state/sessions` and the file change together.
+        class Case(unittest.TestCase):
+            def runTest(self):
+                pass
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = os.path.join(tmp.name, 'speak-cc-speaker')
+        state = os.path.join(root, 'state')
+        sessions = os.path.join(state, 'sessions')
+        os.makedirs(sessions)
+        for key in ('300-5555', '302-7'):  # both were there before the battery
+            with open(os.path.join(sessions, key), 'w') as fh:
+                fh.write('{}')
+        saved = dict(isolation.BEFORE), isolation.ROOTS
+        self.addCleanup(lambda: (isolation.BEFORE.clear(), isolation.BEFORE.update(saved[0]),
+                                 setattr(isolation, 'ROOTS', saved[1])))
+        isolation.BEFORE.clear()
+        isolation.ROOTS = [root]
+        isolation.BEFORE.update(isolation.snapshot([root]))
+        later = os.stat(state).st_mtime + 5  # a change the snapshot surely sees, whatever the clock's grain
+
+        def check(pids, own=frozenset()):
+            isolation.assert_untouched(Case(), speech_after=set(), speech_before=set(), speech_seen=set(),
+                                       claude_pids=pids, own_pids=own)
+
+        def write(key):
+            with open(os.path.join(state, '.tmp-300-ab12'), 'w') as fh:
+                fh.write('{"told": "summary"}')
+            os.replace(os.path.join(state, '.tmp-300-ab12'), os.path.join(sessions, key))
+            for folder in (state, sessions):
+                os.utime(folder, (later, later))
+
+        for folder in (state, sessions):
+            os.utime(folder, (later, later))
+        with self.assertRaises(AssertionError):  # the folders alone changed: no session file explains `state`
+            check({300})
+        write('300-5555')
+        check({300})
+        with self.assertRaises(AssertionError):  # the same change, with no such live session
+            check({999})
+        # The session that launched the battery: a child `speak` with no forced session finds that key by itself, so
+        # its file is what a leak of the battery would write. It is reported, whoever else is alive.
+        with self.assertRaises(AssertionError):
+            check({300}, own={300})
+        with self.assertRaises(AssertionError):
+            check({300, 301}, own={300})
+        write('302-7')
+        with self.assertRaises(AssertionError):  # the file of a session that is not a live Claude Code is reported
+            check({300})
+        check({300, 302})
+        open(os.path.join(state, 'all'), 'w').close()
+        with self.assertRaises(AssertionError):  # anything else is still reported
+            check({300, 302})
+
+    def test_o_claude_que_lancou_a_bateria_e_o_que_esta_acima_dela(self):
+        procs = self.PROCS + [(400, 300, ['zsh', '-c', 'python3 -m unittest']), (401, 400, ['python3', '-m', 'unittest']),
+                              (500, 301, ['python3', '-m', 'unittest'])]
+        self.assertEqual(isolation.own_claude_pids(procs, me=401), {300})
+        self.assertEqual(isolation.own_claude_pids(procs, me=500), {301})  # a node install: `claude` is the script
+        self.assertEqual(isolation.own_claude_pids(procs, me=100), set())  # started from a plain terminal
+        self.assertEqual(isolation.own_claude_pids(procs, me=101), set())  # the battery's own child is not above it
+
+    def test_a_pasta_state_so_e_perdoada_pela_gravacao_feita_dentro_dela(self):
+        # Two state folders (the data root's and the former one): a live session's file written in the first does not
+        # explain a change of the second, and a file that only went away explains no change of `state` at all.
+        class Case(unittest.TestCase):
+            def runTest(self):
+                pass
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = os.path.join(tmp.name, 'speak-cc-speaker')
+        state = os.path.join(root, 'state')
+        old = os.path.join(tmp.name, 'state', 'claude-speak')
+        os.makedirs(os.path.join(state, 'last'))
+        os.makedirs(old)
+        with open(os.path.join(state, 'last', '300-5555'), 'w') as fh:
+            fh.write('x')
+        saved = dict(isolation.BEFORE), isolation.ROOTS
+        self.addCleanup(lambda: (isolation.BEFORE.clear(), isolation.BEFORE.update(saved[0]),
+                                 setattr(isolation, 'ROOTS', saved[1])))
+        isolation.BEFORE.clear()
+        isolation.ROOTS = [root, old]
+        isolation.BEFORE.update(isolation.snapshot([root, old]))
+        later = os.stat(state).st_mtime + 5
+
+        def check():
+            isolation.assert_untouched(Case(), speech_after=set(), speech_before=set(), speech_seen=set(),
+                                       claude_pids={300}, own_pids=set())
+
+        with open(os.path.join(state, 'last', '300-5555'), 'w') as fh:
+            fh.write('outra resposta')
+        os.utime(state, (later, later))
+        check()  # the reply saved in this `state` explains its change
+        os.utime(old, (later, later))
+        with self.assertRaises(AssertionError):  # but not the change of the other state folder
+            check()
+        os.utime(old, ns=(isolation.BEFORE[old][0], isolation.BEFORE[old][0]))
+        check()
+        os.remove(os.path.join(state, 'last', '300-5555'))
+        with self.assertRaises(AssertionError):  # the reply went away, nothing was written: `state` is reported
+            check()
 
 
 class RealRoots(unittest.TestCase):

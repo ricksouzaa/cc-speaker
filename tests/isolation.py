@@ -68,19 +68,29 @@ def differences(before, after):
 
 
 # What a real `speak` process (a player, a `say`) that is not ours writes in the real folders while it speaks: the
-# queue, its lock, the speech owner and pid, the session files (pruned), the error log, the microphone mark. These
-# names count as noise only below a `state` folder (or the former `claude-speak` state folder) and only while such a
+# queue, its lock, the speech owner and pid, the session files (pruned), the error log, the microphone mark and the
+# marker of a speech that pauses itself (`soft-<pid>`, made when it starts and dropped when it ends). These names
+# count as noise only below a `state` folder (or the former `claude-speak` state folder) and only while such a
 # process is alive; everything else (engine, config, install files) is always reported.
 SPEECH_NAMES = ('queue', 'queue.lock', 'speech.pid', 'speech.owner', 'speech.json', 'sessions', 'error.log', 'mic-seen')
+SOFT_MARKER = re.compile(r'soft-\d+')  # speak.soft_marker(pid): a file directly in the state folder
 SPEECH_SUBCOMMANDS = ('_play', 'say')
+
+
+def is_state_folder(path):
+    """True for the `state` folder itself (the one of the data root, or the former `state/claude-speak`)."""
+    parts = path.split(os.sep)
+    if parts[-1] == 'state' and len(parts) > 1 and parts[-2] == speak_paths_dirname():
+        return True
+    return parts[-1] == 'claude-speak' and len(parts) > 1 and parts[-2] == 'state'
 
 
 def is_speech_noise(path):
     """True when `path` is something a real speaking process may write (see SPEECH_NAMES), directories above included."""
     parts = path.split(os.sep)
-    if parts[-1] == 'state' and len(parts) > 1 and parts[-2] == speak_paths_dirname():
+    if is_state_folder(path):
         return True
-    if parts[-1] == 'claude-speak' and len(parts) > 1 and parts[-2] == 'state':
+    if SOFT_MARKER.fullmatch(parts[-1]) and is_state_folder(os.path.dirname(path)):
         return True
     for i, part in enumerate(parts):
         if i and part in SPEECH_NAMES and parts[i - 1] in ('state', 'claude-speak'):
@@ -166,16 +176,53 @@ def real_claude_pids(procs=None, me=None):
     return out
 
 
-def is_live_last(path, claude_pids):
-    """True for `state/last` itself or `state/last/<pid>-<start>` when <pid> is a live real Claude Code process: the
-    last reply of a real session, written by its own hook (`speak say -`). Any other name below it is not noise."""
+def own_claude_pids(procs=None, me=None):
+    """Pids of the Claude Code processes above `me` (the battery): the session that launched it. A child `speak` with
+    no forced session finds that very key by itself (speak.current_session), so the files of that session (its
+    choices, its last reply) are what a leak of the battery would write."""
+    procs = processes() if procs is None else procs
+    me = os.getpid() if me is None else me
+    parent = {pid: ppid for pid, ppid, _ in procs}
+    argv = {pid: args for pid, _, args in procs}
+    out = set()
+    up, hops = parent.get(me, 0), 0
+    while up and hops < 200:
+        if any(os.path.basename(a) == 'claude' for a in argv.get(up, [])[:2]):
+            out.add(up)
+        up, hops = parent.get(up, 0), hops + 1
+    return out
+
+
+def _is_live_file(path, folder, claude_pids):
+    """True for `state/<folder>` itself or `state/<folder>/<pid>-<start>` when <pid> is a live real Claude Code
+    process. Any other name below the folder is not noise."""
     parts = path.split(os.sep)
-    if parts[-1] == 'last' and len(parts) > 1 and parts[-2] == 'state':
+    if parts[-1] == folder and len(parts) > 1 and parts[-2] == 'state':
         return bool(claude_pids)
-    if len(parts) > 2 and parts[-2] == 'last' and parts[-3] == 'state':
+    if len(parts) > 2 and parts[-2] == folder and parts[-3] == 'state':
         match = re.fullmatch(r'(\d+)-\d+', parts[-1])
         return bool(match) and int(match.group(1)) in claude_pids
     return False
+
+
+def is_live_last(path, claude_pids):
+    """True for `state/last` itself or `state/last/<pid>-<start>` when <pid> is a live real Claude Code process: the
+    last reply of a real session, written by its own hook (`speak say -`). Any other name below it is not noise.
+    The caller leaves the session that launched the battery out of `claude_pids` (see own_claude_pids)."""
+    return _is_live_file(path, 'last', claude_pids)
+
+
+def is_live_session(path, claude_pids):
+    """True for `state/sessions` itself or `state/sessions/<pid>-<start>` when <pid> is a live real Claude Code
+    process: the choices of a real session, written by its own hooks with no speech at all (`speak rule` at the start
+    of a conversation and after a compaction, `speak told` at a new message). Any other name below it is not noise.
+    The caller leaves the session that launched the battery out of `claude_pids` (see own_claude_pids)."""
+    return _is_live_file(path, 'sessions', claude_pids)
+
+
+def _path(change):
+    """The path of a line of `differences`."""
+    return change.split(': ', 1)[1]
 
 
 class SpeechWatch:
@@ -220,23 +267,39 @@ SPEECH_BEFORE = real_speech_pids()  # alive when the battery started, so surely 
 WATCH = SpeechWatch().start()  # every real speech seen from now on, to the end of the battery
 
 
-def assert_untouched(case, speech_after=None, speech_before=None, claude_pids=None, speech_seen=None):
+def assert_untouched(case, speech_after=None, speech_before=None, claude_pids=None, speech_seen=None, own_pids=None):
     """No change under the real folders, except the noise of a real speaking process that was alive at the start, at
     any look of the watch during the battery, or at the end (checked here); with none, every change is reported. The
-    last reply of a live real Claude Code session (`state/last/<key>`) is always noise.
+    last reply (`state/last/<key>`) and the choices (`state/sessions/<key>`) of a live real Claude Code session are
+    always noise, except those of the session that launched the battery; with a file of those created or changed,
+    the `state` folder it lives in is noise too: the hooks of that session write both through a temporary file in
+    `state` (speak.write_atomic), which changes the folder even when no speech process was seen (voice off or quiet
+    in that session).
     Why a real leak is still caught: the noise is only the speech names (queue, lock, speech files, session files,
     error log, microphone mark) below a `state` folder; whatever else the battery touches (engine, config, install
     files, the `all` mark, anything outside those names) is reported even while a real speech is playing, and the
-    names themselves are reported on every run where no real speech was seen at all."""
+    names themselves are reported on every run where no real speech was seen at all, except the two files named
+    after a live real Claude Code session. The two files of the session that launched the battery are what a child
+    `speak` with no forced session would write (`speak say -` saves the last reply even with the voice off or
+    quiet), so they are never forgiven that way: the last reply of that session is reported even while a real speech
+    plays. The price: when that very session ends a turn, takes a new message or compacts while the battery runs
+    (in the background, or run by an agent of that session), the guard reports its files; run the battery again."""
     after = real_speech_pids() if speech_after is None else speech_after
     before = SPEECH_BEFORE if speech_before is None else speech_before
     seen = WATCH.look() if speech_seen is None else speech_seen
     changes = differences(BEFORE, snapshot(ROOTS))
     if before or after or seen:
-        changes = [c for c in changes if not is_speech_noise(c.split(': ', 1)[1])]
+        changes = [c for c in changes if not is_speech_noise(_path(c))]
     if changes:
         pids = real_claude_pids() if claude_pids is None else claude_pids
-        changes = [c for c in changes if not is_live_last(c.split(': ', 1)[1], pids)]
+        others = set(pids) - set(own_claude_pids() if own_pids is None else own_pids)
+        noise = [c for c in changes if is_live_last(_path(c), others) or is_live_session(_path(c), others)]
+        # Only a file of a live session, created or changed (not the `last` or `sessions` folder alone, nor a file that
+        # only went away), explains a change of the `state` folder it lives in: its temporary file was there.
+        written = {os.path.dirname(os.path.dirname(_path(c))) for c in noise
+                   if not c.startswith('apagado: ') and os.path.basename(os.path.dirname(_path(c))) in ('last', 'sessions')}
+        changes = [c for c in changes if c not in noise
+                   and not (c.startswith('mudado: ') and _path(c) in written and is_state_folder(_path(c)))]
     case.assertEqual(changes, [], 'a bateria mexeu na pasta real:\n' + '\n'.join(changes))
 
 
