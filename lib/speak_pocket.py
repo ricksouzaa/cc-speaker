@@ -42,6 +42,11 @@ CONFIG_URL = 'https://raw.githubusercontent.com/kyutai-labs/pocket-tts/v4.0.1/po
 FILES_URL = 'https://huggingface.co/kyutai/pocket-tts-without-voice-cloning/resolve/%s/languages/%s/%s'
 TOKENIZER_REVISION = '4e1e0a3e611c51c0b4ed8174fc10f32a54644303'  # of the tokenizer, the same for every model
 VOICES_REVISION = 'a3055dcb533cf2ec90458008a01e7cef550bae2a'  # of the voices
+# How sure the model must be that a sentence ended for the program to stop it (the program's own is -4.0, and the
+# server takes it only from the configuration). With -4.0 the last syllable was swallowed now and then ("validação"
+# came out "valida" in 4 of 52 speeches of the voice Jane, larger model); with -1.0, in none of 52. The speech is
+# as long as before in the larger model and about 0.15 s longer per sentence in the normal one.
+EOS_THRESHOLD = -1.0
 RATE = 24000  # what the server gives: mono, 16 bits
 START_WAIT = 60.0  # seconds for the server to load the model and answer
 PIECE_WAIT = 300.0  # seconds for the audio of one piece
@@ -186,8 +191,9 @@ def check_config(text, model):
 
 
 def local_config(text, folder):
-    """The project's configuration of a model with the places of its files written as paths in `folder`. The lines
-    that named Hugging Face are the ones that made the program ask the network at each start."""
+    """The project's configuration of a model with the places of its files written as paths in `folder` (the lines
+    that named Hugging Face are the ones that made the program ask the network at each start) and with
+    EOS_THRESHOLD as the last line."""
     weights = os.path.join(folder, 'model.safetensors')
     text, found = re.subn(r'(?m)^(weights_path(?:_without_voice_cloning)?:)[ \t]*\S.*$',
                           lambda m: '%s %s' % (m.group(1), weights), text)
@@ -195,7 +201,8 @@ def local_config(text, folder):
                               lambda m: '%s %s' % (m.group(1), os.path.join(folder, 'tokenizer.json')), text)
     if not found or not tokenizer or re.search(r'\b(?:hf|https?)://', text):
         raise ValueError('a configuração do modelo veio num formato que o plugin não conhece')
-    return text
+    text = re.sub(r'(?m)^default_eos_threshold:.*\n?', '', text)
+    return '%s\ndefault_eos_threshold: %s\n' % (text.rstrip('\n'), EOS_THRESHOLD)
 
 
 def write_config(folder):
@@ -264,7 +271,7 @@ def unpack(archive, dest):
 
 def install(folder, system, model, voices, fetch, report=lambda name, done, total, step, steps: None):
     """Leaves in `folder` the program, the model, its tokenizer, the voices and the local configuration, fetching
-    only what is missing or wrong. `fetch(url, dest, hook)` downloads one file (urlretrieve's shape); `report` is
+    only what is missing or wrong and removing the file of any voice that is not one of `voices`. `fetch(url, dest, hook)` downloads one file (urlretrieve's shape); `report` is
     told the step in course. Raises ValueError when a file does not match what was expected, or when the project
     has no program for this machine."""
     if not program_file(system):
@@ -295,6 +302,10 @@ def install(folder, system, model, voices, fetch, report=lambda name, done, tota
         finally:
             if os.path.exists(part):
                 os.remove(part)
+    kept = {voice_file(folder, voice) for voice in voices}
+    for path in glob.glob(os.path.join(folder, 'voices', '*.safetensors')):  # of a voice that left the plugin
+        if path not in kept:
+            os.remove(path)
     archive = files[0][0]
     unpack(archive, program(folder))
     os.remove(archive)

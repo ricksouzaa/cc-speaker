@@ -21,7 +21,7 @@ Funciona no Linux e no macOS, mas o macOS **nunca foi testado num Mac de verdade
 | Python | `python3` | `python3` (o do sistema serve) |
 | Instalador do motor | [`uv`](https://docs.astral.sh/uv/) | [`uv`](https://docs.astral.sh/uv/) |
 | Tocador de áudio | `pw-play` (PipeWire 1.1 ou mais novo), `paplay` ou `aplay` | já vem no sistema |
-| Espaço | cerca de 1 GB (360 MB com o [modelo normal](#modelo-da-voz)) | cerca de 1 GB (360 MB com o modelo normal) |
+| Espaço | cerca de 950 MB (340 MB com o [modelo normal](#modelo-da-voz)) | cerca de 950 MB (340 MB com o modelo normal) |
 | Situação | testado no Linux | só nos testes automáticos do GitHub; nunca num Mac de verdade |
 
 No Ubuntu 24.04 o `pw-play` é mais velho, e o speak usa o `paplay` ou o `aplay` no lugar. O código do Mac tem suporte e passa nos testes automáticos do GitHub, mas nunca foi testado num Mac de verdade. Quem usar no Mac e tiver problema pode abrir uma issue em https://github.com/ricksouzaa/cc-speaker/issues.
@@ -35,7 +35,7 @@ No Claude Code:
 /plugin install speak@cc-speaker
 ```
 
-Pronto. A voz se instala sozinha, em segundo plano e sem sudo: ali mesmo, logo depois do `/plugin install`, ou na próxima sessão que você abrir. São cerca de 950 MB para baixar (perto de 1 GB no disco), entre o motor, o modelo de voz e as vozes, e leva alguns minutos. Enquanto isso:
+Pronto. A voz se instala sozinha, em segundo plano e sem sudo: ali mesmo, logo depois do `/plugin install`, ou na próxima sessão que você abrir. São cerca de 880 MB para baixar (uns 950 MB no disco), entre o motor, o modelo de voz e as vozes, e leva alguns minutos. Enquanto isso:
 
 - aparece uma linha na conversa dizendo que a voz está sendo instalada;
 - embaixo do campo de texto, o progresso: `🔊 Instalando a voz: 78% (171 de 219 MB)`;
@@ -55,7 +55,7 @@ Digite `/speak` sozinho. Abre um painel com uma lista por linha, já com o tecla
 | Voz | ligada (padrão), só o resumo escrito (a voz cala e a linha 🔊 continua saindo, mesmo sem o motor; na leitura inteira vale como desligada) ou desligada |
 | Leitura | só o resumo (padrão) ou a resposta inteira |
 | Tamanho do resumo | pequeno (uma frase), médio (padrão, duas ou três frases) ou grande (um parágrafo); a linha só aparece com a leitura em "só o resumo" (o `/speak size` escrito vale em qualquer modo) |
-| Voz de leitura | Lola (padrão), Estelle, Fantine, Eve, Jane, Mary ou Vera (femininas); Rafael, Charles ou George (masculinas); vale sempre para todas as sessões |
+| Voz de leitura | Jane (padrão), Eve, Mary, Vera ou Lola (femininas); Rafael, Charles ou George (masculinas); vale sempre para todas as sessões |
 | Modelo da voz | Maior (padrão), que lê melhor números, siglas e inglês, ou Normal, mais leve; vale sempre para todas as sessões (veja [Modelo da voz](#modelo-da-voz)) |
 | Velocidade da fala | de 0.5x a 2x; o 1x (padrão) é a velocidade normal da voz escolhida. Vale a partir da próxima fala (veja [Velocidade](#velocidade)) |
 | Com o microfone em uso | Espera (padrão), Toca ou Toca nesta reunião (veja [Microfone](#microfone)) |
@@ -63,7 +63,7 @@ Digite `/speak` sozinho. Abre um painel com uma lista por linha, já com o tecla
 
 Abaixo da última resposta (só depois que o turno termina) aparecem os mesmos dois botões, `[ ▶ Resumo ]` e `[ ▶ Resposta inteira ]`; sem a linha 🔊 só o segundo. Somem quando começa o turno seguinte. Clicar só funciona no terminal em tela cheia.
 
-Enquanto a fala desta sessão toca, o botão do modo dela (Resumo ou Resposta inteira, tanto sob a resposta quanto na linha do painel) vira `[ ⏸ Pausar ]`; pausada, vira `[ ▶ Continuar ]`; ao acabar, volta ao normal. Embaixo do campo de texto, em todas as sessões, um aviso diz quem fala e com que voz: "🔊 Lola falando agora" na sessão dona da fala, "🔊 Lola falando em <pasta do projeto>" nas outras, e "⏸ fala pausada" na dona, quando pausada. No terminal o aviso fica no canto direito do rodapé, na linha do modo, só do ícone em diante (num terminal estreito, na linha de baixo). No VS Code e nos aplicativos ele sai na linha de status, que o Claude Code sempre começa com o nome do plugin (`speak: 🔊 Lola falando agora`); ali, enquanto a instalação do motor usa a linha, ela vence o aviso.
+Enquanto a fala desta sessão toca, o botão do modo dela (Resumo ou Resposta inteira, tanto sob a resposta quanto na linha do painel) vira `[ ⏸ Pausar ]`; pausada, vira `[ ▶ Continuar ]`; ao acabar, volta ao normal. Embaixo do campo de texto, em todas as sessões, um aviso diz quem fala e com que voz: "🔊 Jane falando agora" na sessão dona da fala, "🔊 Jane falando em <pasta do projeto>" nas outras, e "⏸ fala pausada" na dona, quando pausada. No terminal o aviso fica no canto direito do rodapé, na linha do modo, só do ícone em diante (num terminal estreito, na linha de baixo). No VS Code e nos aplicativos ele sai na linha de status, que o Claude Code sempre começa com o nome do plugin (`speak: 🔊 Jane falando agora`); ali, enquanto a instalação do motor usa a linha, ela vence o aviso.
 
 A pausa congela o tocador e a síntese (o sinal SIGSTOP no grupo de processos da fala) e continua com SIGCONT. Foi testada no Linux com o `pw-play`; com `paplay`, `aplay` e no Mac (`afplay`) o código é o mesmo, mas não foi testado num Mac de verdade.
 
@@ -78,7 +78,7 @@ Para pular o painel, escreva a ação. Com `all` no fim, vale para todas as sess
 | `/speak on` · `/speak quiet` · `/speak off` | liga a voz, cala a voz mas mantém o resumo escrito, ou desliga tudo (padrão: `on`) |
 | `/speak mode summary` · `full` | lê só o resumo ou a resposta inteira (padrão: `summary`) |
 | `/speak size small` · `medium` · `large` | tamanho do resumo (padrão: `medium`) |
-| `/speak voice lola` · `estelle` · `fantine` · `eve` · `jane` · `mary` · `vera` · `rafael` · `charles` · `george` | troca a voz, sempre em todas as sessões (padrão: `lola`) |
+| `/speak voice jane` · `eve` · `mary` · `vera` · `lola` · `rafael` · `charles` · `george` | troca a voz, sempre em todas as sessões (padrão: `jane`) |
 | `/speak model large` · `normal` | troca o modelo da voz, sempre em todas as sessões (padrão: `large`; veja [Modelo da voz](#modelo-da-voz)) |
 | `/speak speed 0.9` · `1` · `1.25` | velocidade da fala: um número de 0.5 a 2, em que 1 é a velocidade normal da voz (padrão: `1`) |
 | `/speak mic wait` · `play` · `auto` | o que fazer com o microfone em uso (padrão: `wait`) |
@@ -150,14 +150,14 @@ O motor tem dois modelos de português, e você escolhe qual fala com `/speak mo
 | | Maior (padrão) | Normal |
 |---|---|---|
 | Comando | `/speak model large` | `/speak model normal` |
-| Para baixar | cerca de 950 MB | cerca de 310 MB |
+| Para baixar | cerca de 880 MB | cerca de 280 MB |
 | Memória durante a fala | cerca de 2 GB | cerca de 1 GB |
 | Espera até o primeiro som (resumo de duas frases) | 5 a 6 segundos | 2 a 3 segundos |
 | Números, siglas e inglês | lê melhor | erra mais (por exemplo, "cinquenta" dentro de um número); o plugin reescreve o que consegue |
 
 Os tempos e a memória foram medidos numa máquina de 12 núcleos, sem placa de vídeo. A fluência é boa nos dois. O maior é o padrão desde a 0.26.0, porque de ouvido a pronúncia dele é a melhor; numa máquina com pouca memória, ou para esperar menos pelo primeiro som, use o normal.
 
-O motor não repete uma fala igual: a mesma frase sai um pouco diferente a cada vez, e de vez em quando ele engole o fim de uma palavra (numa frase longa, "validação" saiu "valida" em uma ou duas de cada dez vezes, no modelo maior). Não há ajuste do motor para isso; ouvir de novo costuma sair certo.
+O motor não repete uma fala igual: a mesma frase sai um pouco diferente a cada vez, e de vez em quando uma palavra escorrega. O deslize mais comum era engolir a última sílaba de uma frase ("validação" saía "valida" em uma de cada treze falas); desde a 0.27.0 o plugin pede ao motor mais certeza de que a frase acabou antes de parar, e em 52 falas medidas a palavra saiu inteira em todas. Se uma palavra sair errada, ouvir de novo costuma sair certo.
 
 Só um modelo fica no disco. Ao trocar, o outro é baixado em segundo plano no lugar do atual, e a voz fica calada até o download terminar; o progresso aparece embaixo do campo de texto e no `/speak status`. Trocar de volta baixa de novo.
 
@@ -230,8 +230,7 @@ O motor de voz não vem neste repositório: o `speak install` o baixa na sua má
 |---|---|---|
 | Programa | [Pocket TTS](https://github.com/kyutai-labs/pocket-tts), da Kyutai | MIT |
 | Modelo de português | [`kyutai/pocket-tts-without-voice-cloning`](https://huggingface.co/kyutai/pocket-tts-without-voice-cloning), da Kyutai | CC BY 4.0 |
-| Vozes Fantine, Eve, Jane, Mary, Vera, Charles e George | gravações do [VCTK](https://datashare.ed.ac.uk/handle/10283/3443), da Universidade de Edimburgo, no [catálogo de vozes da Kyutai](https://huggingface.co/kyutai/tts-voices) | CC BY 4.0 |
-| Voz Estelle | gravação da própria Kyutai, no mesmo catálogo | CC0 |
+| Vozes Jane, Eve, Mary, Vera, Charles e George | gravações do [VCTK](https://datashare.ed.ac.uk/handle/10283/3443), da Universidade de Edimburgo, no [catálogo de vozes da Kyutai](https://huggingface.co/kyutai/tts-voices) | CC BY 4.0 |
 | Voz Lola | um trecho do Common Voice, da Mozilla | CC0 |
 | Voz Rafael | um trecho de áudio que a Kyutai publica junto do modelo, sem dizer a origem | a do modelo (CC BY 4.0); a do áudio original não foi confirmada |
 

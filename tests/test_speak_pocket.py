@@ -186,7 +186,16 @@ class Config(unittest.TestCase):
         self.assertNotIn('hf://', text)
         self.assertIn('  #weights_path: partial.safetensors\n', text)  # a comment stays as it was
         self.assertIn('mimi:\n  sample_rate: 24000\n', text)  # and so does everything else
-        self.assertEqual(len(text.splitlines()), len(CONFIG.splitlines()))
+        self.assertEqual(len(text.splitlines()), len(CONFIG.splitlines()) + 1)  # one line more: the next test
+
+    def test_the_end_of_a_sentence_is_asked_with_more_certainty(self):
+        # with the program's own -4.0 the last syllable of a sentence was swallowed now and then ("valida...")
+        text = speak_pocket.local_config(CONFIG, '/dados/engine')
+        self.assertTrue(text.endswith('\ndefault_eos_threshold: -1.0\n'))
+        self.assertEqual(len(text.splitlines()), len(CONFIG.splitlines()) + 1)
+        again = speak_pocket.local_config(CONFIG.rstrip('\n') + '\ndefault_eos_threshold: -4.0\n', '/dados/engine')
+        self.assertEqual(again.count('default_eos_threshold'), 1)  # the project's own, if it ever comes, is replaced
+        self.assertTrue(again.endswith('\ndefault_eos_threshold: -1.0\n'))
 
     def test_a_configuration_in_a_shape_the_plugin_does_not_know_is_refused(self):
         for broken in (CONFIG.replace('weights_path', 'pesos'),
@@ -392,6 +401,12 @@ class Install(Base):
                 self.assertFalse(speak_pocket.ready(self.folder, 'pequeno', ('ana', 'rui')))
                 if name == 'sai com erro':
                     self.assertIn('GLIBC_2.34 not found', str(failure.exception))
+
+    def test_the_file_of_a_voice_that_left_the_plugin_is_removed(self):
+        self.install()
+        self.install(voices=('rui',))  # an update in which `ana` is no longer one of the voices
+        self.assertEqual([n for n in self.left() if n.startswith('voices/')], ['voices/rui.safetensors'])
+        self.assertTrue(speak_pocket.ready(self.folder, 'pequeno', ('rui',)))
 
     def test_what_a_dead_install_left_half_downloaded_is_swept(self):
         os.makedirs(os.path.join(self.folder, 'voices'))

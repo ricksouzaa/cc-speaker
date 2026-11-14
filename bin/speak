@@ -26,12 +26,12 @@
                            prints the version before and after, in Portuguese; the new version holds after
                            /reload-plugins or in a new session
   speak status --json      the same state as one JSON line (used by the /speak pane)
-  speak voice [name]       without a name: list the voices (lola, estelle, fantine, eve, jane, mary, vera, rafael,
-                           charles, george) and mark the current one; with a name: choose it for every session
+  speak voice [name]       without a name: list the voices (jane, eve, mary, vera, lola, rafael, charles, george) and
+                           mark the current one; with a name: choose it for every session
   speak model [large|normal]  without a name: list the two models of the engine and mark the current one; with a
                            name: choose it for every session (large, the default: reads numbers, acronyms and
-                           English better, ~950 MB to fetch, ~2 GB of memory while it speaks; normal: lighter,
-                           ~310 MB, ~1 GB of memory and about half the wait before the first sound). A model not
+                           English better, ~880 MB to fetch, ~2 GB of memory while it speaks; normal: lighter,
+                           ~280 MB, ~1 GB of memory and about half the wait before the first sound). A model not
                            installed yet is fetched in the background, in the place of the other, and the voice is
                            silent until it ends
   speak rule               print rules/speak.md with {line} replaced by the line of the mode and size in force
@@ -41,8 +41,8 @@
                            (on stderr, a line "processos acima: pid nome, ...": the ancestors, to find the session)
   speak test [text]        speak a test sentence, in the foreground (errors show)
   speak install            install the engine: Python 3.12 via uv with numpy (on the Mac also sounddevice, optional),
-                           the Pocket TTS program, the chosen Portuguese model and the voices (~280 MB, or ~850 MB with
-                           the larger model; each file checked
+                           the Pocket TTS program, the chosen Portuguese model and the voices (~880 MB, or ~280 MB with
+                           the normal model; each file checked
                            against its SHA-256); no sudo; what the former engine (Kokoro) left is removed
   speak autoinstall        start `speak install` in the background unless it is running, failed already in this plugin
                            version, the uv is missing or CLAUDE_SPEAK_AUTOINSTALL=0; prints one word: ready (engine
@@ -79,7 +79,7 @@ the space bar to dictate in Claude Code does), seen through pw-dump on Linux and
 speeches waiting are kept and go on when the microphone is free. `speak off` in a session also drops that session's speeches (playing or waiting).
 Env: CLAUDE_SPEAK=0 silences one session (a first choice that a later `speak on` beats);
 CLAUDE_SPEAK_SESSION forces the session key ('-' means none; for tests and to force a key);
-CLAUDE_SPEAK_MODE overrides the mode; CLAUDE_SPEAK_SIZE the size; CLAUDE_SPEAK_MIC the microphone choice; CLAUDE_SPEAK_VOICE the voice (default lola);
+CLAUDE_SPEAK_MODE overrides the mode; CLAUDE_SPEAK_SIZE the size; CLAUDE_SPEAK_MIC the microphone choice; CLAUDE_SPEAK_VOICE the voice (default jane);
 CLAUDE_SPEAK_SPEED the speed of the speech as it is, whatever `speak speed` says (without it: the `speak speed`
 choice, kept within 0.5 to 2).
 Files live in the plugin's data folder (CLAUDE_SPEAK_DATA, else where the script is; see lib/speak_paths.py): engine/, config/, state/.
@@ -141,23 +141,22 @@ SPEED_FILE = os.path.join(CONF, 'speed')  # the general speed choice, as `speed_
 SPEED_RANGE = (0.5, 2.0)  # of the speed choice and of the speed of the speech
 DEFAULT_SPEED = 1.0
 READING_VOICES = {  # name -> its kind and its normal speed (the engine speaks at one speed; see `stretch`)
-    'lola': {'full': 'lola', 'kind': 'feminina', 'speed': DEFAULT_SPEED},
-    'estelle': {'full': 'estelle', 'kind': 'feminina', 'speed': DEFAULT_SPEED},
-    'fantine': {'full': 'fantine', 'kind': 'feminina', 'speed': DEFAULT_SPEED},
-    'eve': {'full': 'eve', 'kind': 'feminina', 'speed': DEFAULT_SPEED},
     'jane': {'full': 'jane', 'kind': 'feminina', 'speed': DEFAULT_SPEED},
+    'eve': {'full': 'eve', 'kind': 'feminina', 'speed': DEFAULT_SPEED},
     'mary': {'full': 'mary', 'kind': 'feminina', 'speed': DEFAULT_SPEED},
     'vera': {'full': 'vera', 'kind': 'feminina', 'speed': DEFAULT_SPEED},
+    'lola': {'full': 'lola', 'kind': 'feminina', 'speed': DEFAULT_SPEED},
     'rafael': {'full': 'rafael', 'kind': 'masculina', 'speed': DEFAULT_SPEED},
     'charles': {'full': 'charles', 'kind': 'masculina', 'speed': DEFAULT_SPEED},
     'george': {'full': 'george', 'kind': 'masculina', 'speed': DEFAULT_SPEED},
 }
 PT_VOICES = {short: (v['full'], v['kind']) for short, v in READING_VOICES.items()}
-DEFAULT_VOICE = 'lola'
+DEFAULT_VOICE = 'jane'
 # A voice that left the plugin -> the one a saved choice of it now means. The voices of the former engine (Kokoro,
-# until 0.23.0) became the nearest of the new one: the feminine ones Lola, the masculine ones Rafael.
-RETIRED_VOICES = {'alice': 'lola', 'dora': 'lola', 'pf_dora': 'lola', 'alex': 'rafael', 'pm_alex': 'rafael',
-                  'santa': 'rafael', 'pm_santa': 'rafael'}
+# until 0.23.0) became the nearest of the new one: the feminine ones Lola, the masculine ones Rafael. Estelle and
+# Fantine left in 0.27.0 for Jane, the default since then.
+RETIRED_VOICES = {'alice': 'lola', 'dora': 'lola', 'pf_dora': 'lola', 'estelle': 'jane', 'fantine': 'jane',
+                  'alex': 'rafael', 'pm_alex': 'rafael', 'santa': 'rafael', 'pm_santa': 'rafael'}
 RULE = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'rules', 'speak.md')
 VENV_PY = os.path.join(DATA, '.venv', 'bin', 'python')
 MODEL_FILE = os.path.join(CONF, 'model')  # the person's choice, written by `speak model` (missing: the default)
@@ -167,7 +166,7 @@ MODEL_TEXT = {'normal': 'normal', 'large': 'maior'}
 MODEL_NOTE = {'large': 'o padrão, lê melhor números, siglas e inglês: cerca de 2 GB de memória durante a fala, 5 a 6 '
                        'segundos até o primeiro som',
               'normal': 'mais leve: cerca de 1 GB de memória durante a fala, 2 a 3 segundos até o primeiro som'}
-PROGRAM_MB = 25  # about what the engine's program weighs to fetch (its size is not published with the release)
+PROGRAM_MB = 9  # about what the engine's program weighs to fetch (8 to 9 MB, by the machine)
 PACKAGES = ['numpy']  # what the speech needs of Python: the samples are stretched and handed to the player with it
 FORMER_ENGINE = ('kokoro-v1.0.onnx', 'voices-v1.0.bin')  # the files of Kokoro, the engine until 0.23.0 (see `former_engine`)
 ENGINE_LOG = os.path.join(STATE, 'engine.log')  # what the engine wrote during the last speech
@@ -189,9 +188,9 @@ MIC_WAIT_POLL = 1.0  # seconds between looks at the microphone while waiting a t
 
 
 def voice():
-    """The voice that reads, by its name: CLAUDE_SPEAK_VOICE, then the general file, then lola. A voice that left
+    """The voice that reads, by its name: CLAUDE_SPEAK_VOICE, then the general file, then jane. A voice that left
     the plugin (RETIRED_VOICES) counts as the one that took its place, so a choice saved by an older version still
-    speaks; any other name the engine has no voice for counts as lola."""
+    speaks; any other name the engine has no voice for counts as jane."""
     wanted = os.environ.get('CLAUDE_SPEAK_VOICE')
     if not wanted:
         try:
@@ -205,12 +204,12 @@ def voice():
 
 
 def voice_short():
-    """The voice in force by the name people know it by (`lola`)."""
+    """The voice in force by the name people know it by (`jane`)."""
     return voice()
 
 
 def voice_name(wanted):
-    """The name of a voice as it is saved, from what was typed (`Lola`); None if unknown."""
+    """The name of a voice as it is saved, from what was typed (`Jane`); None if unknown."""
     wanted = wanted.strip().lower()
     return wanted if wanted in READING_VOICES else None
 
@@ -579,9 +578,17 @@ def engine_model():
 
 
 def download_mb():
-    """About how many MB an install of the chosen model fetches, rounded to the ten."""
+    """About how many MB an install of the chosen model fetches now, rounded to the ten: the program, which every
+    install fetches, and the files that are not in the folder with their size (an update that only drops voices
+    fetches the program alone)."""
+    def there(path, size):
+        try:
+            return os.path.getsize(path) == size
+        except OSError:
+            return False
     files = speak_pocket.wanted(DATA, speak_os.SYSTEM, engine_model(), READING_VOICES)
-    return int(round((sum(size for _, _, size, _ in files) / 1e6 + PROGRAM_MB) / 10.0)) * 10
+    missing = sum(size for path, _, size, _ in files if size and not there(path, size))
+    return int(round((missing / 1e6 + PROGRAM_MB) / 10.0)) * 10
 
 
 def engine_ready():
@@ -682,7 +689,7 @@ def spelled_acronyms(text):
 # this way it is heard as the word it is more often than as written. Other English words are read as the engine
 # reads them, which the larger model does better than the normal one.
 RESPELL = {'ENEM': 'ênêi', 'PIX': 'Pics', 'PLUGIN': 'plâguin', 'PLUGINS': 'plâguins', 'GITHUB': 'guitirrâbe',
-           'PULL': 'pul', 'REQUEST': 'ricuést', 'REQUESTS': 'ricuésts', 'BUG': 'bâg', 'BUGS': 'bâgs',
+           'PULL': 'pul', 'REQUEST': 'rikuést', 'REQUESTS': 'rikuésts', 'BUG': 'bâg', 'BUGS': 'bâgs',
            'BACKEND': 'béquend', 'DOWNTIME': 'dáun-táim', 'RELEASE': 'rilíse', 'RELEASES': 'rilíses',
            'SLACK': 'Slék', 'COMMIT': 'comít', 'COMMITS': 'comíts', 'TESTE': 'téste', 'TESTES': 'téstes'}
 # A verb written like a noun that has an accent ("eu publico" and "o público"): without the accent the engine says the

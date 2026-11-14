@@ -7,6 +7,21 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.27.0] - 2026-11-14
+
+### Quebra
+- **As vozes Estelle e Fantine saíram do plugin.** Quem tinha escolhido uma delas passa a ouvir a Jane, sem fazer nada; `/speak voice estelle` e `/speak voice fantine` não são mais aceitos. Ao atualizar, o plugin apaga do disco os arquivos das duas (cerca de 55 MB no modelo maior) e baixa de novo só o programa do motor (cerca de 10 MB); a voz fica calada por alguns segundos, até terminar.
+
+### Alterado
+- **A voz padrão agora é a Jane** (era a Lola). Quem nunca escolheu uma voz passa a ouvi-la; para voltar à Lola, `/speak voice lola`.
+- As vozes femininas agora são cinco, nesta ordem no painel e na ajuda: Jane, Eve, Mary, Vera e Lola. As masculinas continuam Rafael, Charles e George.
+- Com duas vozes a menos, o motor ficou um pouco menor: cerca de 880 MB para baixar no modelo maior e 280 MB no normal.
+
+### Corrigido
+- **O fim da frase não é mais engolido.** De vez em quando o motor parava antes da última sílaba: "validação" saía "valida". Agora o plugin pede a ele mais certeza de que a frase acabou antes de parar. Medido sem tocar som, com a voz Jane no modelo maior: antes, a palavra saiu cortada em 4 de 52 falas; depois, em nenhuma de 52. No modelo normal a fala fica uns 4% mais longa, por uma pausa um pouco maior no fim de cada frase.
+- **"Pull request" ganhou outra escrita para o motor**, porque na voz Jane "pull" saía com som de "puro" e "request" com a entonação errada. Das seis escritas medidas no modelo maior, a nova foi a que saiu certa mais vezes.
+- O aviso de instalação diz quanto falta baixar, e não o tamanho do motor inteiro: numa atualização como esta, cerca de 10 MB em vez de 900 MB.
+
 ## [0.26.0] - 2026-11-14
 
 ### Adicionado
@@ -443,7 +458,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.26.0...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.27.0...HEAD
+[0.27.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.26.0...v0.27.0
 [0.26.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.25.0...v0.26.0
 [0.25.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.24.0...v0.25.0
 [0.24.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.23.0...v0.24.0

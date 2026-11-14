@@ -3,7 +3,7 @@ import { expect, mock, test } from 'claude-code/testing'
 // Nada aqui toca o motor, o áudio nem as pastas reais: `process.run` é respondido pelo teste, que guarda o estado
 // do speak numa variável. O menu é montado no painel `speak` da superfície `terminal` e operado pela escolha nas listas.
 
-const NAMES = ['lola', 'estelle', 'fantine', 'eve', 'jane', 'mary', 'vera', 'rafael', 'charles', 'george'] // as vozes de leitura, como o speak as lista
+const NAMES = ['jane', 'eve', 'mary', 'vera', 'lola', 'rafael', 'charles', 'george'] // as vozes de leitura, como o speak as lista
 
 type Opts = { noFile?: boolean; proc?: boolean; autoinstall?: string; fail?: boolean; statusFails?: boolean; scope?: Record<string, string>; placed?: boolean; again?: string; surface?: string; headless?: boolean; init?: Record<string, unknown> }
 
@@ -18,7 +18,7 @@ async function setup($: any, on: any, opts: Opts = {}) {
   on('ui.log', (_: unknown, e: any) => { logs.push(e.text); return { value: undefined } })
   on('ui.toast', (_: unknown, e: any) => { toasts.push(e.text); return { value: undefined } })
   const st: any = {
-    on: true, power: 'on', mode: 'summary', size: 'medium', mic: 'wait', speed: '1', engine: true, voice: 'lola',
+    on: true, power: 'on', mode: 'summary', size: 'medium', mic: 'wait', speed: '1', engine: true, voice: 'jane',
     scope: { on: 'all', mode: 'all', size: 'all', mic: 'all', speed: 'all', ...(opts.scope ?? {}) },
     session: 'S-1', stateDir: '/estado',
     ...(opts.init ?? {}),
@@ -204,7 +204,7 @@ test('/speak sozinho abre o painel com o foco, uma lista por linha e o botão Fe
   expect(s.power.value).toBe('on')
   expect(s.mode.value).toBe('summary')
   expect(s.size.value).toBe('medium')
-  expect(s.voice.value).toBe('lola')
+  expect(s.voice.value).toBe('jane')
   expect(s.mic.value).toBe('wait')
   expect(s.mic.label).toMatch(/^Com o microfone em uso\s*$/)
   expect(s.mic.options.map((o: any) => o.label)).toEqual(['Espera', 'Toca', 'Toca nesta reunião'])
@@ -481,18 +481,17 @@ test('no painel, um valor de velocidade que não é número não roda nada', asy
   await ui.unmount()
 })
 
-test('as vozes do motor antigo saíram: o painel lista as dez do novo, e a escolha escrita de uma antiga volta o erro do speak', async ($, on) => {
+test('as vozes do motor antigo saíram: o painel lista as oito do novo, e a escolha escrita de uma antiga volta o erro do speak', async ($, on) => {
   const { ran } = await setup($, on)
   const { ui } = await openMenu($, 'voice')
   expect((await selects(ui)).voice.options).toEqual([
-    { value: 'lola', label: 'Lola' }, { value: 'estelle', label: 'Estelle' }, { value: 'fantine', label: 'Fantine' },
-    { value: 'eve', label: 'Eve' }, { value: 'jane', label: 'Jane' }, { value: 'mary', label: 'Mary' }, { value: 'vera', label: 'Vera' },
+    { value: 'jane', label: 'Jane' }, { value: 'eve', label: 'Eve' }, { value: 'mary', label: 'Mary' }, { value: 'vera', label: 'Vera' }, { value: 'lola', label: 'Lola' },
     { value: 'rafael', label: 'Rafael' }, { value: 'charles', label: 'Charles' }, { value: 'george', label: 'George' }])
   await ui.select({ key: 'voice', value: 'alice' }) // um valor que a lista não oferece não roda nada
   expect(changes(ran)).toEqual([])
   await ui.unmount()
   expect((await $.command.run({ command: 'speak', args: 'voice alice' })).text).toBe(
-    'voz: voz desconhecida; use uma de: lola, estelle, fantine, eve, jane, mary, vera, rafael, charles, george')
+    'voz: voz desconhecida; use uma de: jane, eve, mary, vera, lola, rafael, charles, george')
   expect(changes(ran)).toEqual(['voice alice'])
   expect((await $.command.run({ command: 'speak', args: 'dance' })).text).not.toContain('alice')
 })
@@ -510,14 +509,14 @@ test('o modelo da voz: o painel oferece o maior e o normal, e a escolha nunca le
   await ui.select({ key: 'model', value: 'normal' })
   expect(changes(ran)).toEqual(['model normal'])
   expect((await selects(ui)).model.value).toBe('normal')
-  expect(await footer(ui)).toContain('cerca de 310 MB')
+  expect(await footer(ui)).toContain('cerca de 280 MB')
   await ui.unmount()
 })
 
 test('/speak model escrito: avisa do download quando o modelo não é o instalado, e só confirma quando é', async ($, on) => {
   const { ran } = await setup($, on)
   expect((await $.command.run({ command: 'speak', args: 'model normal' })).text).toBe(
-    'O modelo da voz agora é o normal, em todas as sessões. Ele é baixado em segundo plano (cerca de 310 MB) e a voz fica calada até terminar; acompanhe com /speak status.')
+    'O modelo da voz agora é o normal, em todas as sessões. Ele é baixado em segundo plano (cerca de 280 MB) e a voz fica calada até terminar; acompanhe com /speak status.')
   expect((await $.command.run({ command: 'speak', args: 'model large' })).text).toBe(
     'O modelo da voz agora é o maior, em todas as sessões.')
   expect(changes(ran)).toEqual(['model normal', 'model large'])
@@ -815,12 +814,12 @@ test('autoinstall que falha ou responde algo estranho: cai no relógio de antes,
 
 test('quando este módulo inicia a instalação, deixa uma linha escrita na conversa', async ($, on) => {
   const { logs } = await setup($, on, { autoinstall: 'installing started', init: { engine: false, installing: true } })
-  expect(logs).toEqual(['Instalando a voz (cerca de 950 MB, alguns minutos). Acompanhe com /speak status.'])
+  expect(logs).toEqual(['Instalando a voz (cerca de 880 MB, alguns minutos). Acompanhe com /speak status.'])
 })
 
 test('o aviso da instalação diz o tamanho que o speak informou (o modelo normal baixa um terço)', async ($, on) => {
-  const { logs } = await setup($, on, { autoinstall: 'installing started 310', init: { engine: false, installing: true } })
-  expect(logs).toEqual(['Instalando a voz (cerca de 310 MB, alguns minutos). Acompanhe com /speak status.'])
+  const { logs } = await setup($, on, { autoinstall: 'installing started 280', init: { engine: false, installing: true } })
+  expect(logs).toEqual(['Instalando a voz (cerca de 280 MB, alguns minutos). Acompanhe com /speak status.'])
 })
 
 test('se o gancho de começo já iniciou a instalação, o módulo não repete o aviso', async ($, on) => {
@@ -923,9 +922,9 @@ const OTHER = { pid: 20, session: 'S-2', dir: '/home/r/outro-projeto', how: 'ful
 
 test('no terminal o aviso de quem fala sai sem o nome do plugin: vai nos rótulos do rodapé, não na linha de status', async ($, on) => {
   const { notice, lines, clock, speech } = await setup($, on)
-  speech.playing = { ...OWN, voice: 'lola' }
+  speech.playing = { ...OWN, voice: 'jane' }
   await clock.advance(500)
-  expect(await notice()).toBe('🔊 Lola falando agora')
+  expect(await notice()).toBe('🔊 Jane falando agora')
   speech.playing = { ...OTHER, voice: 'rafael' }
   await clock.advance(500)
   expect(await notice()).toBe('🔊 Rafael falando em outro-projeto')
@@ -938,9 +937,9 @@ test('no terminal o aviso de quem fala sai sem o nome do plugin: vai nos rótulo
 test('os rótulos do próprio Claude Code ficam, e o aviso vai depois deles', async ($, on) => {
   const { notice, clock, speech } = await setup($, on)
   expect(await notice(['focus'])).toBe('focus')
-  speech.playing = { ...OWN, voice: 'lola' }
+  speech.playing = { ...OWN, voice: 'jane' }
   await clock.advance(500)
-  expect(await notice(['focus', 'memory paused'])).toBe('focus & memory paused & 🔊 Lola falando agora')
+  expect(await notice(['focus', 'memory paused'])).toBe('focus & memory paused & 🔊 Jane falando agora')
 })
 
 for (const surface of ['vscode', 'desktop', 'mobile']) {
@@ -972,21 +971,21 @@ test('a fala desta sessão: "falando agora"; a de outra sessão: "falando: pasta
   expect(await notice()).toBe('')
 })
 
-test('com a voz anotada na fala, a linha diz quem fala: "Rafael falando agora", "Lola falando em pasta"', async ($, on) => {
+test('com a voz anotada na fala, a linha diz quem fala: "Rafael falando agora", "Jane falando em pasta"', async ($, on) => {
   const { notice, clock, speech } = await setup($, on)
   speech.playing = { ...OWN, voice: 'rafael' }
   await clock.advance(500)
   expect(await notice()).toBe('🔊 Rafael falando agora')
-  speech.playing = { ...OTHER, voice: 'lola' }
+  speech.playing = { ...OTHER, voice: 'jane' }
   await clock.advance(500)
-  expect(await notice()).toBe('🔊 Lola falando em outro-projeto')
+  expect(await notice()).toBe('🔊 Jane falando em outro-projeto')
   speech.playing = { ...OTHER, dir: '', voice: 'george' }
   await clock.advance(500)
   expect(await notice()).toBe('🔊 George falando em outra sessão')
   speech.paused = [{ ...OWN, voice: 'rafael' }]
-  speech.playing = { ...OTHER, voice: 'lola' }
+  speech.playing = { ...OTHER, voice: 'jane' }
   await clock.advance(500)
-  expect(await notice()).toBe('🔊 Lola falando em outro-projeto · ⏸ sua fala pausada')
+  expect(await notice()).toBe('🔊 Jane falando em outro-projeto · ⏸ sua fala pausada')
   speech.playing = null
   await clock.advance(500)
   expect(await notice()).toBe('⏸ fala pausada')
@@ -996,7 +995,7 @@ test('com a voz anotada na fala, a linha diz quem fala: "Rafael falando agora", 
 // não é das de leitura: sem um nome que o painel conheça, a linha fica como era.
 test('voz que o painel não conhece ou fala sem voz anotada: a linha fica sem nome', async ($, on) => {
   const { notice, clock, speech } = await setup($, on)
-  for (const voice of ['af_heart', 'constructor', 'Lola', '', 7, null]) {
+  for (const voice of ['af_heart', 'constructor', 'Jane', '', 7, null]) {
     speech.playing = { ...OWN, voice }
     await clock.advance(500)
     expect(await notice()).toBe('🔊 falando agora')

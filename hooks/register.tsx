@@ -24,7 +24,7 @@ type State = {
   speaking?: Speech | null; paused?: Speech[]
 }
 // Uma fala, como o speak a anota em state/speech.json: a sessão dona, a pasta dela, o modo (summary ou full) e a voz
-// que a lê, pelo nome curto (lola); a fala de uma versão anterior à 0.22.0 vem sem a voz.
+// que a lê, pelo nome curto (jane); a fala de uma versão anterior à 0.22.0 vem sem a voz.
 type Speech = { pid: number; session: string; dir: string; how: string; voice?: string; waiting?: number }
 type Heard = { playing: Speech | null; paused: Speech[] }
 
@@ -32,19 +32,18 @@ const MODES: Record<string, string> = { full: 'Resposta inteira', summary: 'Só 
 const SIZES: Record<string, string> = { small: 'Pequeno', medium: 'Médio', large: 'Grande' }
 const MICS: Record<string, string> = { wait: 'Espera', play: 'Toca', auto: 'Toca nesta reunião' }
 const VOICES: Record<string, string> = {
-  lola: 'Lola (feminina)', estelle: 'Estelle (feminina)', fantine: 'Fantine (feminina)', eve: 'Eve (feminina)',
-  jane: 'Jane (feminina)', mary: 'Mary (feminina)', vera: 'Vera (feminina)',
+  jane: 'Jane (feminina)', eve: 'Eve (feminina)', mary: 'Mary (feminina)', vera: 'Vera (feminina)', lola: 'Lola (feminina)',
   rafael: 'Rafael (masculina)', charles: 'Charles (masculina)', george: 'George (masculina)',
 }
 const READERS: Record<string, string> = {
-  lola: 'Lola', estelle: 'Estelle', fantine: 'Fantine', eve: 'Eve', jane: 'Jane', mary: 'Mary', vera: 'Vera',
+  jane: 'Jane', eve: 'Eve', mary: 'Mary', vera: 'Vera', lola: 'Lola',
   rafael: 'Rafael', charles: 'Charles', george: 'George',
 }
 // Os dois modelos do motor: o maior (padrão desde a 0.26.0), que lê melhor números, siglas e inglês, e o normal,
 // mais leve.
 const ENGINES: Record<string, string> = { large: 'Maior (padrão: lê melhor números, siglas e inglês)', normal: 'Normal (mais leve)' }
 const ENGINE_NAMES: Record<string, string> = { normal: 'normal', large: 'maior' }
-const ENGINE_MB: Record<string, number> = { large: 950, normal: 310 } // o que cada um baixa, como o speak informa
+const ENGINE_MB: Record<string, number> = { large: 880, normal: 280 } // o que cada um baixa, como o speak informa
 const POWER: Record<string, string> = { on: 'Ligada', quiet: 'Só o resumo escrito', off: 'Desligada' }
 // A velocidade da fala é um número de 0.5 a 2 que multiplica a velocidade normal da voz (1 é o normal). O painel
 // oferece estes passos; escrita (/speak speed 0.95), vale qualquer número da faixa, que o speak confere.
@@ -63,7 +62,7 @@ const speedOptions = (now: State | undefined) =>
 const USAGE =
   'Escreva a ação: /speak on, /speak quiet, /speak off, /speak mode full|summary, /speak size small|medium|large, /speak mic wait|play|auto, ' +
   '/speak speed <número de 0.5 a 2; 1 é o normal>, ' +
-  '/speak voice lola|estelle|fantine|eve|jane|mary|vera|rafael|charles|george, /speak model large|normal, /speak again [summary|full], /speak pause, /speak resume, /speak status, /speak stop, ' +
+  '/speak voice jane|eve|mary|vera|lola|rafael|charles|george, /speak model large|normal, /speak again [summary|full], /speak pause, /speak resume, /speak status, /speak stop, ' +
   '/speak install, /speak update ' +
   '(com "all" no fim, vale para todas as sessões).'
 const where = (all: boolean) => (all ? 'em todas as sessões' : 'nesta sessão')
@@ -120,7 +119,7 @@ let installShowing = false // a linha de status está com a instalação do moto
 // apaga nada: ali a linha fica muda. Conferido no começo da sessão e a cada mensagem nova, porque uma tela pode se ligar.
 let canDraw = true
 let startSurface = '' // a tela com que a sessão começou (terminal, VS Code); com ela, a linha nunca fica muda
-// O Claude Code escreve o nome do plugin na frente de toda linha de status ("speak: 🔊 Lola falando agora") e não dá
+// O Claude Code escreve o nome do plugin na frente de toda linha de status ("speak: 🔊 Jane falando agora") e não dá
 // como tirar. Por isso, onde o terminal desenha, o aviso de quem fala vai entre os rótulos de modo do rodapé
 // (SessionMode), que saem como o plugin os escreve. Nas outras telas (VS Code, app de mesa, celular) o aviso segue na
 // linha de status, que continua também com a instalação do motor, onde o nome do plugin ajuda.
@@ -254,11 +253,11 @@ let shownSpeech: string | undefined // a última linha de status do aviso de fal
 
 const folderOf = (x: Speech) => (x.dir || '').replace(/\/+$/, '').split('/').pop() || ''
 const mine = (x: Speech | null | undefined) => !!x && !!me && x.session === me
-// O nome da voz que lê a fala (Lola), quando é uma das vozes de leitura; senão, nada.
+// O nome da voz que lê a fala (Jane), quando é uma das vozes de leitura; senão, nada.
 const readerOf = (x: Speech) =>
   typeof x.voice === 'string' && Object.prototype.hasOwnProperty.call(READERS, x.voice) ? READERS[x.voice]! : ''
 
-// Com a voz conhecida, a linha diz quem fala ("Rafael falando agora", "Lola falando em <pasta>"); sem ela (a fala de
+// Com a voz conhecida, a linha diz quem fala ("Rafael falando agora", "Jane falando em <pasta>"); sem ela (a fala de
 // uma versão antiga, ou uma voz do motor que não é das de leitura), fica o aviso sem nome.
 function speechLine(h: Heard): string | undefined {
   const ownPaused = h.paused.some(mine)
@@ -388,7 +387,7 @@ async function kick($: Engine) {
   startWatch($, why)
 }
 
-// O tamanho vem do `speak autoinstall` (`installing started 950`); sem ele, vale o do modelo padrão, o maior.
+// O tamanho vem do `speak autoinstall` (`installing started 880`); sem ele, vale o do modelo padrão, o maior.
 const installingNote = (mb?: string) =>
   `Instalando a voz (cerca de ${mb && /^\d+$/.test(mb) ? mb : ENGINE_MB.large} MB, alguns minutos). Acompanhe com /speak status.`
 
@@ -728,7 +727,7 @@ export const register: Register = on => {
     )
   })
 
-  // O aviso de quem fala no rodapé do terminal, depois dos rótulos do próprio Claude Code ("focus & 🔊 Lola falando
+  // O aviso de quem fala no rodapé do terminal, depois dos rótulos do próprio Claude Code ("focus & 🔊 Jane falando
   // agora"). O relógio da fala pede o redesenho a cada mudança.
   on('ui.render', { component: 'SessionMode' }, ($, e, next) => {
     const line = modeSite && e.surface === MODE_SURFACE ? speechLine(heard) : undefined
