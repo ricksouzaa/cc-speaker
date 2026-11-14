@@ -55,7 +55,7 @@ def fake_engine(data):
         if not os.path.exists(os.path.join(data, rel)):
             open(os.path.join(data, rel), 'w').close()
     with open(os.path.join(data, 'ready'), 'w') as fh:
-        fh.write(speak.speak_pocket.stamp(speak.MODEL, speak.READING_VOICES))
+        fh.write(speak.speak_pocket.stamp(speak.engine_model(), speak.READING_VOICES))
 
 
 class FakeServer:
@@ -134,6 +134,16 @@ class Summary(unittest.TestCase):
     def test_long_line_is_cut(self):
         self.assertLessEqual(len(speak.to_speak('🔊 ' + 'a' * 1000, 'summary', 'medium')), 600)
 
+    def test_the_limit_is_measured_before_the_numbers_are_written_out(self):
+        said = speak.to_speak('🔊 ' + 'Custou R$ 1.250,00 às 23h30 em 14/11/2026. ' * 6, 'summary', 'small')
+        self.assertEqual(said.count('mil duzentos e cinquenta reais'), 6)
+        self.assertTrue(said.endswith('dois mil e vinte e seis.'))
+
+    def test_the_cut_never_falls_inside_a_number_or_a_word(self):
+        said = speak.to_speak('🔊 ' + 'Na versão 0.25.0 custou R$ 1.250 e ' * 20, 'summary', 'small')
+        self.assertRegex(said, r'(?:custou mil duzentos e cinquenta reais e|ponto zero|versão|custou|Na)$')
+        self.assertEqual(speak.to_speak('🔊 ' + 'palavra ' * 100, 'summary', 'small').split()[-1], 'palavra')
+
     def test_limit_follows_the_size(self):
         text = '🔊 ' + 'Uma frase curta aqui. ' * 100
         for size, limit in (('small', 300), ('medium', 600), ('large', 1200)):
@@ -189,40 +199,47 @@ class Filter(unittest.TestCase):
             self.assertEqual(speak.clean('Veja `%s` agora.' % gone), 'Veja agora.')
 
     def test_acronyms_are_spelled_unless_said_as_a_word(self):
-        self.assertEqual(speak.clean('O IBGE e a ANTT.'), 'O i bê gê éh e a á êne tê tê.')
-        self.assertEqual(speak.clean('O SUS, o PIX e o NASA.'), 'O SUS, o PIX e o NASA.')
-        self.assertEqual(speak.clean('CPF e CNPJ.'), 'cê pê éfe e cê êne pê jota.')
-        self.assertEqual(speak.clean('O IPVA e o IPCA.'), 'O i pê vê á e o i pê cê á.')
-        self.assertEqual(speak.clean('Tarefa XII, capítulo IV.'), 'Tarefa XII, capítulo IV.')
-        self.assertEqual(speak.clean('ATENÇÃO: NÃO mexa, A e B.'), 'ATENÇÃO: NÃO mexa, A e B.')
-        self.assertEqual(speak.clean('Um CD novo, API-REST e INSS.'), 'Um cê dê novo, API-REST e i êne ésse ésse.')
+        self.assertEqual(speak.clean('O IBGE e a ANTT.'), 'O ibegeé e a aenetetê.')
+        self.assertEqual(speak.clean('O SUS, o PIX e o NASA.'), 'O Sus, o Pics e o Nasa.')
+        self.assertEqual(speak.clean('CPF e CNPJ.'), 'cepeéfe e ceenepejóta.')
+        self.assertEqual(speak.clean('O IPVA e o IPCA.'), 'O ipeveá e o ipeceá.')
+        self.assertEqual(speak.clean('A API, o RH, o QA e a TI.'), 'A apeí, o erreagá, o queá e a teí.')
+        self.assertEqual(speak.clean('Tarefa XII, capítulo IV.'), 'Tarefa doze, capítulo quatro.')
+        self.assertEqual(speak.clean('O século XIX, o CI, o MD e o MIX.'), 'O século dezenove, o ceí, o emedê e o Mix.')
+        self.assertEqual(speak.clean('ATENÇÃO: NÃO mexa, A e B.'), 'Atenção: Não mexa, A e B.')
+        self.assertEqual(speak.clean('IMPORTANTE: leia.'), 'Importante: leia.')
+        self.assertEqual(speak.clean('Um CD novo, API-REST e INSS.'), 'Um cedê novo, apeí Rest e ieneesseésse.')
 
     def test_own_words_file_adds_acronyms_said_as_a_word(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         isolate(self, tmp.name)
-        self.assertEqual(speak.clean('A CVM e a ANBIMA.'), 'A cê vê ême e a á êne bê i ême á.')
+        self.assertEqual(speak.clean('A CVM e a ANBIMA.'), 'A ceveême e a aenebeiemeá.')
         os.makedirs(speak.CONF, exist_ok=True)
         with open(os.path.join(speak.CONF, 'words'), 'w') as fh:
             fh.write('# lidas como palavra\ncvm\nAnbima\n')
-        self.assertEqual(speak.clean('A CVM e a ANBIMA.'), 'A CVM e a ANBIMA.')
+        self.assertEqual(speak.clean('A CVM e a ANBIMA.'), 'A Cvm e a Anbima.')
 
     def test_enem_is_respelt_and_the_letter_e_is_stressed(self):
-        self.assertEqual(speak.clean('O Enem e o IBGE.'), 'O ênêi e o i bê gê éh.')
+        self.assertEqual(speak.clean('O Enem e o IBGE.'), 'O ênêi e o ibegeé.')
+        self.assertEqual(speak.clean('O ENEM.'), 'O ênêi.')
 
     def test_english_terms_heard_and_approved_are_respelt(self):
         # the engine takes text only: these are written the way it says them right, whatever their case
         self.assertEqual(speak.clean('O plugin tem um bug no backend.'), 'O plâguin tem um bâg no béquend.')
-        self.assertEqual(speak.clean('Abri um Pull Request no GitHub.'), 'Abri um pul riquést no Guit Râb.')
+        self.assertEqual(speak.clean('Abri um Pull Request no GitHub.'), 'Abri um pul ricuést no guitirrâbe.')
+        self.assertEqual(speak.clean('O release saiu sem downtime; avisei no Slack do commit e o SAC.'),
+                         'O rilíse saiu sem dáun-táim; avisei no Slék do comít e o Sac.')
         self.assertEqual(speak.clean('Dois Plugins, três Bugs.'), 'Dois plâguins, três bâgs.')
         # part of a longer word or of a hyphenated name: left alone; and so is any other English word
         self.assertEqual(speak.clean('O debug, o anti-bug e o deploy.'), 'O debug, o anti-bug e o deploy.')
         self.assertEqual(speak.clean('Nada em inglês aqui.'), 'Nada em inglês aqui.')
 
     def test_commit_codes_and_head_go(self):
-        self.assertEqual(speak.clean('Commit b48e609 e 93a66bd prontos.'), 'Commit e prontos.')
+        self.assertEqual(speak.clean('Commit b48e609 e 93a66bd prontos.'), 'comít e prontos.')
         self.assertEqual(speak.clean('Está no HEAD agora.'), 'Está no agora.')
-        self.assertEqual(speak.clean('Versão decade e 1234567 ficam.'), 'Versão decade e 1234567 ficam.')
+        self.assertEqual(speak.clean('Versão decade e 1234567 ficam.'),
+                         'Versão decade e um milhão duzentos e trinta e quatro mil quinhentos e sessenta e sete ficam.')
 
     def test_middle_dot_becomes_a_comma(self):
         self.assertEqual(speak.clean('um · dois'), 'um, dois')
@@ -240,7 +257,7 @@ class Filter(unittest.TestCase):
 
     def test_lowercase_words_with_hyphen_and_digit_go(self):
         self.assertEqual(speak.clean('Use wt-1 e python3-venv hoje'), 'Use e hoje')
-        self.assertEqual(speak.clean('Em 2026-10-29 sim'), 'Em 2026-10-29 sim')
+        self.assertEqual(speak.clean('Em 2026-10-29 sim'), 'Em vinte e nove de outubro de dois mil e vinte e seis sim')
 
     def test_slash_commands_are_read(self):
         self.assertEqual(speak.clean('para cortar uma fala que está tocando, o `/speak stop`'),
@@ -255,24 +272,38 @@ class Filter(unittest.TestCase):
 
     def test_versions_are_read_digit_by_digit(self):
         self.assertEqual(speak.clean('atualizei da versão 0.9.1 para a 0.9.2'),
-                         'atualizei da versão 0 ponto 9 ponto 1 para a 0 ponto 9 ponto 2')
+                         'atualizei da versão zero ponto nove ponto um para a zero ponto nove ponto dois')
         self.assertEqual(speak.clean('atualizei da versão `0.9.1` para a `v0.9.2`.'),
-                         'atualizei da versão 0 ponto 9 ponto 1 para a 0 ponto 9 ponto 2.')
+                         'atualizei da versão zero ponto nove ponto um para a zero ponto nove ponto dois.')
         self.assertEqual(speak.clean('Claude Code `2.1.312` e 1.5 e 1.2.3.4.'),
-                         'Claude Code 2 ponto 1 ponto 312 e 1 ponto 5 e 1 ponto 2 ponto 3 ponto 4.')
-        self.assertEqual(speak.clean('Em 2026-10-29 sim, commit b48e609 sai.'), 'Em 2026-10-29 sim, commit sai.')
-        self.assertEqual(speak.clean('Rode `speak update` na 0.9.1.'), 'Rode speak update na 0 ponto 9 ponto 1.')
-        self.assertEqual(speak.clean('e 1.2.3.4.5 ficam'), 'e 1.2.3.4.5 ficam')
+                         'Claude Code dois ponto um ponto trezentos e doze e um ponto cinco e um ponto dois ponto três ponto quatro.')
+        self.assertEqual(speak.clean('Em 2026-10-29 sim, commit b48e609 sai.'),
+                         'Em vinte e nove de outubro de dois mil e vinte e seis sim, comít sai.')
+        self.assertEqual(speak.clean('Rode `speak update` na 0.9.1.'), 'Rode speak update na zero ponto nove ponto um.')
+        self.assertEqual(speak.clean('e 1.2.3.4.5 ficam'), 'e um ponto dois ponto três ponto quatro ponto cinco ficam')
 
     def test_a_speed_written_with_a_dot_is_heard_with_the_dot(self):
-        # the engine reads "0.9x" as "zero nove xis": the dot is spelled, so the number is heard whole
+        # the dot of a speed is said, and so is its x
         self.assertEqual(speak.clean('A voz passa a falar a 0.9x nesta sessão.'),
-                         'A voz passa a falar a 0 ponto 9x nesta sessão.')
-        self.assertEqual(speak.clean('de 0.5x a 2x, hoje em 1.25x'), 'de 0 ponto 5x a 2x, hoje em 1 ponto 25x')
-        self.assertEqual(speak.clean('a 1.25X, e 1x é o normal'), 'a 1 ponto 25X, e 1x é o normal')
-        self.assertEqual(speak.clean('a 0,9x fica como está'), 'a 0,9x fica como está')  # the comma is read already
-        self.assertEqual(speak.clean('a grade 1.5x2.5 e o 0.9xyz'), 'a grade 1.5x2.5 e o 0.9xyz')  # not a speed
-        self.assertEqual(speak.full_text('A voz passa a falar a 1.25x.'), 'A voz passa a falar a 1 ponto 25x.')
+                         'A voz passa a falar a zero ponto nove xis nesta sessão.')
+        self.assertEqual(speak.clean('de 0.5x a 2x, hoje em 1.25x'), 'de zero ponto cinco xis a dois xis, hoje em um ponto vinte e cinco xis')
+        self.assertEqual(speak.clean('a 1.25X, e 1x é o normal'), 'a um ponto vinte e cinco xis, e um xis é o normal')
+        self.assertEqual(speak.clean('a 0,9x fica como está'), 'a zero vírgula nove xis fica como está')
+        self.assertEqual(speak.clean('a grade 1.5x2.5 e o 0.9xyz'),
+                         'a grade um ponto cinco x dois ponto cinco e o zero ponto nove xyz')  # not a speed
+        self.assertEqual(speak.full_text('A voz passa a falar a 1.25x.'), 'A voz passa a falar a um ponto vinte e cinco xis.')
+
+    def test_numbers_are_written_out_because_the_engine_does_not_read_digits(self):
+        self.assertEqual(speak.clean('A diferença era de até R$ 1.250,00, depois das 23h30.'),
+                         'A diferença era de até mil duzentos e cinquenta reais, depois das vinte e três horas e trinta.')
+        self.assertEqual(speak.clean('Os 447 testes passaram em 38 segundos, uma melhora de quase 70%.'),
+                         'Os quatrocentos e quarenta e sete téstes passaram em trinta e oito segundos, uma melhora de '
+                         'quase setenta por cento.')
+        self.assertEqual(speak.clean('Na sexta, 14/11/2026, saiu a 2.4.1 (cerca de 280 MB).'),
+                         'Na sexta, catorze de novembro de dois mil e vinte e seis, saiu a dois ponto quatro ponto um '
+                         '(cerca de duzentos e oitenta megabaites).')
+        self.assertEqual(speak.clean('1. O 1º passo leva 2 horas.'), 'O primeiro passo leva duas horas.')
+        self.assertNotRegex(speak.full_text('| Motor | Memória |\n|---|---|\n| Pocket | 0,9 GB |\n\nSão 3/5 em 16:9.'), r'\d')
 
     def test_paths_still_go(self):
         for path in ('/home/x/y', '~/.claude/x', 'dir/arquivo', '/tmp/a.txt', './bin/speak', '../x', '/usr/bin/env',
@@ -2886,7 +2917,7 @@ class Again(unittest.TestCase):
         self.run_speak('say', '-', stdin=self.NO_LINE)
         self.calls.clear()
         code, out, _ = self.run_speak('again', 'summary')
-        self.assertEqual((code, self.spoken()), (0, ['Fiz a mudança no painel. Rode os testes depois.']))
+        self.assertEqual((code, self.spoken()), (0, ['Fiz a mudança no painel. Rode os téstes depois.']))
         self.assertIn('não tinha resumo', out)
 
     def test_without_a_stored_reply_it_says_so_and_fails(self):
@@ -3175,6 +3206,197 @@ class Speed(unittest.TestCase):
         self.assertEqual(len(speak.heard(b'', 1.0)), 0)  # a piece with nothing to say
 
 
+class Model(unittest.TestCase):
+    """Which of the engine's two Portuguese models speaks: the normal one, or the larger one the person chose."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        isolate(self, self.tmp.name)
+
+    def choose(self, name):
+        os.makedirs(speak.CONF, exist_ok=True)
+        with open(speak.MODEL_FILE, 'w') as fh:
+            fh.write(name + '\n')
+
+    def test_the_engine_model_follows_the_choice_and_rubbish_is_normal(self):
+        self.assertEqual((speak.model_choice(), speak.engine_model()), ('normal', 'portuguese'))
+        self.choose('large')
+        self.assertEqual((speak.model_choice(), speak.engine_model()), ('large', 'portuguese_24l'))
+        self.choose('lixo')
+        self.assertEqual((speak.model_choice(), speak.engine_model()), ('normal', 'portuguese'))
+
+    def test_an_engine_installed_with_the_other_model_is_not_ready(self):
+        fake_engine(speak.DATA)
+        self.assertTrue(speak.engine_ready())
+        self.choose('large')
+        self.assertFalse(speak.engine_ready())
+        fake_engine(speak.DATA)  # installed again, now with the larger one
+        self.assertTrue(speak.engine_ready())
+
+    def test_how_much_each_model_fetches(self):
+        self.assertEqual(speak.download_mb(), 280)
+        self.choose('large')
+        self.assertEqual(speak.download_mb(), 850)
+
+    def test_the_install_fetches_the_chosen_model(self):
+        self.choose('large')
+        handed = []
+        with mock.patch.object(speak.speak_pocket, 'install', lambda *a: handed.append(a)), \
+                mock.patch.object(speak.speak_pocket, 'program_file', lambda system: ('x.tar.gz', 'abc')), \
+                mock.patch.object(speak.subprocess, 'check_call', lambda *a, **k: 0), \
+                mock.patch.object(speak, 'venv_works', lambda: True), \
+                mock.patch.object(speak.speak_os, 'SYSTEM', 'linux'), mock.patch('sys.stdout', io.StringIO()):
+            self.assertEqual(speak.install_steps('uv'), 0)
+        self.assertEqual(handed[0][2], 'portuguese_24l')
+
+    def run_model(self, name, word):
+        out = io.StringIO()
+        with mock.patch.object(speak, 'autoinstall', lambda: word) as _, mock.patch('sys.stdout', out):
+            code = speak.main(['model', name])
+        return code, out.getvalue()
+
+    def test_choosing_one_not_installed_starts_its_download_and_says_how_much(self):
+        fake_engine(speak.DATA)
+        code, said = self.run_model('large', ('installing', True))
+        self.assertEqual(code, 0)
+        self.assertIn('o modelo maior está sendo baixado em segundo plano (cerca de 850 MB)', said)
+        self.assertIn('a voz fica calada até terminar', said)
+
+    def test_choosing_the_one_installed_starts_nothing(self):
+        fake_engine(speak.DATA)
+        started = []
+        with mock.patch.object(speak, 'autoinstall', lambda: started.append(1) or ('ready', False)), \
+                mock.patch('sys.stdout', io.StringIO()) as out:
+            self.assertEqual(speak.main(['model', 'normal']), 0)
+        self.assertEqual(started, [])
+        self.assertNotIn('baixado', out.getvalue())
+
+    def test_an_install_already_running_of_the_other_model_is_followed_by_this_one(self):
+        fake_engine(speak.DATA)
+        with mock.patch.object(speak, 'install_progress', lambda: {'fase': 'baixando', 'modelo': 'portuguese'}):
+            code, said = self.run_model('large', ('installing', False))
+        self.assertEqual(code, 0)
+        self.assertIn('outra instalação está em andamento; o modelo maior é baixado em seguida, sozinho', said)
+        self.assertNotIn('rode', said.splitlines()[0])
+
+    def test_an_install_already_running_of_this_model_is_said_so(self):
+        fake_engine(speak.DATA)
+        with mock.patch.object(speak, 'install_progress', lambda: {'fase': 'baixando', 'modelo': 'portuguese_24l'}):
+            code, said = self.run_model('large', ('installing', False))
+        self.assertEqual(code, 0)
+        self.assertIn('o modelo maior já está sendo baixado em segundo plano', said)
+        self.assertNotIn('outra instalação', said)
+
+    def test_choosing_a_model_tries_again_an_install_that_failed(self):
+        fake_engine(speak.DATA)
+        os.makedirs(speak.STATE, exist_ok=True)
+        with open(speak.INSTALL_FAILED, 'w') as fh:
+            fh.write(speak.plugin_version())
+        self.run_model('large', ('installing', True))
+        self.assertFalse(os.path.exists(speak.INSTALL_FAILED))
+
+    def test_a_choice_made_while_the_install_runs_is_installed_right_after(self):
+        calls = []
+
+        def install():
+            calls.append(speak.engine_model())
+            if len(calls) == 1:
+                self.choose('large')  # the person changes the model in the middle of the download
+            return 0
+        with mock.patch.object(speak, 'install', install):
+            self.assertEqual(speak.install_unlocked(), 0)
+        self.assertEqual(calls, ['portuguese', 'portuguese_24l'])
+
+    def test_the_progress_says_which_model_is_being_installed(self):
+        self.choose('large')
+        written = []
+        with mock.patch.object(speak.speak_pocket, 'install', lambda *a: a[-1]('model.safetensors', 1, 2, 1, 3)), \
+                mock.patch.object(speak.speak_pocket, 'program_file', lambda system: ('x.tar.gz', 'abc')), \
+                mock.patch.object(speak.subprocess, 'check_call', lambda *a, **k: 0), \
+                mock.patch.object(speak, 'venv_works', lambda: True), \
+                mock.patch.object(speak, 'write_progress', lambda **fields: written.append(fields)), \
+                mock.patch.object(speak.speak_os, 'SYSTEM', 'linux'), mock.patch('sys.stdout', io.StringIO()):
+            self.assertEqual(speak.install_steps('uv'), 0)
+        self.assertEqual([f.get('modelo') for f in written], ['portuguese_24l', 'portuguese_24l'])
+
+    def test_without_what_installs_it_the_person_is_told_to_install(self):
+        fake_engine(speak.DATA)
+        for word in ('no-uv', 'failed', 'off'):
+            code, said = self.run_model('large', (word, False))
+            self.assertEqual(code, 0)
+            self.assertIn('o modelo maior ainda não está instalado; rode: speak install', said)
+
+
+class Reviewed(unittest.TestCase):
+    """What an independent reading of 0.25.0 found said wrong, each as it has to come out."""
+
+    def test_an_acronym_beside_a_digit_or_a_hyphen(self):
+        self.assertEqual(speak.clean('UTF-8, SHA-256, MP3 e GPT-4'),
+                         'uteéfe oito, esseagaá duzentos e cinquenta e seis, emepê três e gepetê quatro')
+        self.assertEqual(speak.clean('COVID-19 em PT-BR'), 'Covid dezenove em petê beérre')
+
+    def test_an_acronym_in_the_plural(self):
+        self.assertEqual(speak.clean('As APIs, os PRs, as URLs e os IDs'), 'As apeís, os peérres, as uerreéles e os idês')
+        self.assertEqual(speak.clean('as UPAs'), 'as Upas')
+
+    def test_a_name_with_underscores(self):
+        self.assertEqual(speak.clean('a variável CLAUDE_SPEAK_SPEED vale mais'), 'a variável Claude Speak Speed vale mais')
+
+    def test_three_letters_that_look_roman_are_an_acronym(self):
+        self.assertEqual(speak.clean('A CLI e o MDX'), 'A ceeleí e o emedexis')
+        self.assertEqual(speak.clean('tamanho XL e o MIX'), 'tamanho xiséle e o Mix')
+
+    def test_a_roman_numeral_with_other_letters(self):
+        self.assertEqual(speak.clean('capítulo XLII, século XIV, ano MMXXVI e o LIV'),
+                         'capítulo quarenta e dois, século catorze, ano dois mil e vinte e seis e o cinquenta e quatro')
+
+    def test_a_common_word_in_capitals_is_not_spelled(self):
+        self.assertEqual(speak.clean('NOTA: isso NUNCA muda, SEMPRE fica'), 'Nota: isso Nunca muda, Sempre fica')
+
+    def test_a_version_with_a_suffix(self):
+        self.assertEqual(speak.clean('a 0.25.0-rc1 saiu'), 'a zero ponto vinte e cinco ponto zero érre cê um saiu')
+
+    def test_ranges_and_rates_are_not_taken_for_names_or_paths(self):
+        self.assertEqual(speak.clean('das 14h-16h, pronto em 2-3h'),
+                         'das catorze horas a dezesseis horas, pronto em duas a três horas')
+        self.assertEqual(speak.clean('custa R$ 30/ano, a 120 km/h'), 'custa trinta reais por ano, a cento e vinte quilômetros por hora')
+
+    def test_words_the_engine_stresses_wrong(self):
+        self.assertEqual(speak.clean('Rodei o teste, os testes passaram e eu publico a versão.'),
+                         'Rodei o téste, os téstes passaram e eu publíco a versão.')
+        self.assertEqual(speak.clean('Depois inicio, termino e calculo.'), 'Depois inicío, termíno e calcúlo.')
+        self.assertEqual(speak.clean('Ela publica, pratica e critica; isso influencia.'),
+                         'Ela publíca, pratíca e critíca; isso influencía.')
+        text = 'O público viu o início, o término e o cálculo; a prática é pública.'
+        self.assertEqual(speak.clean(text), text)
+
+
+class DirectText(unittest.TestCase):
+    """A text handed on the command line (`speak say`, `speak test`) is made fit to be heard like a reply is: the
+    engine reads neither digits nor capitals."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        isolate(self, self.tmp.name)
+
+    def test_say_with_a_text_writes_the_numbers_out(self):
+        said = []
+        with mock.patch.object(speak, 'speak_background', lambda text, session, **k: said.append(text) or 0):
+            self.assertEqual(speak.main(['say', 'São R$ 2,50 no IBGE.']), 0)
+        self.assertEqual(said, ['São dois reais e cinquenta centavos no ibegeé.'])
+
+    def test_the_test_sentence_too_and_the_default_one_is_kept(self):
+        fake_engine(speak.DATA)
+        calls = []
+        with mock.patch.object(speak.subprocess, 'call', lambda argv, **k: calls.append(argv[-1]) or 0):
+            self.assertEqual(speak.main(['test', 'Às 23h30, 70%.']), 0)
+            self.assertEqual(speak.main(['test']), 0)
+        self.assertEqual(calls, ['Às vinte e três horas e trinta, setenta por cento.',
+                                 'Olá! A voz do Claude Code está funcionando.'])
+
+
 class Voice(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -3212,6 +3434,29 @@ class Voice(unittest.TestCase):
         self.assertIn('voz de leitura: fantine', self.speak('status', CLAUDE_SPEAK_VOICE='fantine').stdout)
         self.assertIn('voz de leitura: lola', self.speak('status', CLAUDE_SPEAK_VOICE='ninguém').stdout)
 
+    def test_the_model_is_normal_unless_chosen_and_the_list_marks_it(self):
+        out = self.speak('model').stdout
+        self.assertRegex(out, r'(?m)^\* normal \(')
+        self.assertRegex(out, r'(?m)^  large \(')
+        self.assertIn('modelo: normal', self.speak('status').stdout)
+        self.assertEqual(json.loads(self.speak('status', '--json').stdout)['model'], 'normal')
+
+    def test_choosing_a_model_saves_it_for_every_session_and_says_what_is_missing(self):
+        r = self.speak('model', 'large')  # no uv in this PATH: nothing is started
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(open(data_dir(self.tmp.name, 'config', 'model')).read().strip(), 'large')
+        self.assertIn('modelo: maior', r.stdout)
+        self.assertIn('ainda não está instalado', r.stdout)
+        self.assertRegex(self.speak('model').stdout, r'(?m)^\* large \(')
+        self.assertEqual(json.loads(self.speak('status', '--json').stdout)['model'], 'large')
+        self.assertIn('modelo: normal', self.speak('model', 'normal').stdout)
+
+    def test_an_unknown_model_is_refused_and_nothing_is_saved(self):
+        r = self.speak('model', 'gigante')
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('speak model normal', r.stderr)
+        self.assertFalse(os.path.exists(data_dir(self.tmp.name, 'config', 'model')))
+
     def test_the_voices_of_the_former_engine_left_and_who_had_one_hears_the_nearest(self):
         listed = self.speak('voice').stdout
         for former in ('dora', 'alex', 'santa', 'alice'):
@@ -3233,8 +3478,9 @@ class Voice(unittest.TestCase):
         self.assertIn('voz de leitura: george', self.speak('voice', 'george').stdout)  # and any other choice replaces it
 
     def test_every_voice_is_one_the_engine_has_for_the_model_in_use(self):
-        have = speak.speak_pocket.MODELS[speak.MODEL]['voices']
-        self.assertEqual([name for name in speak.READING_VOICES if name not in have], [])
+        for model in speak.MODELS.values():
+            have = speak.speak_pocket.MODELS[model]['voices']
+            self.assertEqual([name for name in speak.READING_VOICES if name not in have], [])
         self.assertIn(speak.DEFAULT_VOICE, speak.READING_VOICES)
         self.assertEqual([new for new in speak.RETIRED_VOICES.values() if new not in speak.READING_VOICES], [])
         self.assertEqual(sorted(v['kind'] for v in speak.READING_VOICES.values()), ['feminina'] * 3 + ['masculina'] * 3)
@@ -3512,7 +3758,7 @@ class AutoInstallCommand(unittest.TestCase):
         self.popen.assert_not_called()
 
     def test_the_command_prints_the_word_and_exits_0(self):
-        for setup, word in ((lambda: None, 'no-uv'), (self.have_uv, 'installing started')):
+        for setup, word in ((lambda: None, 'no-uv'), (self.have_uv, 'installing started 280')):  # and the MB to fetch
             setup()
             out = io.StringIO()
             with self.mock.patch('sys.stdout', out):
@@ -3585,6 +3831,7 @@ class AutoInstall(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.state = os.path.join(self.tmp.name, 'state')
         self.words = {'autoinstall': 'installing started\n'}
+        START_MOD.DOWNLOAD['mb'] = '280'
         self.calls = []
         self.addCleanup(mock.patch.stopall)
         mock.patch.object(START_MOD, 'run', self.fake_run).start()
@@ -3634,6 +3881,13 @@ class AutoInstall(unittest.TestCase):
         self.assertIn('regra 🔊', context)
         self.assertIn('sendo instalado em segundo plano', context)
         self.assertIn('280 MB', context)
+
+    def test_the_notice_says_how_much_the_chosen_model_fetches(self):
+        self.words['autoinstall'] = 'installing started 850\n'
+        out = json.loads(self.main_out('engine\n'))
+        self.assertIn('cerca de 850 MB', out['hookSpecificOutput']['additionalContext'])
+        self.assertIn('cerca de 850 MB', out['systemMessage'])
+        self.assertNotIn('{mb}', json.dumps(out))
 
     def test_a_warning_for_the_person_goes_in_system_message_and_the_rules_in_the_context(self):
         out = json.loads(self.main_out('engine\n'))
@@ -3812,7 +4066,7 @@ class InstallLock(unittest.TestCase):
         self.assertEqual(calls, [['pip', 'install', '-q', '--python', speak.VENV_PY, 'numpy']])  # the environment was fine
         (folder, system, model, voices, fetch, report), = handed
         self.assertEqual((folder, system, model, list(voices)),
-                         (speak.DATA, 'linux', speak.MODEL, list(speak.READING_VOICES)))
+                         (speak.DATA, 'linux', 'portuguese', list(speak.READING_VOICES)))
         self.assertIs(fetch, speak.urllib.request.urlretrieve)
         self.assertNotIn('Kokoro', said)
         self.assertFalse(os.path.exists(speak.INSTALL_FAILED))
@@ -3929,7 +4183,7 @@ class InstallProgress(unittest.TestCase):
 
     def steps(self):
         """The dependencies and each file of the engine."""
-        return 1 + len(speak.speak_pocket.wanted(speak.DATA, speak.speak_os.SYSTEM, speak.MODEL, speak.READING_VOICES))
+        return 1 + len(speak.speak_pocket.wanted(speak.DATA, speak.speak_os.SYSTEM, speak.engine_model(), speak.READING_VOICES))
 
     def read(self):
         with open(speak.INSTALL_PROGRESS) as fh:
@@ -3947,8 +4201,8 @@ class InstallProgress(unittest.TestCase):
             report('lola.safetensors', 9000, 5000, 5, 10)  # more than announced: never beyond the total
             seen.append(self.read())
         self.assertEqual(self.install_with(engine), 0)
-        self.assertEqual(seen[0], {'fase': 'baixando', 'arquivo': 'model.safetensors', 'feito': 2000, 'total': 5000,
-                                   'passo': 5, 'passos': self.steps()})
+        self.assertEqual(seen[0], {'fase': 'baixando', 'modelo': 'portuguese', 'arquivo': 'model.safetensors',
+                                   'feito': 2000, 'total': 5000, 'passo': 5, 'passos': self.steps()})
         self.assertEqual((seen[1]['arquivo'], seen[1]['passo'], seen[1]['feito'], seen[1]['total']),
                          ('lola.safetensors', 6, 0, 0))
         self.assertEqual(seen[2]['feito'], 5000)
@@ -4309,7 +4563,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.24.0')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.25.0')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

@@ -28,6 +28,11 @@
   speak status --json      the same state as one JSON line (used by the /speak pane)
   speak voice [name]       without a name: list the voices (lola, estelle, fantine, rafael, charles, george) and
                            mark the current one; with a name: choose it for every session
+  speak model [normal|large]  without a name: list the two models of the engine and mark the current one; with a
+                           name: choose it for every session (normal, the default: ~280 MB to fetch, ~1 GB of memory
+                           while it speaks; large: reads acronyms and English better, ~850 MB, ~2 GB of memory and
+                           about twice the wait before the first sound). A model not installed yet is fetched in
+                           the background, in the place of the other, and the voice is silent until it ends
   speak rule               print rules/speak.md with {line} replaced by the line of the mode and size in force
                            (`rule resumed`: a reopened conversation, nothing is recorded as told)
                            (the SessionStart hook hands it to Claude)
@@ -35,12 +40,13 @@
                            (on stderr, a line "processos acima: pid nome, ...": the ancestors, to find the session)
   speak test [text]        speak a test sentence, in the foreground (errors show)
   speak install            install the engine: Python 3.12 via uv with numpy (on the Mac also sounddevice, optional),
-                           the Pocket TTS program, its Portuguese model and the voices (~280 MB, each file checked
+                           the Pocket TTS program, the chosen Portuguese model and the voices (~280 MB, or ~850 MB with
+                           the larger model; each file checked
                            against its SHA-256); no sudo; what the former engine (Kokoro) left is removed
   speak autoinstall        start `speak install` in the background unless it is running, failed already in this plugin
                            version, the uv is missing or CLAUDE_SPEAK_AUTOINSTALL=0; prints one word: ready (engine
-                           there), installing, no-uv, failed or off (plus `started` after installing when this call
-                           started it); exit 0 (used by hooks/speak-start.py and by the
+                           there), installing, no-uv, failed or off (plus `started` and the MB of the download after
+                           installing when this call started it); exit 0 (used by hooks/speak-start.py and by the
                            /speak module when the plugin is turned on in the middle of a session)
   speak say [text | -]     speak in the background and return at once; `-` reads the reply from stdin and applies
                            the mode (used by hooks/speak-stop.py)
@@ -96,6 +102,7 @@ import time
 import urllib.request
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))  # python3 -I does not add it
+import speak_numbers  # noqa: E402
 import speak_os  # noqa: E402
 import speak_paths  # noqa: E402
 import speak_pocket  # noqa: E402
@@ -148,7 +155,13 @@ RETIRED_VOICES = {'alice': 'lola', 'dora': 'lola', 'pf_dora': 'lola', 'alex': 'r
                   'santa': 'rafael', 'pm_santa': 'rafael'}
 RULE = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'rules', 'speak.md')
 VENV_PY = os.path.join(DATA, '.venv', 'bin', 'python')
-MODEL = 'portuguese'  # which of the engine's models speaks (speak_pocket.MODELS): the lighter of the two Portuguese ones
+MODEL_FILE = os.path.join(CONF, 'model')  # the person's choice, written by `speak model` (missing: normal)
+MODELS = {'normal': 'portuguese', 'large': 'portuguese_24l'}  # the choice -> the engine's model (speak_pocket.MODELS)
+MODEL_TEXT = {'normal': 'normal', 'large': 'maior'}
+MODEL_NOTE = {'normal': 'o padrão: cerca de 1 GB de memória durante a fala, 2 a 3 segundos até o primeiro som',
+              'large': 'lê melhor siglas e inglês: cerca de 2 GB de memória durante a fala, 5 a 6 segundos até o '
+                       'primeiro som'}
+PROGRAM_MB = 25  # about what the engine's program weighs to fetch (its size is not published with the release)
 PACKAGES = ['numpy']  # what the speech needs of Python: the samples are stretched and handed to the player with it
 FORMER_ENGINE = ('kokoro-v1.0.onnx', 'voices-v1.0.bin')  # the files of Kokoro, the engine until 0.23.0 (see `former_engine`)
 ENGINE_LOG = os.path.join(STATE, 'engine.log')  # what the engine wrote during the last speech
@@ -545,8 +558,28 @@ def is_on(session=None):
     return power(session) == 'on'
 
 
+def model_choice():
+    """'normal' (the default) or 'large': which of the engine's two Portuguese models speaks, for every session."""
+    try:
+        with open(MODEL_FILE) as fh:
+            wanted = fh.read().strip()
+    except OSError:
+        wanted = ''
+    return wanted if wanted in MODELS else 'normal'
+
+
+def engine_model():
+    return MODELS[model_choice()]
+
+
+def download_mb():
+    """About how many MB an install of the chosen model fetches, rounded to the ten."""
+    files = speak_pocket.wanted(DATA, speak_os.SYSTEM, engine_model(), READING_VOICES)
+    return int(round((sum(size for _, _, size, _ in files) / 1e6 + PROGRAM_MB) / 10.0)) * 10
+
+
 def engine_ready():
-    return os.path.exists(VENV_PY) and speak_pocket.ready(DATA, MODEL, READING_VOICES)
+    return os.path.exists(VENV_PY) and speak_pocket.ready(DATA, engine_model(), READING_VOICES)
 
 
 # --- what is spoken -----------------------------------------------------------------------------------------------
@@ -555,8 +588,8 @@ VERSION = r'v?(\d+(?:\.\d+){1,3})'  # two to four numbers separated by dots, an 
 
 
 def _version_spoken(match):
-    """0.9.1 -> "0 ponto 9 ponto 1": spelled so the voice reads neither a date nor a decimal number. The same for a
-    speed, 0.9x -> "0 ponto 9x": left as written, the engine drops the dot and says "zero nove xis"."""
+    """0.9.1 -> "0 ponto 9 ponto 1": spelled so the voice reads neither a date nor a decimal number (the numbers
+    themselves are written out further on: "zero ponto nove ponto um"). The same for a speed, 0.9x."""
     return match.group(1).replace('.', ' ponto ')
 
 
@@ -583,22 +616,42 @@ def _slash_in_code(match):
     return (_slash_name(found.group(1)) + found.group(2)).strip()
 
 
-# Acronyms: the engine (espeak) guesses at ones written in capitals, so IBGE comes out as a word. Spell them letter by
-# letter, except those that are said as a word (this list, plus the person's own in CONF/words, one per line).
+# Acronyms: written in capitals the engine says noise, so IBGE goes as "ibegeé": the names of the letters in one
+# word, the last one stressed. Those said as a word (this list, plus the person's own in CONF/words, one per line)
+# go with only the first letter in capitals ("Sus", "Nasa"), which the engine reads as a word.
 LETTER_NAMES = dict(zip('ABCDEFGHIJKLMNOPQRSTUVWXYZ', (
-    'á bê cê dê éh éfe gê agá i jota cá éle ême êne ó pê quê érre ésse tê u vê dáblio xis ípsilon zê').split()))
+    'a be ce de e efe ge aga i jota ca ele eme ene o pe que erre esse te u ve dablio xis ipsilon ze').split()))
+LAST_LETTER_NAMES = dict(zip('ABCDEFGHIJKLMNOPQRSTUVWXYZ', (
+    'á bê cê dê é éfe gê agá í jóta cá éle ême êne ó pê quê érre ésse tê ú vê dáblio xis ípsilon zê').split()))
 WORD_ACRONYMS = frozenset((
     'SUS PIX ONU OTAN NASA FIFA UEFA OPEP UNESCO UNICEF MERCOSUL AIDS COVID OK '
     'ENEM PROUNI FIES SISU CAPES FINEP FAPESP UNICAMP UNESP PUC '
     'FUNAI ANVISA ANATEL ANEEL ANAC ANTAQ IBAMA INMET INPE INMETRO BACEN COPOM SELIC CADE ABIN '
     'DETRAN PROCON SAMU UPA SEBRAE SENAI SENAC SESI SESC SENAT SENAR '
-    'PIS PASEP COFINS PIB CEP FUNDEB SERPRO DATAPREV PETROBRAS EMBRAER EMBRAPA EMBRATEL FUNASA PAC TED').split())
+    'PIS PASEP COFINS PIB CEP FUNDEB SERPRO DATAPREV PETROBRAS EMBRAER EMBRAPA EMBRATEL FUNASA PAC TED SAC REST').split())
+# Words often written all in capitals, which are neither acronyms to spell nor Roman numerals (MIX, MIL).
+CAPITAL_WORDS = frozenset(('NOTA AVISO NUNCA SEMPRE TODO TODOS TODAS ERRO DICA NADA TUDO AGORA ANTES DEPOIS README '
+                           'MIX MIL').split())
 ROMAN = re.compile(r'(?=[IVXLCDM])M{0,3}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3})')
+ROMAN_VALUES = {'I': 1, 'V': 5, 'X': 10, 'L': 50, 'C': 100, 'D': 500, 'M': 1000}
+
+
+def roman_number(word):
+    """XIV -> 14, XLII -> 42."""
+    total = 0
+    for letter, following in zip(word, word[1:] + ' '):
+        value = ROMAN_VALUES[letter]
+        total += -value if ROMAN_VALUES.get(following, 0) > value else value
+    return total
 
 
 def spelled_acronyms(text):
-    """IBGE -> "i bê gê é": capitals of two to six letters are spelled out, unless said as a word (WORD_ACRONYMS or
-    CONF/words) or a Roman numeral."""
+    """IBGE -> "ibegeé": capitals of two to six letters are spelled out, unless said as a word (WORD_ACRONYMS,
+    CAPITAL_WORDS or CONF/words: "Sus") or a Roman numeral (XIV -> "catorze", XLII -> "quarenta e dois"; one with C, D
+    or M is a numeral only from four letters on, so that CLI, MDX and MMC stay acronyms, and XL stays the size). The
+    plural keeps its s (APIs -> "apeís") and a hyphen before a digit or another acronym becomes a space (UTF-8,
+    PT-BR). A name with underscores (CLAUDE_SPEAK_SPEED) is said word by word. Any other word all in capitals
+    (ATENÇÃO) keeps only the first one."""
     try:
         with open(os.path.join(CONF, 'words')) as fh:
             own = {w.strip().upper() for w in fh if w.strip() and not w.lstrip().startswith('#')}
@@ -606,18 +659,33 @@ def spelled_acronyms(text):
         own = set()
 
     def spell(match):
-        word = match.group(0)
-        if word in WORD_ACRONYMS or word in own or (ROMAN.fullmatch(word) and word not in ('CD', 'DC')):
-            return word
-        return ' '.join(LETTER_NAMES[c] for c in word)
-    return re.sub(r'(?<![\w-])[A-Z]{2,6}(?![\w-])', spell, text)
+        word, plural = match.group(1), match.group(2)
+        tail = plural + (' ' if match.group(3) else '')
+        if word in WORD_ACRONYMS or word in CAPITAL_WORDS or word in own:
+            return word.capitalize() + tail
+        if not plural and ROMAN.fullmatch(word) and re.fullmatch('[IVX]+|[IVXL]{3,}|[IVXLCDM]{4,}', word):
+            return speak_numbers.cardinal(roman_number(word)) + tail
+        return ''.join(LETTER_NAMES[c] for c in word[:-1]) + LAST_LETTER_NAMES[word[-1]] + tail
+    text = re.sub(r'(?<![\w-])[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+(?![\w-])', lambda m: m.group(0).replace('_', ' ').title(), text)
+    text = re.sub(r'(?<![^\W\d])([A-Z]{2,6})(s?)(?![^\W\d])(-(?=[\dA-Z]))?', spell, text)
+    return re.sub(r'(?<![^\W\d])[^\W\d_a-zà-ÿ]{2,}(?![^\W\d])', lambda m: m.group(0).capitalize(), text)
 
 
 # Words written one way and said another, respelled for the engine, which takes text only (it cannot be handed the
-# sounds, as Kokoro could until 0.23.0). The English terms here are the ones heard and approved; others are read as
-# the engine reads them.
-RESPELL = {'ENEM': 'ênêi', 'PLUGIN': 'plâguin', 'PLUGINS': 'plâguins', 'GITHUB': 'Guit Râb', 'PULL': 'pul',
-           'REQUEST': 'riquést', 'REQUESTS': 'riquésts', 'BUG': 'bâg', 'BUGS': 'bâgs', 'BACKEND': 'béquend'}
+# sounds, as Kokoro could until 0.23.0). Each was checked with a transcriber of speech (not yet by ear): written
+# this way it is heard as the word it is more often than as written. Other English words are read as the engine
+# reads them, which the larger model does better than the normal one.
+RESPELL = {'ENEM': 'ênêi', 'PIX': 'Pics', 'PLUGIN': 'plâguin', 'PLUGINS': 'plâguins', 'GITHUB': 'guitirrâbe',
+           'PULL': 'pul', 'REQUEST': 'ricuést', 'REQUESTS': 'ricuésts', 'BUG': 'bâg', 'BUGS': 'bâgs',
+           'BACKEND': 'béquend', 'DOWNTIME': 'dáun-táim', 'RELEASE': 'rilíse', 'RELEASES': 'rilíses',
+           'SLACK': 'Slék', 'COMMIT': 'comít', 'COMMITS': 'comíts', 'TESTE': 'téste', 'TESTES': 'téstes'}
+# A verb written like a noun that has an accent ("eu publico" and "o público"): without the accent the engine says the
+# noun, which it has heard more. The accent on the syllable the verb stresses makes it say the verb.
+RESPELL.update({'PUBLICO': 'publíco', 'INICIO': 'inicío', 'TERMINO': 'termíno', 'CALCULO': 'calcúlo',
+                'CRITICO': 'critíco', 'PRATICO': 'pratíco', 'DEPOSITO': 'deposíto', 'NUMERO': 'numéro',
+                'PUBLICA': 'publíca', 'PRATICA': 'pratíca', 'CRITICA': 'critíca', 'DUVIDA': 'duvída',
+                'INFLUENCIA': 'influencía', 'EVIDENCIA': 'evidencía', 'REFERENCIA': 'referencía'})
+SUFFIXES = {'rc': 'érre cê', 'beta': 'beta', 'alpha': 'alfa'}  # 0.25.0-rc1
 
 
 def clean(text):
@@ -629,7 +697,8 @@ def clean(text):
     text = re.sub(r'`([^`]*)`', _inline_code, text)
     text = re.sub(r'https?://\S+', '', text)
     text = re.sub(r'(?<![\w-])(?=[0-9a-fA-F]*\d)(?=[0-9a-fA-F]*[a-fA-F])[0-9a-fA-F]{7,40}(?![\w-])', '', text)  # commit code
-    text = re.sub(r'(?<![\w.-])(\d+\.\d+)(?=[xX](?![\w-]))', _version_spoken, text)  # 0.9x: a speed, the dot is said
+    text = re.sub(r'(?<=\d)-(rc|beta|alpha)\.?(?=\d|\b)', lambda m: ' %s ' % SUFFIXES[m.group(1)], text)
+    text = speak_numbers.forms(text)  # money, hours, dates, percentages: before a rule below takes their pieces
     text = re.sub(r'(?<![\w.-])' + VERSION + r'(?![\w-]|\.\d)', _version_spoken, text)  # 0.9.1, v2.1.312
     text = re.sub(r'\bHEAD\b', '', text)
     text = spelled_acronyms(text)
@@ -646,16 +715,30 @@ def clean(text):
     text = re.sub(r'\(\s*[,;:]?\s*\)', '', text)
     text = re.sub(r'\s+([,;:.!?])', r'\1', text)
     text = re.sub(r'([,;:])(?:\s*[,;:])+', r'\1', text)
+    text = speak_numbers.digits(text)  # no digit reaches the engine: it does not read them
     text = re.sub(r'(?<![\w-])(?:%s)(?![\w-])' % '|'.join(RESPELL), lambda m: RESPELL[m.group(0).upper()], text, flags=re.I)
     return re.sub(r'\s+', ' ', text).strip(' ,;:-—')
 
 
-def spoken_line(message):
-    """summary: the text after the last 🔊 line; '' when there is none."""
+def cut(text, limit):
+    """`text` within `limit` characters: cut at the last end of a sentence (a dot inside 0.25.0 or 1.250 is not
+    one), else at the last space, never inside a word unless it is one word alone."""
+    if len(text) <= limit:
+        return text
+    ends = [m.end() for m in re.finditer(r'[.!?](?=\s|$)', text[:limit])]
+    if ends:
+        return text[:ends[-1]]
+    space = text.rfind(' ', 0, limit)
+    return text[:space if space > 0 else limit]
+
+
+def spoken_line(message, limit=None):
+    """summary: the text after the last 🔊 line; '' when there is none. The limit is measured on the line as
+    written: the numbers the plugin writes out ("R$ 1.250,00") do not count against the size asked for."""
     for line in reversed((message or '').splitlines()):
         line = line.strip().lstrip('>*_ ').strip()
         if line.startswith(MARK):
-            return clean(line[len(MARK):])
+            return clean(cut(line[len(MARK):].strip(), limit) if limit else line[len(MARK):])
     return ''
 
 
@@ -685,12 +768,9 @@ def full_text(message):
 
 def to_speak(message, how=None, size=None):
     how = how or mode()
-    text = spoken_line(message) if how == 'summary' else full_text(message)
-    limit = SUMMARY_LIMIT[size or summary_size()] if how == 'summary' else LIMIT['full']
-    if len(text) > limit:
-        cut = max(text.rfind(p, 0, limit) for p in '.!?')
-        text = text[:cut + 1 if cut > 0 else limit]
-    return text
+    if how == 'summary':
+        return cut(spoken_line(message, SUMMARY_LIMIT[size or summary_size()]), LIMIT['full'])
+    return cut(full_text(message), LIMIT['full'])
 
 
 def pieces(text):
@@ -1738,7 +1818,7 @@ def remove_quietly(path):
         pass
 
 
-def progress_report(steps):
+def progress_report(steps, model=None):
     """What `speak_pocket.install` tells its steps to: each file is announced once, and the bytes so far are written
     at most every PROGRESS_EVERY seconds. The files come after the dependencies, the first of the `steps`."""
     last = [None, None]  # when the last write was, and of which file
@@ -1750,8 +1830,8 @@ def progress_report(steps):
         elif now - last[0] < PROGRESS_EVERY:
             return
         last[:] = [now, name]
-        write_progress(fase='baixando', arquivo=name, feito=min(done, total) if total else done, total=total,
-                       passo=step + 1, passos=steps)
+        write_progress(fase='baixando', modelo=model, arquivo=name, feito=min(done, total) if total else done,
+                       total=total, passo=step + 1, passos=steps)
     return report
 
 
@@ -1780,8 +1860,9 @@ def install_steps(uv):
         raise ValueError('o motor não tem programa para esta máquina (%s, %s)' % (speak_os.SYSTEM, platform.machine()))
     os.makedirs(DATA, exist_ok=True)
     remove_quietly(speak_pocket.mark(DATA))  # from here to the end the engine is not one to speak with
-    steps = 1 + len(speak_pocket.wanted(DATA, speak_os.SYSTEM, MODEL, READING_VOICES))  # the dependencies, then each file
-    write_progress(fase='dependências', passo=1, passos=steps)
+    model = engine_model()  # read once: a choice made while this runs is for the next install
+    steps = 1 + len(speak_pocket.wanted(DATA, speak_os.SYSTEM, model, READING_VOICES))  # the dependencies, then each file
+    write_progress(fase='dependências', modelo=model, passo=1, passos=steps)
     former = former_engine()
     if former or not venv_works():
         # rebuilt alone: the model and voices beside it are not downloaded again. With the former engine there, the
@@ -1805,8 +1886,8 @@ def install_steps(uv):
             remove_quietly(path)
     if former:
         print('voz: o motor antigo (Kokoro) foi removido', flush=True)
-    speak_pocket.install(DATA, speak_os.SYSTEM, MODEL, READING_VOICES, urllib.request.urlretrieve,
-                         progress_report(steps))
+    speak_pocket.install(DATA, speak_os.SYSTEM, model, READING_VOICES, urllib.request.urlretrieve,
+                         progress_report(steps, model))
     print('voz: motor instalado em %s' % DATA, flush=True)
     return 0
 
@@ -1936,7 +2017,10 @@ def install_marked():
 def install_unlocked():
     failed = False
     try:
+        model = engine_model()
         code = install()  # 1 without an exception: no uv, nothing was tried
+        if not code and engine_model() != model:
+            code = install()  # the person chose the other model while this one came: it comes right after
     except (subprocess.CalledProcessError, OSError, ValueError, tarfile.TarError) as exc:
         print('voz: a instalação falhou: %s' % exc, file=sys.stderr)
         code, failed = 1, True
@@ -2017,6 +2101,37 @@ def autoinstall():
     return 'installing', True
 
 
+def choose_model(wanted):
+    """`speak model`: lists the two models, or saves the choice (for every session) and, when that model is not the
+    one installed, starts its install in the background, as `autoinstall` does. The files of the other model are
+    replaced: one model at a time on the disk."""
+    if not wanted:
+        for name in MODELS:
+            print('%s %s (%s)' % ('*' if name == model_choice() else ' ', name, MODEL_NOTE[name]))
+        return 0
+    wanted = wanted.lower()
+    if wanted not in MODELS:
+        print('voz: use "speak model normal" ou "speak model large"', file=sys.stderr)
+        return 2
+    os.makedirs(CONF, exist_ok=True)
+    write_atomic(MODEL_FILE, wanted + '\n')
+    if not engine_ready():
+        remove_quietly(INSTALL_FAILED)  # asked for by hand: an install that failed before is tried again
+        word, started = autoinstall()
+        name = MODEL_TEXT[wanted]
+        if word == 'installing' and started:
+            print('voz: o modelo %s está sendo baixado em segundo plano (cerca de %d MB); a voz fica calada até '
+                  'terminar' % (name, download_mb()))
+        elif word == 'installing' and (install_progress() or {}).get('modelo') == MODELS[wanted]:
+            print('voz: o modelo %s já está sendo baixado em segundo plano; a voz fica calada até terminar' % name)
+        elif word == 'installing':
+            print('voz: outra instalação está em andamento; o modelo %s é baixado em seguida, sozinho (cerca de %d MB)'
+                  % (name, download_mb()))
+        elif word != 'ready':
+            print('voz: o modelo %s ainda não está instalado; rode: speak install' % name)
+    return status()
+
+
 def player_command():
     """The audio player's command line (see speak_os.player), or None."""
     return speak_os.player()
@@ -2093,6 +2208,7 @@ def status():
     print('  velocidade da fala: %s%s%s' % (speed_text(speed_choice(session)), here if own_field(session, 'speed') else '',
                                               '' if fixed_speed() is None else ' (CLAUDE_SPEAK_SPEED vale mais)'))
     print('  motor: %s' % engine_text())
+    print('  modelo: %s' % MODEL_TEXT[model_choice()])
     print('  voz de leitura: %s (%s), velocidade aplicada %s' % (voice(), READING_VOICES[voice()]['kind'], speed(session)))
     now = sweep_now()
     if now['playing']:
@@ -2229,7 +2345,7 @@ def status_json():
                       'scope': {f: 'session' if own_field(session, g) else 'all'
                                 for f, g in (('on', 'voice'), ('mode', 'mode'), ('size', 'size'), ('mic', 'mic'),
                                              ('speed', 'speed'))},
-                      'engine': engine_ready(), 'installing': not engine_ready() and installing(),
+                      'model': model_choice(), 'engine': engine_ready(), 'installing': not engine_ready() and installing(),
                       'install': None if engine_ready() else install_progress(),
                       'voice': voice_short()}))
     return 0
@@ -2422,15 +2538,17 @@ def main(argv):
         return install_marked()
     if cmd == 'autoinstall':
         word, started = autoinstall()
-        print(word + (' started' if started else ''))
+        print(word + (' started %d' % download_mb() if started else ''))
         return 0
+    if cmd == 'model':
+        return choose_model(text)
     if cmd == 'say':
         session = current_session()
         if text == '-':
             message, how = sys.stdin.read(), mode(session)
             save_last(session, message, how)  # kept also with the voice off or without the engine
             return speak_background(to_speak(message, how, summary_size(session)), session, how=how)
-        return speak_background(text, session)
+        return speak_background(clean(text), session)  # a text typed by hand also has digits and capitals
     if cmd == 'update':
         return speak_update.update(os.path.realpath(__file__), plugin_version())
     if cmd == 'again':
@@ -2443,7 +2561,7 @@ def main(argv):
             print('voz: motor %s' % engine_text(), file=sys.stderr)
             return 1
         return subprocess.call([VENV_PY, '-I', os.path.realpath(__file__), '_play',
-                                text or 'Olá! A voz do Claude Code está funcionando.'],
+                                clean(text) or 'Olá! A voz do Claude Code está funcionando.'],
                                env={**os.environ, 'CLAUDE_SPEAK_TEST': '1'})
     if cmd == '_play':
         if rest[:1] == ['--resume'] and len(rest) == 2 and rest[1].isdigit():

@@ -21,7 +21,7 @@ Funciona no Linux e no macOS, mas o macOS **nunca foi testado num Mac de verdade
 | Python | `python3` | `python3` (o do sistema serve) |
 | Instalador do motor | [`uv`](https://docs.astral.sh/uv/) | [`uv`](https://docs.astral.sh/uv/) |
 | Tocador de áudio | `pw-play` (PipeWire 1.1 ou mais novo), `paplay` ou `aplay` | já vem no sistema |
-| Espaço | cerca de 330 MB | cerca de 330 MB |
+| Espaço | cerca de 330 MB (900 MB com o [modelo maior](#modelo-da-voz)) | cerca de 330 MB (900 MB com o modelo maior) |
 | Situação | testado no Linux | só nos testes automáticos do GitHub; nunca num Mac de verdade |
 
 No Ubuntu 24.04 o `pw-play` é mais velho, e o speak usa o `paplay` ou o `aplay` no lugar. O código do Mac tem suporte e passa nos testes automáticos do GitHub, mas nunca foi testado num Mac de verdade. Quem usar no Mac e tiver problema pode abrir uma issue em https://github.com/ricksouzaa/cc-speaker/issues.
@@ -56,6 +56,7 @@ Digite `/speak` sozinho. Abre um painel com uma lista por linha, já com o tecla
 | Leitura | só o resumo (padrão) ou a resposta inteira |
 | Tamanho do resumo | pequeno (uma frase), médio (padrão, duas ou três frases) ou grande (um parágrafo); a linha só aparece com a leitura em "só o resumo" (o `/speak size` escrito vale em qualquer modo) |
 | Voz de leitura | Lola (padrão), Estelle ou Fantine (femininas); Rafael, Charles ou George (masculinas); vale sempre para todas as sessões |
+| Modelo da voz | Normal (padrão) ou Maior, que lê melhor siglas e inglês e pesa mais; vale sempre para todas as sessões (veja [Modelo da voz](#modelo-da-voz)) |
 | Velocidade da fala | de 0.5x a 2x; o 1x (padrão) é a velocidade normal da voz escolhida. Vale a partir da próxima fala (veja [Velocidade](#velocidade)) |
 | Com o microfone em uso | Espera (padrão), Toca ou Toca nesta reunião (veja [Microfone](#microfone)) |
 | Ouvir de novo | dois botões, Resumo e Resposta inteira: tocam na hora a última fala desta sessão; a linha não guarda valor |
@@ -78,6 +79,7 @@ Para pular o painel, escreva a ação. Com `all` no fim, vale para todas as sess
 | `/speak mode summary` · `full` | lê só o resumo ou a resposta inteira (padrão: `summary`) |
 | `/speak size small` · `medium` · `large` | tamanho do resumo (padrão: `medium`) |
 | `/speak voice lola` · `estelle` · `fantine` · `rafael` · `charles` · `george` | troca a voz, sempre em todas as sessões (padrão: `lola`) |
+| `/speak model normal` · `large` | troca o modelo da voz, sempre em todas as sessões (padrão: `normal`; veja [Modelo da voz](#modelo-da-voz)) |
 | `/speak speed 0.9` · `1` · `1.25` | velocidade da fala: um número de 0.5 a 2, em que 1 é a velocidade normal da voz (padrão: `1`) |
 | `/speak mic wait` · `play` · `auto` | o que fazer com o microfone em uso (padrão: `wait`) |
 | `/speak again` · `again summary` · `again full` | ouve de novo a última fala desta sessão, mesmo com a voz desligada: do jeito em que tocou, só o resumo ou a resposta inteira |
@@ -141,13 +143,65 @@ Quando o plugin é ativado com uma sessão já aberta, a instalação começa al
 | `CLAUDE_SPEAK_SPEED` | a velocidade da fala, de 0.5 a 2 (1 é o normal), no lugar da escolha do `/speak speed` |
 | `CLAUDE_SPEAK_AUTOINSTALL=0` | desliga a instalação automática do motor |
 
+### Modelo da voz
+
+O motor tem dois modelos de português, e você escolhe qual fala com `/speak model` ou na linha "Modelo da voz" do painel. A escolha vale para todas as sessões.
+
+| | Normal (padrão) | Maior |
+|---|---|---|
+| Comando | `/speak model normal` | `/speak model large` |
+| Para baixar | cerca de 280 MB | cerca de 850 MB |
+| Memória durante a fala | cerca de 1 GB | cerca de 2 GB |
+| Espera até o primeiro som (resumo de duas frases) | 2 a 3 segundos | 5 a 6 segundos |
+| Siglas e inglês | lê com dificuldade; o plugin reescreve o que consegue | lê melhor |
+
+Os tempos e a memória foram medidos numa máquina de 12 núcleos, sem placa de vídeo. A fluência é boa nos dois.
+
+Só um modelo fica no disco. Ao trocar, o outro é baixado em segundo plano no lugar do atual, e a voz fica calada até o download terminar; o progresso aparece embaixo do campo de texto e no `/speak status`. Trocar de volta baixa de novo.
+
+### Números
+
+O motor não lê algarismos. Por isso o plugin escreve todo número por extenso antes de falar:
+
+| Escrito | Falado |
+|---|---|
+| `447` · `1.250` · `2022` | quatrocentos e quarenta e sete · mil duzentos e cinquenta · dois mil e vinte e dois |
+| `R$ 1.250,00` · `R$ 2,50` | mil duzentos e cinquenta reais · dois reais e cinquenta centavos |
+| `70%` · `12,5%` | setenta por cento · doze vírgula cinco por cento |
+| `US$ 0.25` · `R$ 30/ano` | vinte e cinco centavos de dólar · trinta reais por ano |
+| `16h` · `23h30` · `14:30` | dezesseis horas · vinte e três horas e trinta · catorze e trinta |
+| `48h` · `2-3h` · `00:03:35` | quarenta e oito horas · duas a três horas · três minutos e trinta e cinco segundos |
+| `14/11/2026` · `01/03` · `em 14/11` | catorze de novembro de dois mil e vinte e seis · primeiro de março · em catorze de novembro |
+| `10/12 testes` · `9/10` | dez de doze testes · nove de dez |
+| `1º` · `2ª` | primeiro · segunda |
+| `280 MB` · `2 horas` · `120 km/h` | duzentos e oitenta megabaites · duas horas · cento e vinte quilômetros por hora |
+| `0.25.0` · `1.25x` | zero ponto vinte e cinco ponto zero · um ponto vinte e cinco xis |
+
+Duas escolhas que o plugin faz sem ter como saber ao certo:
+
+- **Data sem o ano.** `10/12` tanto pode ser dez de dezembro quanto dez de doze. É lido como data quando há um sinal disso: um zero à esquerda (`01/03`) ou uma palavra antes (em, dia, até, desde, no, para, entre). Sem sinal, é contagem.
+- **Feminino.** "Duas" e "uma" só saem diante de uma lista de palavras comuns (horas, vezes, semanas, linhas, vozes, sessões e outras), e quando o número combina com a palavra (um com "hora", mais de um com "horas"); fora disso o número vai no masculino.
+
 ### Siglas
 
-O motor de voz erra a leitura de siglas escritas em maiúsculas (IBGE sai como uma palavra). Por isso o plugin soletra, antes de falar, toda sigla de duas a seis letras ("IBGE" vira "i bê gê é"), menos as que se leem como palavra (SUS, PIX, ENEM, ONU, NASA e outras) e os números romanos. Para acrescentar uma sigla que deve ser lida como palavra, ponha-a numa linha do arquivo `config/words` da pasta de dados; as linhas que começam com `#` são comentários.
+O motor erra a leitura de palavras escritas todas em maiúsculas. Por isso o plugin as reescreve antes de falar:
+
+- **Sigla de duas a seis letras:** é soletrada, com os nomes das letras numa palavra só ("IBGE" vira "ibegeé", "CPF" vira "cepeéfe").
+- **Sigla que se lê como palavra** (SUS, ONU, NASA, SAC e outras): vai só com a primeira letra maiúscula ("Sus", "Nasa"). PIX e ENEM têm escrita própria ("Pics", "ênêi").
+- **No plural, ou colada a um número:** o "s" fica ("APIs" vira "apeís") e o hífen vira espaço ("UTF-8" vira "uteéfe oito", "PT-BR" vira "petê beérre").
+- **Número romano** (XIV, III, XLII): é lido como número ("catorze", "três", "quarenta e dois"). Três letras com C, D ou M (CLI, MDX) são sigla, não número.
+- **Outra palavra em maiúsculas** ("ATENÇÃO", "NOTA"): vai só com a primeira letra maiúscula.
+- **Nome com sublinhado** (`CLAUDE_SPEAK_SPEED`): é dito palavra por palavra.
+
+Para acrescentar uma sigla que deve ser lida como palavra, ponha-a numa linha do arquivo `config/words` da pasta de dados; as linhas que começam com `#` são comentários.
 
 ### Palavras em inglês
 
-O motor só recebe texto escrito e lê o que está em inglês com as regras do português. Para alguns termos comuns (plugin, GitHub, pull request, bug, backend), o plugin escreve a palavra do jeito que se fala antes de entregá-la ao motor ("plâguin", "bâg"); os outros saem como o motor os lê. O arquivo `config/english`, que a versão 0.23.0 usava, não tem mais efeito.
+O motor só recebe texto escrito e lê o que está em inglês com as regras do português. Para alguns termos comuns (plugin, GitHub, pull request, bug, backend, release, commit, downtime, Slack), o plugin escreve a palavra do jeito que se fala antes de entregá-la ao motor ("plâguin", "bâg"); os outros saem como o motor os lê. O [modelo maior](#modelo-da-voz) lê inglês melhor que o normal. O arquivo `config/english`, que a versão 0.23.0 usava, não tem mais efeito.
+
+### Palavras que o motor acentua errado
+
+Um verbo escrito igual a um nome que tem acento ("eu publico" e "o público", "ela pratica" e "a prática") sai, no motor, com a sílaba forte do nome. Para os casos mais comuns (publico, inicio, termino, calculo, critico, pratico, deposito, numero, publica, pratica, critica, duvida, influencia, evidencia, referencia), o plugin entrega o verbo com um acento na sílaba certa ("publíco"). O mesmo vale para "teste", que vai como "téste".
 
 ### Pastas
 

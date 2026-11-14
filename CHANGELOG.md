@@ -7,6 +7,28 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.25.0] - 2026-11-14
+
+### Adicionado
+- **Escolha do modelo da voz.** O motor tem dois modelos de português, e agora dá para trocar: `/speak model large` usa o maior e `/speak model normal` volta ao padrão. No painel é a linha "Modelo da voz". O maior lê melhor siglas e palavras em inglês e custa mais: cerca de 850 MB para baixar, 2 GB de memória durante a fala e o dobro da espera até o primeiro som. Só um modelo fica no disco: ao trocar, o outro é baixado em segundo plano e a voz fica calada até terminar.
+- O `/speak status` mostra o modelo em uso.
+
+### Corrigido
+- **Os números voltaram a ser falados.** O motor novo não lê algarismos: na 0.24.0, um valor, uma hora ou uma porcentagem saíam como ruído e estragavam a frase em volta. Agora o plugin escreve tudo por extenso antes de falar: números inteiros e com vírgula, valores em reais ("R$ 1.250,00" vira "mil duzentos e cinquenta reais"), porcentagens, horas ("23h30"), datas ("14/11/2026"), ordinais ("1º"), unidades ("280 MB") e versões.
+- **As siglas voltaram a ser entendidas.** O motor novo erra palavras escritas em maiúsculas. A sigla soletrada agora vai com os nomes das letras numa palavra só ("IBGE" vira "ibegeé"), e a que se lê como palavra (SUS, ONU, NASA) vai só com a primeira letra maiúscula. SAC entrou na lista das que se leem como palavra. Vale também para a sigla no plural ("APIs") e para a colada a um número ("UTF-8", "MP3").
+- Número romano (capítulo XIV) é lido como número, e uma palavra toda em maiúsculas ("ATENÇÃO") deixa de sair como ruído.
+- Um valor com ponto de milhar ("1.250") não é mais lido como número de versão ("um ponto duzentos e cinquenta"), e uma data escrita com barras não some mais da fala.
+- "Pull request" ganhou outra escrita para o motor, porque "request" saía com o som errado.
+- A frase passada ao `speak test` e ao `speak say` recebe o mesmo preparo de números e siglas que uma resposta.
+- **"Publico" não sai mais como "público".** Um verbo escrito igual a um nome com acento (publico, inicio, termino, calculo, pratica, critica e outros) saía com a sílaba forte do nome. A palavra "teste" também ganhou outra escrita para o motor, porque saía parecida com "texto".
+- Um intervalo de horas ("14h-16h"), um valor por período ("R$ 30/ano") e uma velocidade ("120 km/h") não somem mais da fala.
+- O tamanho do resumo é medido no texto como foi escrito: os números por extenso não fazem mais a fala ser cortada antes do fim.
+
+### Alterado
+- Mais termos em inglês são reescritos para o motor: release, commit, downtime e Slack.
+- O aviso de instalação diz o tamanho do modelo escolhido.
+- Escolher um modelo enquanto outra instalação roda não pede mais nada depois: o modelo escolhido é baixado em seguida, sozinho. E escolher um modelo tenta de novo uma instalação que tinha falhado.
+
 ## [0.24.0] - 2026-11-14
 
 ### Alterado
@@ -410,7 +432,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.24.0...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.25.0...HEAD
+[0.25.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.24.0...v0.25.0
 [0.24.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.23.0...v0.24.0
 [0.23.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.22.1...v0.23.0
 [0.22.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.22.0...v0.22.1

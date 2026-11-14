@@ -20,7 +20,7 @@ try:  # fail-open from the first line: a copy without lib/ (or any failure below
     STATE = os.path.join(ROOT, 'state')
     INSTALL_LOG = os.path.join(STATE, 'install.log')
     NOTICE = {
-        'installing': 'speak: o motor de voz está sendo instalado em segundo plano (cerca de 280 MB, sem sudo); a voz '
+        'installing': 'speak: o motor de voz está sendo instalado em segundo plano (cerca de {mb} MB, sem sudo); a voz '
                       'começa sozinha quando terminar. Avise o humano na primeira resposta, em uma frase.',
         'no-uv': 'speak: o motor de voz não está instalado e falta o uv, que o instala. Na primeira resposta, diga ao '
                  'humano como instalar o uv (%s); depois, `/speak install`.' % speak_os.notice_uv(),
@@ -31,7 +31,7 @@ try:  # fail-open from the first line: a copy without lib/ (or any failure below
     }
     # What the person reads on screen (systemMessage), without depending on Claude to pass it on.
     SCREEN = {
-        'installing': 'speak: instalando a voz em segundo plano (cerca de 280 MB, sem sudo). O progresso aparece na linha '
+        'installing': 'speak: instalando a voz em segundo plano (cerca de {mb} MB, sem sudo). O progresso aparece na linha '
                       'embaixo do campo de texto, em /speak status e no menu do /speak; se falhar, rode /speak install.',
         'no-uv': 'speak: falta o uv, que instala a voz. Instale-o (%s) e rode /speak install.' % speak_os.notice_uv(),
         'failed': 'speak: a última instalação da voz falhou; o registro está em %s. Rode /speak install para tentar '
@@ -43,6 +43,9 @@ except Exception:
     sys.exit(0)
 
 
+DOWNLOAD = {'mb': '280'}  # the MB of the notice, until `speak autoinstall` says how much it fetches
+
+
 def run(*args):
     return subprocess.run([sys.executable, '-I', SPEAK, *args], capture_output=True, text=True, timeout=10)
 
@@ -51,14 +54,16 @@ def start_install():
     """Asks `speak autoinstall` (the one rule: it starts `speak install` detached, once at a time, unless the last one
     failed in this version, the uv is missing or CLAUDE_SPEAK_AUTOINSTALL=0). Returns the NOTICE key to tell, or None
     when there is nothing to tell (engine ready, switched off, or the call failed). `installing` is told only when this
-    call started the install (`installing started`): the one that starts it tells the person, once; another install
+    call started the install (`installing started 280`, the number being the MB it fetches): the one that starts it tells the person, once; another install
     already running was announced by whoever started it (the module's line in the conversation, or the hook of an
     earlier session) and shows its progress on the status line."""
     try:
-        words = run('autoinstall').stdout.split() + ['', '']
+        words = run('autoinstall').stdout.split() + ['', '', '']
     except (OSError, subprocess.SubprocessError):
         return None
     if words[0] == 'installing':
+        if words[2].isdigit():  # how much the chosen model fetches (the larger one is three times the normal)
+            DOWNLOAD['mb'] = words[2]
         return 'installing' if words[1] == 'started' else None
     return words[0] if words[0] in ('no-uv', 'failed') else None
 
@@ -130,9 +135,10 @@ def main():
     if not keys:
         print(out.rstrip())  # nothing for the person to read: the rules alone, as plain text
         return
-    print(json.dumps({'systemMessage': '\n'.join(SCREEN[k] for k in keys),
-                      'hookSpecificOutput': {'hookEventName': 'SessionStart',
-                                             'additionalContext': '\n'.join([out.rstrip()] + [NOTICE[k] for k in keys])}},
+    screen = '\n'.join(SCREEN[k] for k in keys).replace('{mb}', DOWNLOAD['mb'])
+    notice = '\n'.join([out.rstrip()] + [NOTICE[k].replace('{mb}', DOWNLOAD['mb']) for k in keys])
+    print(json.dumps({'systemMessage': screen,
+                      'hookSpecificOutput': {'hookEventName': 'SessionStart', 'additionalContext': notice}},
                      ensure_ascii=False))
 
 
