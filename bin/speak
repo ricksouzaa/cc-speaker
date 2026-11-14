@@ -26,13 +26,14 @@
                            prints the version before and after, in Portuguese; the new version holds after
                            /reload-plugins or in a new session
   speak status --json      the same state as one JSON line (used by the /speak pane)
-  speak voice [name]       without a name: list the voices (lola, estelle, fantine, rafael, charles, george) and
-                           mark the current one; with a name: choose it for every session
-  speak model [normal|large]  without a name: list the two models of the engine and mark the current one; with a
-                           name: choose it for every session (normal, the default: ~280 MB to fetch, ~1 GB of memory
-                           while it speaks; large: reads acronyms and English better, ~850 MB, ~2 GB of memory and
-                           about twice the wait before the first sound). A model not installed yet is fetched in
-                           the background, in the place of the other, and the voice is silent until it ends
+  speak voice [name]       without a name: list the voices (lola, estelle, fantine, eve, jane, mary, vera, rafael,
+                           charles, george) and mark the current one; with a name: choose it for every session
+  speak model [large|normal]  without a name: list the two models of the engine and mark the current one; with a
+                           name: choose it for every session (large, the default: reads numbers, acronyms and
+                           English better, ~950 MB to fetch, ~2 GB of memory while it speaks; normal: lighter,
+                           ~310 MB, ~1 GB of memory and about half the wait before the first sound). A model not
+                           installed yet is fetched in the background, in the place of the other, and the voice is
+                           silent until it ends
   speak rule               print rules/speak.md with {line} replaced by the line of the mode and size in force
                            (`rule resumed`: a reopened conversation, nothing is recorded as told)
                            (the SessionStart hook hands it to Claude)
@@ -143,6 +144,10 @@ READING_VOICES = {  # name -> its kind and its normal speed (the engine speaks a
     'lola': {'full': 'lola', 'kind': 'feminina', 'speed': DEFAULT_SPEED},
     'estelle': {'full': 'estelle', 'kind': 'feminina', 'speed': DEFAULT_SPEED},
     'fantine': {'full': 'fantine', 'kind': 'feminina', 'speed': DEFAULT_SPEED},
+    'eve': {'full': 'eve', 'kind': 'feminina', 'speed': DEFAULT_SPEED},
+    'jane': {'full': 'jane', 'kind': 'feminina', 'speed': DEFAULT_SPEED},
+    'mary': {'full': 'mary', 'kind': 'feminina', 'speed': DEFAULT_SPEED},
+    'vera': {'full': 'vera', 'kind': 'feminina', 'speed': DEFAULT_SPEED},
     'rafael': {'full': 'rafael', 'kind': 'masculina', 'speed': DEFAULT_SPEED},
     'charles': {'full': 'charles', 'kind': 'masculina', 'speed': DEFAULT_SPEED},
     'george': {'full': 'george', 'kind': 'masculina', 'speed': DEFAULT_SPEED},
@@ -155,12 +160,13 @@ RETIRED_VOICES = {'alice': 'lola', 'dora': 'lola', 'pf_dora': 'lola', 'alex': 'r
                   'santa': 'rafael', 'pm_santa': 'rafael'}
 RULE = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'rules', 'speak.md')
 VENV_PY = os.path.join(DATA, '.venv', 'bin', 'python')
-MODEL_FILE = os.path.join(CONF, 'model')  # the person's choice, written by `speak model` (missing: normal)
-MODELS = {'normal': 'portuguese', 'large': 'portuguese_24l'}  # the choice -> the engine's model (speak_pocket.MODELS)
+MODEL_FILE = os.path.join(CONF, 'model')  # the person's choice, written by `speak model` (missing: the default)
+MODELS = {'large': 'portuguese_24l', 'normal': 'portuguese'}  # the choice -> the engine's model (speak_pocket.MODELS)
+DEFAULT_MODEL = 'large'  # since 0.26.0: by ear, it says numbers, acronyms and English right where the normal one slips
 MODEL_TEXT = {'normal': 'normal', 'large': 'maior'}
-MODEL_NOTE = {'normal': 'o padrão: cerca de 1 GB de memória durante a fala, 2 a 3 segundos até o primeiro som',
-              'large': 'lê melhor siglas e inglês: cerca de 2 GB de memória durante a fala, 5 a 6 segundos até o '
-                       'primeiro som'}
+MODEL_NOTE = {'large': 'o padrão, lê melhor números, siglas e inglês: cerca de 2 GB de memória durante a fala, 5 a 6 '
+                       'segundos até o primeiro som',
+              'normal': 'mais leve: cerca de 1 GB de memória durante a fala, 2 a 3 segundos até o primeiro som'}
 PROGRAM_MB = 25  # about what the engine's program weighs to fetch (its size is not published with the release)
 PACKAGES = ['numpy']  # what the speech needs of Python: the samples are stretched and handed to the player with it
 FORMER_ENGINE = ('kokoro-v1.0.onnx', 'voices-v1.0.bin')  # the files of Kokoro, the engine until 0.23.0 (see `former_engine`)
@@ -559,13 +565,13 @@ def is_on(session=None):
 
 
 def model_choice():
-    """'normal' (the default) or 'large': which of the engine's two Portuguese models speaks, for every session."""
+    """'large' (the default) or 'normal': which of the engine's two Portuguese models speaks, for every session."""
     try:
         with open(MODEL_FILE) as fh:
             wanted = fh.read().strip()
     except OSError:
         wanted = ''
-    return wanted if wanted in MODELS else 'normal'
+    return wanted if wanted in MODELS else DEFAULT_MODEL
 
 
 def engine_model():

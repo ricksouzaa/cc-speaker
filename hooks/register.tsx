@@ -32,16 +32,19 @@ const MODES: Record<string, string> = { full: 'Resposta inteira', summary: 'Só 
 const SIZES: Record<string, string> = { small: 'Pequeno', medium: 'Médio', large: 'Grande' }
 const MICS: Record<string, string> = { wait: 'Espera', play: 'Toca', auto: 'Toca nesta reunião' }
 const VOICES: Record<string, string> = {
-  lola: 'Lola (feminina)', estelle: 'Estelle (feminina)', fantine: 'Fantine (feminina)',
+  lola: 'Lola (feminina)', estelle: 'Estelle (feminina)', fantine: 'Fantine (feminina)', eve: 'Eve (feminina)',
+  jane: 'Jane (feminina)', mary: 'Mary (feminina)', vera: 'Vera (feminina)',
   rafael: 'Rafael (masculina)', charles: 'Charles (masculina)', george: 'George (masculina)',
 }
 const READERS: Record<string, string> = {
-  lola: 'Lola', estelle: 'Estelle', fantine: 'Fantine', rafael: 'Rafael', charles: 'Charles', george: 'George',
+  lola: 'Lola', estelle: 'Estelle', fantine: 'Fantine', eve: 'Eve', jane: 'Jane', mary: 'Mary', vera: 'Vera',
+  rafael: 'Rafael', charles: 'Charles', george: 'George',
 }
-// Os dois modelos do motor: o normal (padrão) e o maior, que lê melhor siglas e inglês e pesa mais.
-const ENGINES: Record<string, string> = { normal: 'Normal', large: 'Maior (lê melhor siglas e inglês)' }
+// Os dois modelos do motor: o maior (padrão desde a 0.26.0), que lê melhor números, siglas e inglês, e o normal,
+// mais leve.
+const ENGINES: Record<string, string> = { large: 'Maior (padrão: lê melhor números, siglas e inglês)', normal: 'Normal (mais leve)' }
 const ENGINE_NAMES: Record<string, string> = { normal: 'normal', large: 'maior' }
-const ENGINE_MB: Record<string, number> = { normal: 280, large: 850 } // o que cada um baixa, como o speak informa
+const ENGINE_MB: Record<string, number> = { large: 950, normal: 310 } // o que cada um baixa, como o speak informa
 const POWER: Record<string, string> = { on: 'Ligada', quiet: 'Só o resumo escrito', off: 'Desligada' }
 // A velocidade da fala é um número de 0.5 a 2 que multiplica a velocidade normal da voz (1 é o normal). O painel
 // oferece estes passos; escrita (/speak speed 0.95), vale qualquer número da faixa, que o speak confere.
@@ -60,7 +63,7 @@ const speedOptions = (now: State | undefined) =>
 const USAGE =
   'Escreva a ação: /speak on, /speak quiet, /speak off, /speak mode full|summary, /speak size small|medium|large, /speak mic wait|play|auto, ' +
   '/speak speed <número de 0.5 a 2; 1 é o normal>, ' +
-  '/speak voice lola|estelle|fantine|rafael|charles|george, /speak model normal|large, /speak again [summary|full], /speak pause, /speak resume, /speak status, /speak stop, ' +
+  '/speak voice lola|estelle|fantine|eve|jane|mary|vera|rafael|charles|george, /speak model large|normal, /speak again [summary|full], /speak pause, /speak resume, /speak status, /speak stop, ' +
   '/speak install, /speak update ' +
   '(com "all" no fim, vale para todas as sessões).'
 const where = (all: boolean) => (all ? 'em todas as sessões' : 'nesta sessão')
@@ -385,9 +388,9 @@ async function kick($: Engine) {
   startWatch($, why)
 }
 
-// O tamanho vem do `speak autoinstall` (`installing started 850`); um speak que não o diz baixa o modelo normal.
+// O tamanho vem do `speak autoinstall` (`installing started 950`); sem ele, vale o do modelo padrão, o maior.
 const installingNote = (mb?: string) =>
-  `Instalando a voz (cerca de ${mb && /^\d+$/.test(mb) ? mb : ENGINE_MB.normal} MB, alguns minutos). Acompanhe com /speak status.`
+  `Instalando a voz (cerca de ${mb && /^\d+$/.test(mb) ? mb : ENGINE_MB.large} MB, alguns minutos). Acompanhe com /speak status.`
 
 const cap = (word: string) => word.charAt(0).toUpperCase() + word.slice(1)
 
@@ -428,7 +431,7 @@ function said(args: string[], after: State | undefined): string {
       // Um modelo que não é o instalado é baixado no lugar do outro: até terminar, não há voz.
       if (after?.engine !== false) return chosen
       return after.installing
-        ? `${chosen} Ele é baixado em segundo plano (cerca de ${ENGINE_MB[now] ?? ENGINE_MB.normal} MB) e a voz fica calada até terminar; acompanhe com /speak status.`
+        ? `${chosen} Ele é baixado em segundo plano (cerca de ${ENGINE_MB[now] ?? ENGINE_MB.large} MB) e a voz fica calada até terminar; acompanhe com /speak status.`
         : `${chosen} Ele ainda não está instalado: rode /speak install.`
     }
     default: return 'Pronto.'
@@ -555,7 +558,7 @@ const ROWS: Row[] = [
   { key: 'mode', label: 'Leitura', ...fromTable(MODES), current: s => s.mode, own: s => s.scope?.mode === 'session' },
   { key: 'size', label: 'Tamanho do resumo', ...fromTable(SIZES), current: s => s.size, own: s => s.scope?.size === 'session' },
   { key: 'voice', label: 'Voz de leitura', ...fromTable(READERS), current: s => s.voice, own: () => false },
-  { key: 'model', label: 'Modelo da voz', ...fromTable(ENGINES), current: s => s.model ?? 'normal', own: () => false },
+  { key: 'model', label: 'Modelo da voz', ...fromTable(ENGINES), current: s => s.model ?? 'large', own: () => false },
   { key: 'speed', label: 'Velocidade da fala', options: speedOptions, accepts: isSpeed, current: s => s.speed ?? '1', own: s => s.scope?.speed === 'session' },
   { key: 'mic', label: 'Com o microfone em uso', ...fromTable(MICS), current: s => s.mic ?? 'wait', own: s => s.scope?.mic === 'session' },
 ]

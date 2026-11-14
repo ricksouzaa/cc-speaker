@@ -3,7 +3,7 @@ import { expect, mock, test } from 'claude-code/testing'
 // Nada aqui toca o motor, o áudio nem as pastas reais: `process.run` é respondido pelo teste, que guarda o estado
 // do speak numa variável. O menu é montado no painel `speak` da superfície `terminal` e operado pela escolha nas listas.
 
-const NAMES = ['lola', 'estelle', 'fantine', 'rafael', 'charles', 'george'] // as vozes de leitura, como o speak as lista
+const NAMES = ['lola', 'estelle', 'fantine', 'eve', 'jane', 'mary', 'vera', 'rafael', 'charles', 'george'] // as vozes de leitura, como o speak as lista
 
 type Opts = { noFile?: boolean; proc?: boolean; autoinstall?: string; fail?: boolean; statusFails?: boolean; scope?: Record<string, string>; placed?: boolean; again?: string; surface?: string; headless?: boolean; init?: Record<string, unknown> }
 
@@ -91,7 +91,7 @@ async function setup($: any, on: any, opts: Opts = {}) {
       // como o speak: só os dois modelos valem; o que não é o instalado deixa o motor por instalar
       if (args[1] !== 'normal' && args[1] !== 'large') return done(2, '', 'voz: use "speak model normal" ou "speak model large"\n')
       st.model = args[1]!
-      st.engine = args[1] === (st.installed ?? 'normal')
+      st.engine = args[1] === (st.installed ?? 'large')
       st.installing = !st.engine
     }
     if (args[0] === 'on' || args[0] === 'off' || args[0] === 'quiet') { st.on = args[0] === 'on'; st.power = args[0] }
@@ -481,48 +481,49 @@ test('no painel, um valor de velocidade que não é número não roda nada', asy
   await ui.unmount()
 })
 
-test('as vozes do motor antigo saíram: o painel lista as seis do novo, e a escolha escrita de uma antiga volta o erro do speak', async ($, on) => {
+test('as vozes do motor antigo saíram: o painel lista as dez do novo, e a escolha escrita de uma antiga volta o erro do speak', async ($, on) => {
   const { ran } = await setup($, on)
   const { ui } = await openMenu($, 'voice')
   expect((await selects(ui)).voice.options).toEqual([
     { value: 'lola', label: 'Lola' }, { value: 'estelle', label: 'Estelle' }, { value: 'fantine', label: 'Fantine' },
+    { value: 'eve', label: 'Eve' }, { value: 'jane', label: 'Jane' }, { value: 'mary', label: 'Mary' }, { value: 'vera', label: 'Vera' },
     { value: 'rafael', label: 'Rafael' }, { value: 'charles', label: 'Charles' }, { value: 'george', label: 'George' }])
   await ui.select({ key: 'voice', value: 'alice' }) // um valor que a lista não oferece não roda nada
   expect(changes(ran)).toEqual([])
   await ui.unmount()
   expect((await $.command.run({ command: 'speak', args: 'voice alice' })).text).toBe(
-    'voz: voz desconhecida; use uma de: lola, estelle, fantine, rafael, charles, george')
+    'voz: voz desconhecida; use uma de: lola, estelle, fantine, eve, jane, mary, vera, rafael, charles, george')
   expect(changes(ran)).toEqual(['voice alice'])
   expect((await $.command.run({ command: 'speak', args: 'dance' })).text).not.toContain('alice')
 })
 
-test('o modelo da voz: o painel oferece o normal e o maior, e a escolha nunca leva "all"', async ($, on) => {
+test('o modelo da voz: o painel oferece o maior e o normal, e a escolha nunca leva "all"', async ($, on) => {
   const { ran } = await setup($, on)
   const { ui } = await openMenu($, 'model')
   const s = await selects(ui)
   expect(s.model.options).toEqual([
-    { value: 'normal', label: 'Normal' }, { value: 'large', label: 'Maior (lê melhor siglas e inglês)' }])
-  expect(s.model.value).toBe('normal') // um speak que ainda não diz o modelo usa o normal
+    { value: 'large', label: 'Maior (padrão: lê melhor números, siglas e inglês)' }, { value: 'normal', label: 'Normal (mais leve)' }])
+  expect(s.model.value).toBe('large') // sem o speak dizer o modelo, vale o padrão
   expect(s.model.label.trim()).toBe('Modelo da voz')
   await ui.select({ key: 'model', value: 'gigante' }) // um valor que a lista não oferece não roda nada
   expect(changes(ran)).toEqual([])
-  await ui.select({ key: 'model', value: 'large' })
-  expect(changes(ran)).toEqual(['model large'])
-  expect((await selects(ui)).model.value).toBe('large')
-  expect(await footer(ui)).toContain('cerca de 850 MB')
+  await ui.select({ key: 'model', value: 'normal' })
+  expect(changes(ran)).toEqual(['model normal'])
+  expect((await selects(ui)).model.value).toBe('normal')
+  expect(await footer(ui)).toContain('cerca de 310 MB')
   await ui.unmount()
 })
 
 test('/speak model escrito: avisa do download quando o modelo não é o instalado, e só confirma quando é', async ($, on) => {
   const { ran } = await setup($, on)
-  expect((await $.command.run({ command: 'speak', args: 'model large' })).text).toBe(
-    'O modelo da voz agora é o maior, em todas as sessões. Ele é baixado em segundo plano (cerca de 850 MB) e a voz fica calada até terminar; acompanhe com /speak status.')
   expect((await $.command.run({ command: 'speak', args: 'model normal' })).text).toBe(
-    'O modelo da voz agora é o normal, em todas as sessões.')
-  expect(changes(ran)).toEqual(['model large', 'model normal'])
-  expect((await $.command.run({ command: 'speak', args: 'model large all' })).text).toContain('/speak model normal|large')
-  expect((await $.command.run({ command: 'speak', args: 'model gigante' })).text).toContain('/speak model normal|large')
-  expect(changes(ran)).toEqual(['model large', 'model normal'])
+    'O modelo da voz agora é o normal, em todas as sessões. Ele é baixado em segundo plano (cerca de 310 MB) e a voz fica calada até terminar; acompanhe com /speak status.')
+  expect((await $.command.run({ command: 'speak', args: 'model large' })).text).toBe(
+    'O modelo da voz agora é o maior, em todas as sessões.')
+  expect(changes(ran)).toEqual(['model normal', 'model large'])
+  expect((await $.command.run({ command: 'speak', args: 'model large all' })).text).toContain('/speak model large|normal')
+  expect((await $.command.run({ command: 'speak', args: 'model gigante' })).text).toContain('/speak model large|normal')
+  expect(changes(ran)).toEqual(['model normal', 'model large'])
 })
 
 test('a voz de leitura nunca leva "all"', async ($, on) => {
@@ -814,12 +815,12 @@ test('autoinstall que falha ou responde algo estranho: cai no relógio de antes,
 
 test('quando este módulo inicia a instalação, deixa uma linha escrita na conversa', async ($, on) => {
   const { logs } = await setup($, on, { autoinstall: 'installing started', init: { engine: false, installing: true } })
-  expect(logs).toEqual(['Instalando a voz (cerca de 280 MB, alguns minutos). Acompanhe com /speak status.'])
+  expect(logs).toEqual(['Instalando a voz (cerca de 950 MB, alguns minutos). Acompanhe com /speak status.'])
 })
 
-test('o aviso da instalação diz o tamanho que o speak informou (o modelo maior baixa o triplo)', async ($, on) => {
-  const { logs } = await setup($, on, { autoinstall: 'installing started 850', init: { engine: false, installing: true } })
-  expect(logs).toEqual(['Instalando a voz (cerca de 850 MB, alguns minutos). Acompanhe com /speak status.'])
+test('o aviso da instalação diz o tamanho que o speak informou (o modelo normal baixa um terço)', async ($, on) => {
+  const { logs } = await setup($, on, { autoinstall: 'installing started 310', init: { engine: false, installing: true } })
+  expect(logs).toEqual(['Instalando a voz (cerca de 310 MB, alguns minutos). Acompanhe com /speak status.'])
 })
 
 test('se o gancho de começo já iniciou a instalação, o módulo não repete o aviso', async ($, on) => {

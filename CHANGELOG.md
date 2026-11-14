@@ -7,6 +7,17 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.26.0] - 2026-11-14
+
+### Adicionado
+- **Quatro vozes femininas novas: Eve, Jane, Mary e Vera.** Escolha com `/speak voice eve` (ou `jane`, `mary`, `vera`), na linha "Voz de leitura" do painel ou pedindo ao Claude. Agora são sete femininas e três masculinas; a padrão continua Lola.
+
+### Alterado
+- **O modelo maior passou a ser o padrão.** De ouvido, ele pronuncia melhor: no modelo normal, "cinquenta" saía errado dentro de um número (50, 250, 1.250), e no maior sai certo. Quem nunca escolheu um modelo passa a usar o maior: ao atualizar, o plugin baixa o motor de novo em segundo plano (cerca de 950 MB) e a voz fica calada até terminar. Ele pesa mais: cerca de 2 GB de memória durante a fala e 5 a 6 segundos até o primeiro som, contra 1 GB e 2 a 3 segundos do normal.
+- Quem já tinha escolhido um modelo com `/speak model` continua nele; a atualização baixa só o que falta (as quatro vozes novas e o programa do motor: cerca de 50 MB no normal, 130 MB no maior). Para usar o normal, o comando é `/speak model normal` (cerca de 310 MB).
+- O painel e o `/speak model` mostram o maior primeiro, marcado como padrão.
+- O README avisa de um limite do motor: ele não repete uma fala igual, e de vez em quando engole o fim de uma palavra. Numa frase longa, "validação" saiu "valida" em uma ou duas de cada dez vezes, no modelo maior. Não há ajuste do motor para isso, e reescrever a palavra piorou; ouvir de novo costuma sair certo.
+
 ## [0.25.0] - 2026-11-14
 
 ### Adicionado
@@ -432,7 +443,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.25.0...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.26.0...HEAD
+[0.26.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.25.0...v0.26.0
 [0.25.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.24.0...v0.25.0
 [0.24.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.23.0...v0.24.0
 [0.23.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.22.1...v0.23.0

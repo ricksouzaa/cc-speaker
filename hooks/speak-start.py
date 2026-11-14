@@ -43,7 +43,7 @@ except Exception:
     sys.exit(0)
 
 
-DOWNLOAD = {'mb': '280'}  # the MB of the notice, until `speak autoinstall` says how much it fetches
+DOWNLOAD = {'mb': '950'}  # the MB of the notice, until `speak autoinstall` says how much it fetches
 
 
 def run(*args):
@@ -54,7 +54,7 @@ def start_install():
     """Asks `speak autoinstall` (the one rule: it starts `speak install` detached, once at a time, unless the last one
     failed in this version, the uv is missing or CLAUDE_SPEAK_AUTOINSTALL=0). Returns the NOTICE key to tell, or None
     when there is nothing to tell (engine ready, switched off, or the call failed). `installing` is told only when this
-    call started the install (`installing started 280`, the number being the MB it fetches): the one that starts it tells the person, once; another install
+    call started the install (`installing started 950`, the number being the MB it fetches): the one that starts it tells the person, once; another install
     already running was announced by whoever started it (the module's line in the conversation, or the hook of an
     earlier session) and shows its progress on the status line."""
     try:
@@ -62,7 +62,7 @@ def start_install():
     except (OSError, subprocess.SubprocessError):
         return None
     if words[0] == 'installing':
-        if words[2].isdigit():  # how much the chosen model fetches (the larger one is three times the normal)
+        if words[2].isdigit():  # how much the chosen model fetches (the normal one is a third of the larger)
             DOWNLOAD['mb'] = words[2]
         return 'installing' if words[1] == 'started' else None
     return words[0] if words[0] in ('no-uv', 'failed') else None
