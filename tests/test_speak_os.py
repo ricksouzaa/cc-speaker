@@ -396,8 +396,9 @@ class MacTest(unittest.TestCase):
             self.assertIsNone(speak_os.mic_busy())
 
     def mac_play(self, sounddevice, pieces=('um', 'dois'), watch_mic=None, linux=False):
-        """Runs speak.play('...') as on the Mac with fakes: kokoro, soundfile, afplay (Popen) and `sounddevice`
-        (a module, or None for "cannot be imported"). Returns (code, afplay commands, wavs written, state folder)."""
+        """Runs speak.play('...') as on the Mac with fakes: the engine, the wav writer, afplay (Popen) and
+        `sounddevice` (a module, or None for "cannot be imported"). Returns (code, afplay commands, wavs written,
+        state folder)."""
         import tempfile
         import types
         if linux:
@@ -413,22 +414,20 @@ class MacTest(unittest.TestCase):
         os.makedirs(os.path.join(state, 'queue'))
         wavs, launched = [], []
 
-        class Kokoro:
+        class Engine:  # in the place of speak_pocket.Server: the "samples" of a piece are the piece itself
             def __init__(self, *a):
-                self.voices = {}
+                pass
 
-            def create(self, piece, **kw):
-                return (FakeSamples(piece), 24000)
+            def speak(self, piece):
+                return piece
 
-        kokoro = types.ModuleType('kokoro_onnx')
-        kokoro.Kokoro = Kokoro
-        sound = types.ModuleType('soundfile')
+            def close(self):
+                pass
 
-        def write(path, samples, rate):
+        def write(path, samples):
             with open(path, 'wb') as fh:
                 fh.write(b'RIFF')
             wavs.append(path)
-        sound.write = write
 
         class Proc:
             def __init__(self, cmd):
@@ -449,7 +448,11 @@ class MacTest(unittest.TestCase):
                 self.stdin.close = lambda: None
         popen = (lambda cmd, **kw: LinuxProc(cmd)) if linux else (lambda cmd, **kw: Proc(cmd))
         patches = [
-            mock.patch.dict(sys.modules, {'kokoro_onnx': kokoro, 'soundfile': sound, 'sounddevice': sounddevice}),
+            mock.patch.dict(sys.modules, {'sounddevice': sounddevice}),
+            mock.patch.object(speak.speak_pocket, 'Server', Engine),
+            mock.patch.object(speak, 'heard', lambda pcm, speed: FakeSamples(pcm)),
+            mock.patch.object(speak, 'write_wav', write),
+            mock.patch.object(speak, 'ENGINE_LOG', os.path.join(state, 'engine.log')),
             mock.patch.dict(os.environ, {'CLAUDE_SPEAK_TEST': '1', 'CLAUDE_SPEAK_SESSION': '-'}),
             mock.patch.object(speak, 'STATE', state),
             mock.patch.object(speak, 'QUEUE', os.path.join(state, 'queue')),
@@ -660,9 +663,6 @@ class MacTest(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         isolation.isolate(self, speak, tmp.name)  # progress, lock, log and failure mark go into the temporary root
-        model, voices = os.path.join(tmp.name, 'm'), os.path.join(tmp.name, 'v')
-        for path in (model, voices):
-            open(path, 'w').close()
         calls = []
 
         def call(cmd, **kw):
@@ -670,7 +670,7 @@ class MacTest(unittest.TestCase):
             return 0 if sounddevice_ok or cmd[-1] != 'sounddevice' else 1
         out = io.StringIO()
         with mock.patch.object(speak.speak_os, 'SYSTEM', system), mock.patch.object(speak, 'DATA', tmp.name), \
-                mock.patch.object(speak, 'MODEL', model), mock.patch.object(speak, 'VOICES', voices), \
+                mock.patch.object(speak.speak_pocket, 'install'), \
                 mock.patch.object(speak, 'venv_works', lambda: True), \
                 mock.patch.object(speak.shutil, 'which', lambda n: '/usr/bin/uv'), \
                 mock.patch.object(speak.os.path, 'exists', lambda p: True), \
@@ -682,15 +682,15 @@ class MacTest(unittest.TestCase):
     def test_install_mac_sounddevice_falha_nao_derruba(self):
         code, calls, out = self.install_run('mac', False)
         self.assertEqual(code, 0)
-        self.assertEqual([c[-1] for c in calls], ['kokoro-onnx', 'sounddevice'])
+        self.assertEqual([c[-1] for c in calls], ['numpy', 'sounddevice'])
         self.assertIn('voz: sounddevice não instalou; o Mac toca pelo afplay', out)
 
     def test_install_mac_sounddevice_ok_e_linux_sem_sounddevice(self):
         code, calls, out = self.install_run('mac', True)
-        self.assertEqual((code, [c[-1] for c in calls]), (0, ['kokoro-onnx', 'sounddevice']))
+        self.assertEqual((code, [c[-1] for c in calls]), (0, ['numpy', 'sounddevice']))
         self.assertNotIn('afplay', out)
         code, calls, out = self.install_run('linux', True)
-        self.assertEqual((code, [c[-1] for c in calls]), (0, ['kokoro-onnx']))
+        self.assertEqual((code, [c[-1] for c in calls]), (0, ['numpy']))
 
 
 class FakeSamples:

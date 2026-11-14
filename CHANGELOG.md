@@ -7,6 +7,27 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.24.0] - 2026-11-14
+
+### Alterado
+- **Motor de voz novo: o Pocket TTS, da Kyutai, entra no lugar do Kokoro.** A fala sai mais fluida e natural. Continua tudo na sua máquina: sem conta, sem custo e sem rede na hora de falar.
+- **Seis vozes novas.** Femininas: Lola (a padrão), Estelle e Fantine. Masculinas: Rafael, Charles e George. Só o Rafael foi gravado em português; as outras são vozes de outras línguas falando português com o modelo de português. Troque pelo painel, por `/speak voice rafael` ou em palavras ("troca para a voz do Rafael").
+- **A fala fica pronta mais depressa:** nos testes, a mesma resposta foi gerada em cerca de metade do tempo do motor antigo.
+- **A velocidade mudou de jeito.** O motor novo fala numa velocidade só, que é o 1x. As outras velocidades são a mesma fala esticada ou encurtada no tempo, no mesmo tom: a voz não fica mais grossa nem mais fina. O 2x agora é o dobro de verdade. Perto do 1x quase não se nota; nos extremos o som pode perder naturalidade.
+- **A instalação baixa menos:** cerca de 280 MB (antes 350), e cada arquivo baixado é conferido antes de ser usado.
+- No `/speak status`, a linha da voz mostra a voz, se é feminina ou masculina, e a `velocidade aplicada`.
+
+### Removido
+- Sai o motor Kokoro, com as vozes **Dora, Alex e Santa**.
+- Sai a **pronúncia do inglês por sons** que chegou na 0.23.0, junto com o arquivo `config/english`. O motor novo só recebe texto escrito e não aceita os sons prontos. No lugar, o plugin escreve do jeito que se fala alguns termos comuns (plugin, GitHub, pull request, bug, backend); os outros termos em inglês saem como o motor os lê, com as regras do português.
+
+### Quebra
+- **O motor é baixado de novo.** Depois de atualizar o plugin, o motor novo se instala sozinho na próxima sessão (cerca de 280 MB, alguns minutos), com o progresso embaixo do campo de texto, e os arquivos do Kokoro são apagados da pasta de dados. Até a instalação terminar, a voz fica calada. Sem internet nessa hora, rode `/speak install` quando tiver.
+- **No Linux, o motor novo pede Ubuntu 22.04, Debian 12 ou mais novo** (glibc 2.34), em x86_64 ou ARM de 64 bits. Num sistema mais antigo a instalação para e diz que o programa do motor não roda ali; a 0.23.0 é a última versão que funciona nesses sistemas.
+- `/speak voice dora`, `alex` e `santa` deixam de existir. Quem tinha escolhido a Dora passa a ouvir a Lola; quem tinha o Alex ou o Santa passa a ouvir o Rafael. Não é preciso fazer nada.
+- O arquivo `config/english` não tem mais efeito.
+- `CLAUDE_SPEAK_SPEED` agora é a velocidade da fala como você a ouve, em que 1 é o normal. Antes era o número entregue ao motor antigo, em que o normal era 1.1.
+
 ## [0.23.0] - 2026-11-13
 
 ### Adicionado
@@ -389,7 +410,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.23.0...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.24.0...HEAD
+[0.24.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.23.0...v0.24.0
 [0.23.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.22.1...v0.23.0
 [0.22.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.22.0...v0.22.1
 [0.22.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.21.2...v0.22.0

@@ -20,7 +20,7 @@ try:  # fail-open from the first line: a copy without lib/ (or any failure below
     STATE = os.path.join(ROOT, 'state')
     INSTALL_LOG = os.path.join(STATE, 'install.log')
     NOTICE = {
-        'installing': 'speak: o motor de voz está sendo instalado em segundo plano (cerca de 350 MB, sem sudo); a voz '
+        'installing': 'speak: o motor de voz está sendo instalado em segundo plano (cerca de 280 MB, sem sudo); a voz '
                       'começa sozinha quando terminar. Avise o humano na primeira resposta, em uma frase.',
         'no-uv': 'speak: o motor de voz não está instalado e falta o uv, que o instala. Na primeira resposta, diga ao '
                  'humano como instalar o uv (%s); depois, `/speak install`.' % speak_os.notice_uv(),
@@ -31,7 +31,7 @@ try:  # fail-open from the first line: a copy without lib/ (or any failure below
     }
     # What the person reads on screen (systemMessage), without depending on Claude to pass it on.
     SCREEN = {
-        'installing': 'speak: instalando a voz em segundo plano (cerca de 350 MB, sem sudo). O progresso aparece na linha '
+        'installing': 'speak: instalando a voz em segundo plano (cerca de 280 MB, sem sudo). O progresso aparece na linha '
                       'embaixo do campo de texto, em /speak status e no menu do /speak; se falhar, rode /speak install.',
         'no-uv': 'speak: falta o uv, que instala a voz. Instale-o (%s) e rode /speak install.' % speak_os.notice_uv(),
         'failed': 'speak: a última instalação da voz falhou; o registro está em %s. Rode /speak install para tentar '

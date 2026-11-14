@@ -17,7 +17,7 @@ import time
 
 SYSTEM = 'mac' if sys.platform == 'darwin' else 'linux'
 
-RATE = 24000  # Kokoro's output, mono float32
+RATE = 24000  # what the players are given: mono float32 (the engine speaks at this rate, in 16 bits)
 PLAYERS = (['pw-play', '--raw', '--format', 'f32', '--rate', str(RATE), '--channels', '1', '-'],
            ['paplay', '--raw', '--format=float32le', '--rate=%d' % RATE, '--channels=1'],
            ['aplay', '-q', '-f', 'FLOAT_LE', '-r', str(RATE), '-c', '1'])

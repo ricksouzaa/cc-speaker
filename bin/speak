@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""speak: speaks aloud each Claude Code reply, with Kokoro running locally (no network, no cost).
+"""speak: speaks aloud each Claude Code reply, with Pocket TTS running locally (no network, no cost).
 
   speak on | quiet | off [all]  turn the voice on, keep only the written 🔊 summary (`quiet`: no sound) or turn it off
                            for this Claude Code session (the nearest ancestor process named `claude`); `all` (or
@@ -20,20 +20,23 @@
   speak speed <n> [all]    how fast the voice speaks, as a multiple of the normal speed of the voice in force: a
                            number from 0.5 to 2, with dot or comma and an optional final x (1: normal; 0.9: a bit
                            slower; 1.25: faster); same scopes as `mode`; default 1; holds from the next speech on
+                           (the engine speaks at one speed: any other is the same audio stretched or shortened, at
+                           the same pitch)
   speak update             update this plugin: `claude plugin marketplace update` and `claude plugin update` (120 s each);
                            prints the version before and after, in Portuguese; the new version holds after
                            /reload-plugins or in a new session
   speak status --json      the same state as one JSON line (used by the /speak pane)
-  speak voice [name]       without a name: list the Portuguese voices (dora, alex, santa) and mark the current one;
-                           with a name (short or full, e.g. dora or pf_dora): choose it for every session
+  speak voice [name]       without a name: list the voices (lola, estelle, fantine, rafael, charles, george) and
+                           mark the current one; with a name: choose it for every session
   speak rule               print rules/speak.md with {line} replaced by the line of the mode and size in force
                            (`rule resumed`: a reopened conversation, nothing is recorded as told)
                            (the SessionStart hook hands it to Claude)
   speak check              print `engine` and/or `player` for what is missing; exit 0 when nothing is
                            (on stderr, a line "processos acima: pid nome, ...": the ancestors, to find the session)
   speak test [text]        speak a test sentence, in the foreground (errors show)
-  speak install            install the engine: Python 3.12 via uv, kokoro-onnx (on the Mac also sounddevice, optional),
-                           model files (~350 MB); no sudo
+  speak install            install the engine: Python 3.12 via uv with numpy (on the Mac also sounddevice, optional),
+                           the Pocket TTS program, its Portuguese model and the voices (~280 MB, each file checked
+                           against its SHA-256); no sudo; what the former engine (Kokoro) left is removed
   speak autoinstall        start `speak install` in the background unless it is running, failed already in this plugin
                            version, the uv is missing or CLAUDE_SPEAK_AUTOINSTALL=0; prints one word: ready (engine
                            there), installing, no-uv, failed or off (plus `started` after installing when this call
@@ -69,22 +72,25 @@ the space bar to dictate in Claude Code does), seen through pw-dump on Linux and
 speeches waiting are kept and go on when the microphone is free. `speak off` in a session also drops that session's speeches (playing or waiting).
 Env: CLAUDE_SPEAK=0 silences one session (a first choice that a later `speak on` beats);
 CLAUDE_SPEAK_SESSION forces the session key ('-' means none; for tests and to force a key);
-CLAUDE_SPEAK_MODE overrides the mode; CLAUDE_SPEAK_SIZE the size; CLAUDE_SPEAK_MIC the microphone choice; CLAUDE_SPEAK_VOICE the voice (default pf_dora);
-CLAUDE_SPEAK_SPEED the speed handed to the engine as it is, whatever `speak speed` says (without it: the speed of the
-voice, 1.1, times the `speak speed` choice, kept within the 0.5 to 2 the engine takes).
+CLAUDE_SPEAK_MODE overrides the mode; CLAUDE_SPEAK_SIZE the size; CLAUDE_SPEAK_MIC the microphone choice; CLAUDE_SPEAK_VOICE the voice (default lola);
+CLAUDE_SPEAK_SPEED the speed of the speech as it is, whatever `speak speed` says (without it: the `speak speed`
+choice, kept within 0.5 to 2).
 Files live in the plugin's data folder (CLAUDE_SPEAK_DATA, else where the script is; see lib/speak_paths.py): engine/, config/, state/.
 Errors of a background speech go to state/error.log there. state/speech.json says what plays now and what is paused
 (the /speak module reads it without running a process); CLAUDE_SPEAK_CWD (set by the Stop hook) is the folder of the
 session shown to the other sessions.
 """
 import fcntl
+import glob
 import json
 import os
+import platform
 import re
 import shutil
 import signal
 import subprocess
 import sys
+import tarfile
 import threading
 import time
 import urllib.request
@@ -92,6 +98,7 @@ import urllib.request
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))  # python3 -I does not add it
 import speak_os  # noqa: E402
 import speak_paths  # noqa: E402
+import speak_pocket  # noqa: E402
 import speak_update  # noqa: E402
 
 HOME = os.path.expanduser('~')
@@ -123,27 +130,35 @@ SIZE_TEXT = {'small': 'one short sentence',
                       'what the human must decide'}
 VOICE_FILE = os.path.join(CONF, 'voice')
 SPEED_FILE = os.path.join(CONF, 'speed')  # the general speed choice, as `speed_key` writes it
-SPEED_RANGE = (0.5, 2.0)  # of the speed choice and of what the engine takes
-DEFAULT_SPEED = 1.1
-READING_VOICES = {  # short name -> the name saved in VOICE_FILE, its kind, the recipe (engine voice, weight) and the default speed
-    'dora': {'full': 'pf_dora', 'kind': 'feminina', 'mix': (('pf_dora', 1.0),), 'speed': DEFAULT_SPEED},
-    'alex': {'full': 'pm_alex', 'kind': 'masculina', 'mix': (('pm_alex', 1.0),), 'speed': DEFAULT_SPEED},
-    'santa': {'full': 'pm_santa', 'kind': 'masculina', 'mix': (('pm_santa', 1.0),), 'speed': DEFAULT_SPEED},
+SPEED_RANGE = (0.5, 2.0)  # of the speed choice and of the speed of the speech
+DEFAULT_SPEED = 1.0
+READING_VOICES = {  # name -> its kind and its normal speed (the engine speaks at one speed; see `stretch`)
+    'lola': {'full': 'lola', 'kind': 'feminina', 'speed': DEFAULT_SPEED},
+    'estelle': {'full': 'estelle', 'kind': 'feminina', 'speed': DEFAULT_SPEED},
+    'fantine': {'full': 'fantine', 'kind': 'feminina', 'speed': DEFAULT_SPEED},
+    'rafael': {'full': 'rafael', 'kind': 'masculina', 'speed': DEFAULT_SPEED},
+    'charles': {'full': 'charles', 'kind': 'masculina', 'speed': DEFAULT_SPEED},
+    'george': {'full': 'george', 'kind': 'masculina', 'speed': DEFAULT_SPEED},
 }
 PT_VOICES = {short: (v['full'], v['kind']) for short, v in READING_VOICES.items()}
-RETIRED_VOICES = {'alice': 'pf_dora'}  # a voice that left the plugin -> the one a saved choice of it now means
+DEFAULT_VOICE = 'lola'
+# A voice that left the plugin -> the one a saved choice of it now means. The voices of the former engine (Kokoro,
+# until 0.23.0) became the nearest of the new one: the feminine ones Lola, the masculine ones Rafael.
+RETIRED_VOICES = {'alice': 'lola', 'dora': 'lola', 'pf_dora': 'lola', 'alex': 'rafael', 'pm_alex': 'rafael',
+                  'santa': 'rafael', 'pm_santa': 'rafael'}
 RULE = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'rules', 'speak.md')
 VENV_PY = os.path.join(DATA, '.venv', 'bin', 'python')
-MODEL = os.path.join(DATA, 'kokoro-v1.0.onnx')
-VOICES = os.path.join(DATA, 'voices-v1.0.bin')
-MODEL_URL = 'https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/'
+MODEL = 'portuguese'  # which of the engine's models speaks (speak_pocket.MODELS): the lighter of the two Portuguese ones
+PACKAGES = ['numpy']  # what the speech needs of Python: the samples are stretched and handed to the player with it
+FORMER_ENGINE = ('kokoro-v1.0.onnx', 'voices-v1.0.bin')  # the files of Kokoro, the engine until 0.23.0 (see `former_engine`)
+ENGINE_LOG = os.path.join(STATE, 'engine.log')  # what the engine wrote during the last speech
 PID = os.path.join(STATE, 'speech.pid')
 OWNER = os.path.join(STATE, 'speech.owner')  # key of the session that owns the speech playing ('' = none)
 LOCK = os.path.join(STATE, 'queue.lock')  # flock'ed while a speech joins the queue or takes its turn
 QUEUE = os.path.join(STATE, 'queue')  # one ticket per speech waiting: name '<time_ns>-<pid>', content = session key
 NOW = os.path.join(STATE, 'speech.json')  # what plays now and what is paused: {"playing": {...}|null, "paused": [{...}]}
 LOG = os.path.join(STATE, 'error.log')
-RATE = speak_os.RATE  # Kokoro's output, mono float32
+RATE = speak_os.RATE  # what goes to the player, mono float32 (the engine gives 16 bits at this rate)
 MARK = '🔊'
 LIMIT = {'full': 6000}  # characters; a longer reply is cut at a sentence end
 SUMMARY_LIMIT = {'small': 300, 'medium': 600, 'large': 1200}  # the same, for the 🔊 line, by size
@@ -155,57 +170,62 @@ MIC_WAIT_POLL = 1.0  # seconds between looks at the microphone while waiting a t
 
 
 def voice():
-    """CLAUDE_SPEAK_VOICE, then the general file, then pf_dora. A voice that left the plugin (RETIRED_VOICES) counts
-    as the one that took its place, so a choice saved by an older version still speaks."""
+    """The voice that reads, by its name: CLAUDE_SPEAK_VOICE, then the general file, then lola. A voice that left
+    the plugin (RETIRED_VOICES) counts as the one that took its place, so a choice saved by an older version still
+    speaks; any other name the engine has no voice for counts as lola."""
     wanted = os.environ.get('CLAUDE_SPEAK_VOICE')
     if not wanted:
         try:
             with open(VOICE_FILE) as fh:
-                wanted = fh.read().strip()
+                wanted = fh.read()
         except OSError:
             pass
-    return RETIRED_VOICES.get((wanted or '').strip().lower(), wanted) or 'pf_dora'
+    wanted = (wanted or '').strip().lower()
+    wanted = RETIRED_VOICES.get(wanted, wanted)
+    return wanted if wanted in READING_VOICES else DEFAULT_VOICE
 
 
 def voice_short():
-    """The voice in force by the short name people know it by (`dora`), however it was spelled (`Dora`, `PF_DORA`:
-    the speech takes them too, see reading_voice); an engine voice that is not one of the reading voices goes as it
-    is."""
-    full = voice()
-    wanted = full.strip().lower()
-    return next((short for short, (name, _) in PT_VOICES.items() if wanted in (short, name)), full)
+    """The voice in force by the name people know it by (`lola`)."""
+    return voice()
 
 
 def voice_name(wanted):
-    """Full name of a Portuguese voice from its short or full name; None if unknown."""
+    """The name of a voice as it is saved, from what was typed (`Lola`); None if unknown."""
     wanted = wanted.strip().lower()
-    for short, (full, _) in PT_VOICES.items():
-        if wanted in (short, full):
-            return full
-    return None
+    return wanted if wanted in READING_VOICES else None
 
 
-def reading_voice(wanted):
-    """The entry of READING_VOICES for a short or full name; None if it is not one of them."""
-    wanted = (wanted or '').strip().lower()
-    for short, entry in READING_VOICES.items():
-        if wanted in (short, entry['full']):
-            return entry
-    return None
+def heard(pcm, speed):
+    """What the engine gave (16-bit samples, as bytes) as the player takes it: float32 from -1 to 1, at `speed`."""
+    import numpy
+    return stretch(numpy.frombuffer(pcm, dtype='<i2').astype('float32') / 32768, speed)
 
 
-def recipe(wanted):
-    """(mix, default speed) of a voice: its recipe, or the engine voice of that name alone."""
-    entry = reading_voice(wanted)
-    return (entry['mix'], entry['speed']) if entry else (((wanted, 1.0),), DEFAULT_SPEED)
-
-
-def voice_style(voices, mix):
-    """What kokoro.create takes as `voice`: the engine voice name when the recipe is one voice alone, else the
-    weighted sum of the style vectors of `voices` (the engine's voices file) in float32. Made once per speech."""
-    if len(mix) == 1:
-        return mix[0][0]
-    return sum(voices[name] * weight for name, weight in mix).astype('float32')
+def stretch(samples, speed, rate=RATE):
+    """The same speech `speed` times faster (or slower), at the same pitch: the engine speaks at one speed only.
+    WSOLA: windows of 30 ms, each overlapping half of the one before and taken, within 10 ms of where the speed
+    asks, at the point that best continues it. At speed 1 the samples come back untouched."""
+    import numpy as np
+    size = int(rate * 0.030) // 2 * 2
+    hop, reach = size // 2, int(rate * 0.010)
+    if abs(speed - 1) < 0.005 or len(samples) < 4 * size + 2 * reach:
+        return samples
+    window = np.hanning(size + 1)[:size].astype('float32')
+    out = np.zeros(int(len(samples) / speed) + 2 * size, dtype='float32')
+    out[:size] = samples[:size] * window
+    out[:hop] = samples[:hop]  # the first half-window has no window before it to add up with
+    at, count = 0, 1  # where the last window was taken, and how many were laid
+    while True:
+        ideal = int(count * hop * speed)
+        low = max(0, ideal - reach)
+        if ideal + reach + size > len(samples) or at + hop + size > len(samples):
+            break
+        match = np.correlate(samples[low:ideal + reach + size], samples[at + hop:at + hop + size], 'valid')
+        at = low + int(np.argmax(match))
+        out[count * hop:count * hop + size] += samples[at:at + size] * window
+        count += 1
+    return np.concatenate((out[:count * hop], samples[at + hop:])).astype('float32')  # the end as it was spoken
 
 
 def parse_speed(text):
@@ -245,7 +265,7 @@ def speed_choice(session=None):
 
 
 def fixed_speed():
-    """CLAUDE_SPEAK_SPEED as a number: the speed handed to the engine as it is; None when unset or not a number."""
+    """CLAUDE_SPEAK_SPEED as a number: the speed of the speech, whatever was chosen; None when unset or not a number."""
     try:
         return float(os.environ.get('CLAUDE_SPEAK_SPEED') or '')
     except ValueError:
@@ -253,13 +273,12 @@ def fixed_speed():
 
 
 def speed(session=None):
-    """The speed handed to the engine: CLAUDE_SPEAK_SPEED, else the default speed of the voice in force times the
-    speed choice, kept within what the engine takes."""
-    fixed = fixed_speed()
-    if fixed is not None:
-        return fixed
+    """The speed of the speech: CLAUDE_SPEAK_SPEED, else the normal speed of the voice in force times the speed
+    choice; either way kept within SPEED_RANGE."""
     low, high = SPEED_RANGE
-    return min(high, max(low, round(recipe(voice())[1] * speed_choice(session), 3)))
+    fixed = fixed_speed()
+    wanted = READING_VOICES[voice()]['speed'] * speed_choice(session) if fixed is None else fixed
+    return min(high, max(low, round(wanted, 3)))
 
 
 def mode(session=None):
@@ -527,7 +546,7 @@ def is_on(session=None):
 
 
 def engine_ready():
-    return all(os.path.exists(p) for p in (VENV_PY, MODEL, VOICES))
+    return os.path.exists(VENV_PY) and speak_pocket.ready(DATA, MODEL, READING_VOICES)
 
 
 # --- what is spoken -----------------------------------------------------------------------------------------------
@@ -594,101 +613,11 @@ def spelled_acronyms(text):
     return re.sub(r'(?<![\w-])[A-Z]{2,6}(?![\w-])', spell, text)
 
 
-# Respelt for the engine: ENEM comes out as "eneɪŋ"; written so it is said "ê-nêi".
-RESPELL = {'ENEM': 'ênêi'}
-# English terms inside Portuguese text are said with English sounds, in the same voice and in the same run of speech:
-# the piece goes to the engine as sounds (phonemes), the Portuguese ones with the English ones in their place, so no
-# audio is joined (0.16.0 made one audio per language and joined them; the seam was heard, and 0.17.0 dropped it).
-# The terms are marked with private-use characters after `clean`, so the marks never reach what tests and `speak say`
-# print. The person adds more in CONF/english, one or more per line.
-EN_START, EN_END = '\ue000', '\ue001'
-ENGLISH = frozenset((
-    'reload plugin plugins commit commits push pull request requests branch branches merge deploy build hook hooks '
-    'github worktree release rebase checkout stash lint workflow pipeline dashboard feedback download upload login '
-    'logout backup prompt token tokens endpoint backend frontend framework script scripts bug bugs fix debug timeout '
-    'cache fallback rollback webhook staging cluster slash review issue issues feature features').split())
-# A guide word stands where an English stretch goes while espeak reads the Portuguese of the whole piece, so the
-# Portuguese words keep their neighbours (alone, a final "o" is read as the letter, "ó"). There are two, each read the
-# same way wherever it is: one starts without voice and the other with it, as the English stretch does, because the
-# "s" or "z" that ends the word before depends on that ("os commits" with "s", "os issues" with "z").
-GUIDES = {False: ('xuxu', 'ʃuʃˈu'), True: ('zazá', 'zazˈa')}
-VOICELESS = 'ptkfθsʃʧh'
-# espeak's American English, written with the symbols the engine learned English with (the table of the official
-# Kokoro, misaki's EspeakFallback): "^" is the tie mark between two sounds said as one.
-ENGLISH_SOUNDS = sorted({
-    'ʔˌn\u0329': 'ʔn', 'ʔn\u0329': 'ʔn', 'a^ɪ': 'I', 'a^ʊ': 'W', 'd^ʒ': 'ʤ', 'e^ɪ': 'A', 'e': 'A', 't^ʃ': 'ʧ',
-    'ɔ^ɪ': 'Y', 'ə^l': 'ᵊl', 'ʲo': 'jo', 'ʲə': 'jə', 'ʲ': '', 'ɚ': 'əɹ', 'r': 'ɹ', 'x': 'k', 'ç': 'k', 'ɐ': 'ə',
-    'ɬ': 'l', '\u0303': ''}.items(), key=lambda pair: -len(pair[0]))
-ENGLISH_AMERICAN = (('o^ʊ', 'O'), ('ɜːɹ', 'ɜɹ'), ('ɜː', 'ɜɹ'), ('ɪə', 'iə'), ('ː', ''), ('o', 'ɔ'), ('ɾ', 'T'),
-                    ('ʔ', 't'), ('^', ''))
-
-
-def english_terms(text):
-    """Wraps the English terms (ENGLISH plus CONF/english) in marks; neighbours join into one stretch."""
-    try:
-        with open(os.path.join(CONF, 'english')) as fh:
-            own = {word.lower() for line in fh if not line.lstrip().startswith('#') for word in line.split()}
-    except OSError:
-        own = set()
-    known = ENGLISH | own
-    text = re.sub(r'(?<![\w-])[A-Za-z]+(?![\w-])',
-                  lambda m: EN_START + m.group(0) + EN_END if m.group(0).lower() in known else m.group(0),
-                  unmarked(text))  # a mark that came in the text itself would pair with ours
-    return re.sub(EN_END + r'(\s+)' + EN_START, r'\1', text)
-
-
-def unmarked(piece):
-    """The piece without the marks of the English terms: plain text again."""
-    return piece.replace(EN_START, '').replace(EN_END, '')
-
-
-def english_raw(term):
-    """espeak's American English sounds of a term, with the tie mark between the sounds said as one."""
-    import phonemizer
-    from kokoro_onnx import tokenizer
-    with getattr(tokenizer, '_espeak_lock', threading.Lock()):  # espeak keeps one state for the whole process
-        return phonemizer.phonemize(term, 'en-us', preserve_punctuation=True, with_stress=True, tie='^')
-
-
-def english_sounds(raw):
-    """What `english_raw` gives, in the symbols the engine learned English with."""
-    sounds = raw.strip()
-    for old, new in ENGLISH_SOUNDS:
-        sounds = sounds.replace(old, new)
-    sounds = re.sub('(\\S)\u0329', r'ᵊ\1', sounds).replace('\u0329', '')
-    for old, new in ENGLISH_AMERICAN:
-        sounds = sounds.replace(old, new)
-    return sounds
-
-
-def mixed_sounds(piece, portuguese, english):
-    """The sounds of a piece with marked English terms: `english(term)` gives the sounds of each stretch, and
-    `portuguese(text)` reads the whole piece once, with a guide word where each stretch goes (the one that starts
-    as the stretch does, with or without voice). None when there is no English, or when the guide words do not come
-    back one per stretch and in order (one is in the text itself, or the engine read it another way)."""
-    parts = re.split(EN_START + '(.*?)' + EN_END, piece)
-    if len(parts) < 2:
-        return None
-    said = [english(term) for term in parts[1::2]]
-    guides = [GUIDES[sounds.lstrip('ˈˌ')[:1] not in VOICELESS] for sounds in said]
-    words = iter(guides)
-    around = re.split('(%s)' % '|'.join(re.escape(sounds) for _, sounds in GUIDES.values()),
-                      portuguese(''.join(next(words)[0] if i % 2 else part for i, part in enumerate(parts))))
-    if around[1::2] != [sounds for _, sounds in guides]:
-        return None
-    return ''.join(said[i // 2] if i % 2 else part for i, part in enumerate(around))
-
-
-def piece_sounds(kokoro, piece):
-    """The sounds of a piece that has English terms; None when it has none or the sounds cannot be made (no espeak
-    at hand, an engine of another shape): then the piece is spoken as plain text, the terms read as Portuguese."""
-    if EN_START not in piece:
-        return None
-    try:
-        return mixed_sounds(piece, lambda text: kokoro.tokenizer.phonemize(text, 'pt-br'),
-                            lambda term: english_sounds(english_raw(term))) or None
-    except Exception:
-        return None
+# Words written one way and said another, respelled for the engine, which takes text only (it cannot be handed the
+# sounds, as Kokoro could until 0.23.0). The English terms here are the ones heard and approved; others are read as
+# the engine reads them.
+RESPELL = {'ENEM': 'ênêi', 'PLUGIN': 'plâguin', 'PLUGINS': 'plâguins', 'GITHUB': 'Guit Râb', 'PULL': 'pul',
+           'REQUEST': 'riquést', 'REQUESTS': 'riquésts', 'BUG': 'bâg', 'BUGS': 'bâgs', 'BACKEND': 'béquend'}
 
 
 def clean(text):
@@ -1330,11 +1259,33 @@ def current_recordings():
     return speak_os.recordings_now()
 
 
+ENGINE = None  # the engine's server of the speech this process is playing (speak_pocket.Server), while it lasts
+
+
+def end_engine():
+    """Ends the engine's server at once, for a speech that ends without running its `finally`: the server is a
+    process of its own, and only Linux ends it by itself when its speech dies."""
+    engine = ENGINE
+    if engine is not None:
+        try:
+            engine.kill()
+        except Exception:
+            pass
+
+
 def cut_by_microphone(player):
-    """Ends the player and this speech process, leaving no speech files behind."""
+    """Ends the player, the engine and this speech process, leaving no speech files behind."""
     player.kill()
+    end_engine()
     clear_speech(os.getpid())
     os._exit(0)
+
+
+def ended_by_signal(signum, frame):
+    """SIGTERM to a speech (`speak stop`, the end of its session): it ends as it always did, at once, and takes
+    the engine along. A speech of `speak test` leads no group of its own, so the signal reaches it alone."""
+    end_engine()
+    os._exit(128 + signum)
 
 
 def mic_busy(recs):
@@ -1430,6 +1381,17 @@ def stop_watching(watcher):
         thread.join(1)
 
 
+def write_wav(path, samples):
+    """Writes float32 samples as a WAV of 16 bits, mono, at RATE."""
+    import numpy
+    import wave
+    with wave.open(path, 'wb') as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(RATE)
+        wav.writeframes((numpy.clip(samples, -1, 1) * 32767).astype('<i2').tobytes())
+
+
 class FilePlayer:
     """The player of a system that plays files (Mac): one `afplay <wav>` per piece. `kill()` stops the one in
     progress and removes its file, so the microphone cut leaves nothing behind."""
@@ -1441,10 +1403,9 @@ class FilePlayer:
         self.lock = threading.Lock()
 
     def play(self, samples):
-        import soundfile
         path = os.path.join(STATE, '.tmp-%d-%s.wav' % (os.getpid(), os.urandom(4).hex()))  # prune_tmp sweeps strays
         try:
-            soundfile.write(path, samples, RATE)
+            write_wav(path, samples)
             with self.lock:
                 self.path = path
                 self.proc = subprocess.Popen(self.command + [path])
@@ -1674,10 +1635,16 @@ def write_audio(stdin, data):
 
 
 def play(text):
-    """Runs inside the engine's Python: waits its turn in the queue, then synthesizes piece by piece into the
-    player's stdin. The turn comes only while the microphone is free (no dictation in progress)."""
+    """Runs inside the engine's Python: waits its turn in the queue, then starts the engine (speak_pocket.Server, for
+    as long as this speech lasts) and synthesizes piece by piece into the player's stdin. The turn comes only while
+    the microphone is free (no dictation in progress)."""
+    global ENGINE
     session = current_session()
     marker = None
+    try:
+        former = signal.signal(signal.SIGTERM, ended_by_signal)
+    except ValueError:  # not the main thread (a test): the signal stays as it was
+        former = None
     if speak_os.streams():
         signal.signal(signal.SIGUSR1, lambda *_: PAUSED.set())
         signal.signal(signal.SIGUSR2, lambda *_: PAUSED.clear())
@@ -1696,48 +1663,49 @@ def play(text):
             return 0
         # The voice and the speed of this speech are the ones in force now, as it takes its turn: the voice was just
         # told to the other sessions (speech_facts), so a choice made while the engine loads holds from the next one.
-        mix = recipe(voice())[0]
+        name = voice()
         rate = speed(session)
-        from kokoro_onnx import Kokoro
         player = player_command()
         if player is None:
             print('voz: nenhum tocador de áudio (%s)' % speak_os.player_names(), file=sys.stderr)
             return 1
-        kokoro = Kokoro(MODEL, VOICES)
-        style = voice_style(kokoro.voices, mix)
-
-        text = english_terms(text)  # after `clean`, so the marks never reach what tests and `speak say` print
+        os.makedirs(STATE, exist_ok=True)
+        with open(ENGINE_LOG, 'w') as log:  # the engine's own words, kept until the next speech
+            server = ENGINE = speak_pocket.Server(DATA, name, log)
 
         def synth(piece):
-            sounds = piece_sounds(kokoro, piece)
-            if sounds:
-                return kokoro.create(sounds, voice=style, speed=rate, lang='pt-br', is_phonemes=True)[0]
-            return kokoro.create(unmarked(piece), voice=style, speed=rate, lang='pt-br')[0]
+            return heard(server.speak(piece), rate)
 
-        if not speak_os.streams():
-            return play_files(player, synthesize_ahead(pieces(text), synth), watch, session)
-        proc = subprocess.Popen(player, stdin=subprocess.PIPE)
         try:
-            fcntl.fcntl(proc.stdin.fileno(), getattr(fcntl, 'F_SETPIPE_SZ', 1031), PIPE_SIZE)
-        except OSError:
-            pass
-        speak_os.realtime(proc.pid)  # real time for the player, or as before when the system will not give it
-        watcher = watch_microphone(proc, session) if watch else None
-        try:
+            if not speak_os.streams():
+                return play_files(player, synthesize_ahead(pieces(text), synth), watch, session)
+            proc = subprocess.Popen(player, stdin=subprocess.PIPE)
             try:
-                for samples in synthesize_ahead(pieces(text), synth):
-                    write_audio(proc.stdin, samples.astype('float32').tobytes())
-                hold_silence(proc.stdin)  # paused after the last piece: the speech ends only when continued
+                fcntl.fcntl(proc.stdin.fileno(), getattr(fcntl, 'F_SETPIPE_SZ', 1031), PIPE_SIZE)
+            except OSError:
+                pass
+            speak_os.realtime(proc.pid)  # real time for the player, or as before when the system will not give it
+            watcher = watch_microphone(proc, session) if watch else None
+            try:
+                try:
+                    for samples in synthesize_ahead(pieces(text), synth):
+                        write_audio(proc.stdin, samples.astype('float32').tobytes())
+                    hold_silence(proc.stdin)  # paused after the last piece: the speech ends only when continued
+                finally:
+                    proc.stdin.close()
+                return proc.wait()
             finally:
-                proc.stdin.close()
-            return proc.wait()
+                stop_watching(watcher)
         finally:
-            stop_watching(watcher)
+            ENGINE = None
+            server.close()
     finally:
         if marker:
             drop(marker)
         drop_own_tickets()
         clear_speech(os.getpid())
+        if former is not None:
+            signal.signal(signal.SIGTERM, former)
 
 
 def venv_works():
@@ -1770,20 +1738,29 @@ def remove_quietly(path):
         pass
 
 
-def progress_hook(name, step, steps):
-    """The reporthook of urlretrieve: writes the bytes so far, at most every PROGRESS_EVERY seconds."""
-    last = [None]
+def progress_report(steps):
+    """What `speak_pocket.install` tells its steps to: each file is announced once, and the bytes so far are written
+    at most every PROGRESS_EVERY seconds. The files come after the dependencies, the first of the `steps`."""
+    last = [None, None]  # when the last write was, and of which file
 
-    def hook(blocks, size, total):
+    def report(name, done, total, step, count):
         now = time.monotonic()
-        if last[0] is not None and now - last[0] < PROGRESS_EVERY:
+        if name != last[1]:
+            print('voz: baixando %s' % name, flush=True)
+        elif now - last[0] < PROGRESS_EVERY:
             return
-        last[0] = now
-        total = max(total, 0)
-        done = blocks * size
+        last[:] = [now, name]
         write_progress(fase='baixando', arquivo=name, feito=min(done, total) if total else done, total=total,
-                       passo=step, passos=steps)
-    return hook
+                       passo=step + 1, passos=steps)
+    return report
+
+
+def former_engine():
+    """What Kokoro, the engine until 0.23.0, left in the data folder: its model, its voices and, in the Python
+    environment, its package (with what it brought, hundreds of MB)."""
+    paths = [os.path.join(DATA, name) for name in FORMER_ENGINE]
+    paths += glob.glob(os.path.join(DATA, '.venv', 'lib', 'python*', 'site-packages', 'kokoro_onnx'))
+    return [path for path in paths if os.path.lexists(path)]
 
 
 def install():
@@ -1799,18 +1776,23 @@ def install():
 
 
 def install_steps(uv):
+    if not speak_pocket.program_file(speak_os.SYSTEM):
+        raise ValueError('o motor não tem programa para esta máquina (%s, %s)' % (speak_os.SYSTEM, platform.machine()))
     os.makedirs(DATA, exist_ok=True)
-    files = [path for path in (MODEL, VOICES) if not os.path.exists(path)]
-    steps = 1 + len(files)  # the dependencies, then each file still missing
+    remove_quietly(speak_pocket.mark(DATA))  # from here to the end the engine is not one to speak with
+    steps = 1 + len(speak_pocket.wanted(DATA, speak_os.SYSTEM, MODEL, READING_VOICES))  # the dependencies, then each file
     write_progress(fase='dependências', passo=1, passos=steps)
-    if not venv_works():
-        venv = os.path.join(DATA, '.venv')  # rebuilt alone: the model and voices beside it are not downloaded again
+    former = former_engine()
+    if former or not venv_works():
+        # rebuilt alone: the model and voices beside it are not downloaded again. With the former engine there, the
+        # environment goes too, so nothing of it is left taking room.
+        venv = os.path.join(DATA, '.venv')
         if os.path.islink(venv):
             os.remove(venv)
         elif os.path.isdir(venv):
             shutil.rmtree(venv)
         subprocess.check_call([uv, 'venv', '--python', '3.12', '-q', venv])
-    subprocess.check_call([uv, 'pip', 'install', '-q', '--python', VENV_PY, 'kokoro-onnx'])
+    subprocess.check_call([uv, 'pip', 'install', '-q', '--python', VENV_PY] + PACKAGES)
     if speak_os.SYSTEM == 'mac':  # a separate step: without it the Mac plays through afplay
         try:
             ok = subprocess.call([uv, 'pip', 'install', '-q', '--python', VENV_PY, 'sounddevice']) == 0
@@ -1818,17 +1800,13 @@ def install_steps(uv):
             ok = False
         if not ok:
             print('voz: sounddevice não instalou; o Mac toca pelo afplay', flush=True)
-    for step, path in enumerate(files, 2):
-        name = os.path.basename(path)
-        print('voz: baixando %s' % name, flush=True)
-        write_progress(fase='baixando', arquivo=name, feito=0, total=0, passo=step, passos=steps)
-        part = '%s.part-%d' % (path, os.getpid())  # one per process: two installs never share a file
-        try:
-            urllib.request.urlretrieve(MODEL_URL + name, part, progress_hook(name, step, steps))
-            os.replace(part, path)
-        finally:
-            if os.path.exists(part):
-                os.remove(part)
+    for path in former:
+        if not os.path.isdir(path):
+            remove_quietly(path)
+    if former:
+        print('voz: o motor antigo (Kokoro) foi removido', flush=True)
+    speak_pocket.install(DATA, speak_os.SYSTEM, MODEL, READING_VOICES, urllib.request.urlretrieve,
+                         progress_report(steps))
     print('voz: motor instalado em %s' % DATA, flush=True)
     return 0
 
@@ -1909,7 +1887,9 @@ def progress_text(progress):
         return 'instalando as dependências'
     if progress.get('fase') != 'baixando':
         return None
-    what = 'as vozes' if progress.get('arquivo') == os.path.basename(VOICES) else 'o modelo de voz'
+    name = progress.get('arquivo') or ''
+    what = ('o motor' if name.startswith('pocket-tts') else
+            'o modelo de voz' if name in ('model.safetensors', 'tokenizer.json', 'original.yaml') else 'as vozes')
     done, total, pct = round(progress.get('feito', 0) / 1e6), round(progress.get('total', 0) / 1e6), progress_percent(progress)
     if pct is None:
         return 'baixando %s: %d MB' % (what, done)
@@ -1957,7 +1937,7 @@ def install_unlocked():
     failed = False
     try:
         code = install()  # 1 without an exception: no uv, nothing was tried
-    except (subprocess.CalledProcessError, OSError) as exc:
+    except (subprocess.CalledProcessError, OSError, ValueError, tarfile.TarError) as exc:
         print('voz: a instalação falhou: %s' % exc, file=sys.stderr)
         code, failed = 1, True
     try:
@@ -2113,7 +2093,7 @@ def status():
     print('  velocidade da fala: %s%s%s' % (speed_text(speed_choice(session)), here if own_field(session, 'speed') else '',
                                               '' if fixed_speed() is None else ' (CLAUDE_SPEAK_SPEED vale mais)'))
     print('  motor: %s' % engine_text())
-    print('  voz: %s, velocidade no motor %s' % (voice(), speed(session)))
+    print('  voz de leitura: %s (%s), velocidade aplicada %s' % (voice(), READING_VOICES[voice()]['kind'], speed(session)))
     now = sweep_now()
     if now['playing']:
         print('  fala: tocando agora (%s)' % speech_text(now['playing'], session))
@@ -2383,7 +2363,7 @@ def main(argv):
     if cmd == 'voice':
         if not text:
             for short, (full, kind) in PT_VOICES.items():
-                print('%s %s (%s, %s)' % ('*' if full == voice() else ' ', short, full, kind))
+                print('%s %s (%s)' % ('*' if full == voice() else ' ', short, kind))
             return 0
         full = voice_name(text)
         if not full:

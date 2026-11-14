@@ -43,7 +43,7 @@ Para o plugin ativado no meio da sessão (issue #2), em vez dos passos 3 e 4, e 
 (rode "claude plugin uninstall speak@cc-speaker" e "claude plugin marketplace remove cc-speaker" antes de abrir o claude):
   a. dentro do claude, já logado e com a sessão aberta: /plugin marketplace add /plugin
   b. /plugin install speak@cc-speaker
-  c. sem abrir outra sessão: aparece a linha "Instalando a voz (cerca de 350 MB...)" na conversa, a linha
+  c. sem abrir outra sessão: aparece a linha "Instalando a voz (cerca de 280 MB...)" na conversa, a linha
      "🔊 Instalando a voz: NN% (X de Y MB)" embaixo do campo e, no fim, "Voz pronta";
   d. se faltar o uv, a linha fixa "🔊 Voz não instalada: falta o uv; instale-o e rode /speak install" fica na tela.
 Ao sair (exit), o contêiner e o login somem.

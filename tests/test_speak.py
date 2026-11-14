@@ -47,6 +47,36 @@ def tearDownModule():
     isolation.assert_untouched(unittest.TestCase())
 
 
+def fake_engine(data):
+    """Leaves in the engine folder `data` what makes the engine count as installed: the Python of its environment
+    and the program (empty files, kept when already there) and the mark of a finished install."""
+    os.makedirs(os.path.join(data, '.venv', 'bin'), exist_ok=True)
+    for rel in ('.venv/bin/python', 'pocket-tts'):
+        if not os.path.exists(os.path.join(data, rel)):
+            open(os.path.join(data, rel), 'w').close()
+    with open(os.path.join(data, 'ready'), 'w') as fh:
+        fh.write(speak.speak_pocket.stamp(speak.MODEL, speak.READING_VOICES))
+
+
+class FakeServer:
+    """In the place of speak_pocket.Server: remembers what it was started with and asked, and gives 8 samples."""
+    made = []
+
+    def __init__(self, folder, voice, log=None):
+        self.voice, self.asked, self.closed = voice, [], False
+        FakeServer.made.append(self)
+
+    def speak(self, text):
+        self.asked.append(text)
+        return bytes(16)
+
+    def close(self):
+        self.closed = True
+
+    def kill(self):
+        self.killed = True
+
+
 def remove_if_there(path):
     try:
         os.remove(path)
@@ -180,70 +210,14 @@ class Filter(unittest.TestCase):
     def test_enem_is_respelt_and_the_letter_e_is_stressed(self):
         self.assertEqual(speak.clean('O Enem e o IBGE.'), 'O ênêi e o i bê gê éh.')
 
-    def test_english_terms_are_marked_and_neighbours_join(self):
-        S, E = speak.EN_START, speak.EN_END
-        self.assertEqual(speak.english_terms(speak.clean('Rode /reload-plugins e faça o deploy.')),
-                         'Rode barra %sreload plugins%s e faça o %sdeploy%s.' % (S, E, S, E))
-        self.assertEqual(speak.english_terms(speak.clean('Abri um Pull Request no GitHub, com o bug fix.')),
-                         'Abri um %sPull Request%s no %sGitHub%s, com o %sbug fix%s.' % (S, E, S, E, S, E))
-        self.assertEqual(speak.english_terms(speak.clean('Nada em inglês aqui.')), 'Nada em inglês aqui.')
-        # part of a longer word or of a hyphenated name: left alone
-        self.assertEqual(speak.english_terms('o pré-commit e os commitados'), 'o pré-commit e os commitados')
-        self.assertEqual(speak.unmarked('Faça o %sdeploy%s.' % (S, E)), 'Faça o deploy.')
-
-    def test_own_english_file(self):
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        isolate(self, tmp.name)
-        os.makedirs(speak.CONF, exist_ok=True)
-        with open(os.path.join(speak.CONF, 'english'), 'w') as fh:
-            fh.write('# inglês\nKubernetes\n  code review \n')
-        S, E = speak.EN_START, speak.EN_END
-        self.assertEqual(speak.english_terms(speak.clean('Usa kubernetes.')), 'Usa %skubernetes%s.' % (S, E))
-        # a line with two words: both are terms, and side by side they are one stretch
-        self.assertEqual(speak.english_terms('Pedi um code review hoje.'), 'Pedi um %scode review%s hoje.' % (S, E))
-
-    def test_a_mark_already_in_the_text_is_dropped(self):
-        S, E = speak.EN_START, speak.EN_END
-        self.assertEqual(speak.english_terms('Ícone %s e o deploy %s feito.' % (S, E)),
-                         'Ícone  e o %sdeploy%s  feito.' % (S, E))
-
-    def test_english_sounds_are_written_as_the_engine_learned_english(self):
-        # espeak's American English (the tie mark joins the sounds said as one) -> the symbols of the official Kokoro
-        for raw, sounds in (('plˈʌɡɪn ', 'plˈʌɡɪn'), ('ɡˈɪt hˈʌb ', 'ɡˈɪt hˈʌb'), ('dᵻplˈɔ^ɪ ', 'dᵻplˈY'),
-                            ('mˈɜːd^ʒ ', 'mˈɜɹʤ'), ('tˈo^ʊkən ', 'tˈOkən'), ('tˈa^ɪma^ʊt ', 'tˈImWt'),
-                            ('fɹˈe^ɪmwɜːk ', 'fɹˈAmwɜɹk'), ('fˈiːt^ʃɚ ', 'fˈiʧəɹ'), ('dˈæʃbɔː^ɹd ', 'dˈæʃbɔɹd'),
-                            ('lˈɑːɡɪn ', 'lˈɑɡɪn'), ('bˈɛɾɚ ', 'bˈɛTəɹ'), ('bˈʌʔn̩ ', 'bˈʌtn'),
-                            ('ɹᵻlˈo^ʊd plˈʌɡɪnz ', 'ɹᵻlˈOd plˈʌɡɪnz'), ('bˈɑːɾə^l ', 'bˈɑTᵊl'),
-                            ('ɹˈɪðm\u0329 ', 'ɹˈɪðᵊm')):
-            self.assertEqual(speak.english_sounds(raw), sounds, raw)
-
-    def test_a_piece_with_english_becomes_one_run_of_sounds(self):
-        S, E = speak.EN_START, speak.EN_END
-        asked = []
-
-        def portuguese(text):  # the Portuguese of the whole piece, with a guide word where each English stretch goes
-            asked.append(text)
-            return {'Rode o zazá agora, e o xuxu depois.': 'xˈɔdʒy ʊ zazˈa aɡˈɔɾæ, i ʊ ʃuʃˈu depˈoɪs.',
-                    'zazá': 'zazˈa',
-                    'Os zazá e os xuxu.': 'ʊz zazˈa i ʊs ʃuʃˈu.',
-                    'O zazá do zazá.': 'ʊ zazˈa dʊ zˈazæ.',
-                    'O xuxu do zazá.': 'ʊ zazˈa dʊ ʃuʃˈu.'}[text]
-        english = {'deploy': 'dᵻplˈY', 'pull request': 'pˈʊl ɹᵻkwˈɛst', 'issues': 'ˈɪʃuz', 'commits': 'kəmˈɪts'}.get
-        piece = 'Rode o %sdeploy%s agora, e o %spull request%s depois.' % (S, E, S, E)
-        self.assertEqual(speak.mixed_sounds(piece, portuguese, english),
-                         'xˈɔdʒy ʊ dᵻplˈY aɡˈɔɾæ, i ʊ pˈʊl ɹᵻkwˈɛst depˈoɪs.')
-        # one call, so the words keep their neighbours; and the guide word starts as the English stretch does, with
-        # or without voice, so the "s" before it is the one the stretch asks for ("oz issues", "os commits")
-        self.assertEqual(asked, ['Rode o zazá agora, e o xuxu depois.'])
-        self.assertEqual(speak.mixed_sounds('Os %sissues%s e os %scommits%s.' % (S, E, S, E), portuguese, english),
-                         'ʊz ˈɪʃuz i ʊs kəmˈɪts.')
-        self.assertEqual(speak.mixed_sounds('%sdeploy%s' % (S, E), portuguese, english), 'dᵻplˈY')
-        # the guide words did not come back one per stretch and in order (one is in the text, or the engine read it
-        # another way): no sounds, and the piece is spoken as plain text
-        self.assertIsNone(speak.mixed_sounds('O %sdeploy%s do %sdeploy%s.' % (S, E, S, E), portuguese, english))
-        self.assertIsNone(speak.mixed_sounds('O %spull request%s do %sdeploy%s.' % (S, E, S, E), portuguese, english))
-        self.assertIsNone(speak.mixed_sounds('Nada em inglês aqui.', portuguese, english))
+    def test_english_terms_heard_and_approved_are_respelt(self):
+        # the engine takes text only: these are written the way it says them right, whatever their case
+        self.assertEqual(speak.clean('O plugin tem um bug no backend.'), 'O plâguin tem um bâg no béquend.')
+        self.assertEqual(speak.clean('Abri um Pull Request no GitHub.'), 'Abri um pul riquést no Guit Râb.')
+        self.assertEqual(speak.clean('Dois Plugins, três Bugs.'), 'Dois plâguins, três bâgs.')
+        # part of a longer word or of a hyphenated name: left alone; and so is any other English word
+        self.assertEqual(speak.clean('O debug, o anti-bug e o deploy.'), 'O debug, o anti-bug e o deploy.')
+        self.assertEqual(speak.clean('Nada em inglês aqui.'), 'Nada em inglês aqui.')
 
     def test_commit_codes_and_head_go(self):
         self.assertEqual(speak.clean('Commit b48e609 e 93a66bd prontos.'), 'Commit e prontos.')
@@ -273,9 +247,9 @@ class Filter(unittest.TestCase):
                          'para cortar uma fala que está tocando, o speak stop'.replace('o speak', 'o barra speak'))
         self.assertEqual(speak.clean('Use `/speak stop` agora.'), 'Use barra speak stop agora.')
         self.assertEqual(speak.clean('Use /speak stop agora.'), 'Use barra speak stop agora.')
-        self.assertEqual(speak.clean('Rode `/reload-plugins`.'), 'Rode barra reload plugins.')
-        self.assertEqual(speak.clean('Rode /reload-plugins.'), 'Rode barra reload plugins.')
-        self.assertEqual(speak.clean('Rode `/plugin install speak@cc-speaker` antes.'), 'Rode barra plugin install antes.')
+        self.assertEqual(speak.clean('Rode `/reload-plugins`.'), 'Rode barra reload plâguins.')
+        self.assertEqual(speak.clean('Rode /reload-plugins.'), 'Rode barra reload plâguins.')
+        self.assertEqual(speak.clean('Rode `/plugin install speak@cc-speaker` antes.'), 'Rode barra plâguin install antes.')
         self.assertEqual(speak.clean('Rode `/speak`'), 'Rode barra speak')
         self.assertEqual(speak.full_text('Para cortar, o `/speak stop`.'), 'Para cortar, o barra speak stop.')
 
@@ -1723,6 +1697,22 @@ class Session(unittest.TestCase):
         player.kill.assert_called_once()
         self.assertEqual((os.path.exists(pid), os.path.exists(owner)), (False, False))
 
+    def test_a_speech_that_ends_at_once_takes_its_engine_along(self):
+        """The cut by the microphone and a SIGTERM end the process without its `finally`: the engine's server, a
+        process of its own, is ended first (only Linux ends it by itself when its speech dies)."""
+        from unittest import mock
+        order = []
+        engine = mock.Mock()
+        engine.kill.side_effect = lambda: order.append('engine')
+        with mock.patch.object(speak, 'ENGINE', engine), mock.patch.object(speak, 'clear_speech'), \
+                mock.patch.object(speak.os, '_exit', side_effect=lambda code: order.append(code)):
+            speak.cut_by_microphone(mock.Mock())
+            speak.ended_by_signal(signal.SIGTERM, None)
+        self.assertEqual(order, ['engine', 0, 'engine', 143])
+        with mock.patch.object(speak, 'ENGINE', None), mock.patch.object(speak.os, '_exit') as left:
+            speak.ended_by_signal(signal.SIGTERM, None)  # before the engine started, or after it closed
+        left.assert_called_once_with(143)
+
     # --- the queue: real processes that run speak's own wait_turn / play, with a fake pw-dump ------------------------
 
     DRIVER = (
@@ -1971,16 +1961,14 @@ class Session(unittest.TestCase):
         isolate(self, root)
         made = []
 
-        def kokoro(*args):
+        def server(*args):
             made.append(args)
             raise RuntimeError('stop here')
 
-        fake = types.ModuleType('kokoro_onnx')
-        fake.Kokoro = kokoro
         speak.set_session(self.me, voice='muted')
         for test_flag, reaches in (({}, False), ({'CLAUDE_SPEAK_TEST': '1'}, True)):
             made.clear()
-            with mock.patch.dict(sys.modules, {'kokoro_onnx': fake}), \
+            with mock.patch.object(speak.speak_pocket, 'Server', server), \
                     mock.patch.dict(os.environ, {'CLAUDE_SPEAK_SESSION': self.me, **test_flag}), \
                     mock.patch.object(speak, 'QUEUE_POLL', 0.01), \
                     mock.patch.object(speak.shutil, 'which', side_effect=lambda n: '/usr/bin/x' if n != 'pw-dump' else None):
@@ -1999,8 +1987,7 @@ class Session(unittest.TestCase):
         with open(engine, 'w') as fh:
             fh.write('#!/bin/sh\necho "$CLAUDE_SPEAK_TEST" > %s\n' % mark)
         os.chmod(engine, 0o755)
-        for name in ('kokoro-v1.0.onnx', 'voices-v1.0.bin'):
-            open(os.path.join(data, name), 'w').close()
+        fake_engine(data)
         r = self.speak('test', session=self.me)
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(mark) as fh:
@@ -2133,15 +2120,15 @@ class Pause(unittest.TestCase):
         proc = self.waiter('a', self.me, CLAUDE_SPEAK_DIR='/home/x/projeto', CLAUDE_SPEAK_HOW='summary')
         self.assertTrue(self.until(lambda: self.started() == ['a']))
         self.assertEqual(self.json(), {'playing': {'pid': proc.pid, 'session': self.me, 'dir': '/home/x/projeto',
-                                                   'how': 'summary', 'voice': 'dora'}, 'paused': []})
+                                                   'how': 'summary', 'voice': 'lola'}, 'paused': []})
         self.let_go('a')
         self.assertEqual(proc.wait(timeout=5), 0)
         self.assertIsNone(self.json())  # nothing playing, nothing paused: no file
-        # The voice in force when the speech takes its turn, by its short name, however the variable spells it (the
-        # speech takes `Santa` and `PM_ALEX` too); an engine voice that is not one of the reading voices goes as it
-        # is, and a voice that left the plugin as the one that took its place.
-        for name, chosen, told in (('b', 'pm_alex', 'alex'), ('c', 'af_heart', 'af_heart'), ('d', 'alice', 'dora'),
-                                   ('e', 'Santa', 'santa'), ('f', 'PM_ALEX', 'alex')):
+        # The voice in force when the speech takes its turn, however the variable spells it (the speech takes
+        # `Estelle` too); a name that is no reading voice counts as the default one, and a voice that left the plugin
+        # as the one that took its place.
+        for name, chosen, told in (('b', 'rafael', 'rafael'), ('c', 'af_heart', 'lola'), ('d', 'alice', 'lola'),
+                                   ('e', 'Estelle', 'estelle'), ('f', 'PM_ALEX', 'rafael')):
             proc = self.waiter(name, self.me, CLAUDE_SPEAK_VOICE=chosen)
             self.assertTrue(self.until(lambda: self.started()[-1:] == [name]), name)
             self.assertEqual(self.json()['playing']['voice'], told)
@@ -2531,8 +2518,7 @@ class Silent(unittest.TestCase):
     def engine(self):
         data = data_dir(self.home, 'engine')
         os.makedirs(os.path.join(data, '.venv', 'bin'))
-        for rel in ('.venv/bin/python', 'kokoro-v1.0.onnx', 'voices-v1.0.bin'):
-            open(os.path.join(data, rel), 'w').close()
+        fake_engine(data)
 
     def silent(self, **env):
         return subprocess.run([sys.executable, '-I', SPEAK, 'silent'], capture_output=True, text=True,
@@ -2596,7 +2582,7 @@ class Silent(unittest.TestCase):
             note = self.cut()
             self.assertEqual(note, 'speak: o motor de voz ainda está sendo instalado; não termine esta resposta com a linha 🔊.\n')
             with open(os.path.join(folder, 'install.progress'), 'w') as fh:
-                json.dump({'fase': 'baixando', 'arquivo': 'kokoro-v1.0.onnx', 'feito': 78, 'total': 100, 'passo': 2,
+                json.dump({'fase': 'baixando', 'arquivo': 'model.safetensors', 'feito': 78, 'total': 100, 'passo': 2,
                            'passos': 3}, fh)
             self.assertEqual(self.cut(), 'speak: o motor de voz ainda está sendo instalado (78%); não termine esta resposta com a linha 🔊.\n')
 
@@ -3004,17 +2990,17 @@ class Speed(unittest.TestCase):
     def test_default_is_the_normal_speed_of_the_voice(self):
         out = self.speak('status').stdout
         self.assertIn('  velocidade da fala: 1x\n', out)
-        self.assertIn('  voz: pf_dora, velocidade no motor 1.1\n', out)
+        self.assertIn('  voz de leitura: lola (feminina), velocidade aplicada 1.0\n', out)
         data = json.loads(self.speak('status', '--json').stdout)
         self.assertEqual((data['speed'], data['scope']['speed']), ('1', 'all'))
 
     def test_the_choice_multiplies_the_speed_of_the_voice_in_force(self):
         out = self.speak('speed', '0.9').stdout
         self.assertIn('  velocidade da fala: 0.9x\n', out)
-        self.assertIn('velocidade no motor 0.99\n', out)
+        self.assertIn('velocidade aplicada 0.9\n', out)
         self.assertEqual(self.saved(), '0.9')
-        self.speak('voice', 'alex')  # the choice stays when the voice changes
-        self.assertIn('  voz: pm_alex, velocidade no motor 0.99\n', self.speak('status').stdout)
+        self.speak('voice', 'rafael')  # the choice stays when the voice changes
+        self.assertIn('  voz de leitura: rafael (masculina), velocidade aplicada 0.9\n', self.speak('status').stdout)
         self.assertEqual(json.loads(self.speak('status', '--json').stdout)['speed'], '0.9')
 
     def test_comma_dot_and_a_final_x_are_accepted(self):
@@ -3038,24 +3024,25 @@ class Speed(unittest.TestCase):
             self.assertEqual(r.stdout, '')
         self.assertFalse(os.path.exists(data_dir(self.tmp.name, 'config', 'speed')))
 
-    def test_the_engine_never_gets_more_than_it_takes(self):
-        self.assertIn('velocidade no motor 2.0\n', self.speak('speed', '2').stdout)  # 2 x 1.1 would be 2.2
-        self.assertIn('velocidade no motor 0.55\n', self.speak('speed', '0.5').stdout)
+    def test_the_speech_never_goes_beyond_half_or_double(self):
+        self.assertIn('velocidade aplicada 2.0\n', self.speak('speed', '2').stdout)
+        self.assertIn('velocidade aplicada 0.5\n', self.speak('speed', '0.5').stdout)
+        self.assertIn('velocidade aplicada 2.0\n', self.speak('status', CLAUDE_SPEAK_SPEED='3').stdout)
         isolate(self, self.tmp.name)
-        for chosen, own, engine in (('0.5', 0.95, 0.5), ('2', 1.1, 2.0), ('1', 0.95, 0.95), ('1.1', 1.1, 1.21),
-                                    ('0.9', 1.05, 0.945)):
+        for chosen, own, applied in (('0.5', 0.95, 0.5), ('2', 1.1, 2.0), ('1', 0.95, 0.95), ('1.1', 1.1, 1.21),
+                                     ('0.9', 1.05, 0.945)):  # a voice may have a normal speed of its own
             with open(speak.SPEED_FILE, 'w') as fh:
                 fh.write(chosen + '\n')
-            with mock.patch.object(speak, 'recipe', return_value=((('pf_dora', 1.0),), own)):
-                self.assertEqual(speak.speed(), engine, (chosen, own))
+            with mock.patch.dict(speak.READING_VOICES, {'lola': {'full': 'lola', 'kind': 'feminina', 'speed': own}}):
+                self.assertEqual(speak.speed(), applied, (chosen, own))
 
-    def test_the_variable_is_the_speed_of_the_engine_and_beats_the_choice(self):
+    def test_the_variable_is_the_speed_of_the_speech_and_beats_the_choice(self):
         self.speak('speed', '0.75')
         out = self.speak('status', CLAUDE_SPEAK_SPEED='1.3').stdout
-        self.assertIn('velocidade no motor 1.3\n', out)
+        self.assertIn('velocidade aplicada 1.3\n', out)
         self.assertIn('  velocidade da fala: 0.75x (CLAUDE_SPEAK_SPEED vale mais)\n', out)
         out = self.speak('status', CLAUDE_SPEAK_SPEED='x').stdout  # not a number: ignored, the choice holds
-        self.assertIn('velocidade no motor 0.825\n', out)
+        self.assertIn('velocidade aplicada 0.75\n', out)
         self.assertNotIn('CLAUDE_SPEAK_SPEED', out)
 
     def test_the_pane_is_told_when_the_variable_beats_the_choice(self):
@@ -3070,7 +3057,7 @@ class Speed(unittest.TestCase):
         folder = data_dir(self.tmp.name, 'state', 'sessions')
         out = self.speak('speed', '1,25', key=key).stdout
         self.assertIn('  velocidade da fala: 1.25x · só nesta sessão\n', out)
-        self.assertIn('velocidade no motor 1.375\n', out)
+        self.assertIn('velocidade aplicada 1.25\n', out)
         self.assertEqual(speak_read(folder, key)['speed'], '1.25')
         self.assertFalse(os.path.exists(data_dir(self.tmp.name, 'config', 'speed')))
         self.assertIn('  velocidade da fala: 1x\n', self.speak('status').stdout)  # out of the session: the general one
@@ -3090,7 +3077,7 @@ class Speed(unittest.TestCase):
                 fh.write(bad + '\n')
             out = self.speak('status').stdout
             self.assertIn('  velocidade da fala: 1x\n', out, bad)
-            self.assertIn('velocidade no motor 1.1\n', out, bad)
+            self.assertIn('velocidade aplicada 1.0\n', out, bad)
         isolate(self, self.tmp.name)
         os.makedirs(speak.SESSIONS)
         for bad in ('x', '9', 9, 0.9, None, True, ['1']):
@@ -3098,127 +3085,94 @@ class Speed(unittest.TestCase):
                 fh.write(json.dumps({'mode': 'full', 'speed': bad}))
             self.assertEqual(speak.read_session('k'), {'mode': 'full'}, bad)
 
+    def play(self, session='-'):
+        """speak.play('Olá.') with a fake engine and no player; returns what `heard` was asked: (bytes, speed)."""
+        asked = []
+        with mock.patch.object(speak.speak_pocket, 'Server', FakeServer), \
+                mock.patch.dict(os.environ, {'CLAUDE_SPEAK_SESSION': session}), \
+                mock.patch.object(speak, 'wait_turn', return_value=True), \
+                mock.patch.object(speak, 'player_command', return_value=['tocador-de-teste']), \
+                mock.patch.object(speak.speak_os, 'streams', return_value=False), \
+                mock.patch.object(speak, 'heard', side_effect=lambda pcm, speed: asked.append((pcm, speed)) or [0.0]), \
+                mock.patch.object(speak, 'play_files', side_effect=lambda command, chunks, watch, session=None:
+                                  len(list(chunks)) and 0) as played:
+            self.assertEqual(speak.play('Olá.'), 0)
+        self.assertEqual(played.call_count, 1)
+        return asked
+
     def test_the_speech_is_made_at_the_speed_of_its_session(self):
-        import types
         isolate(self, self.tmp.name)
         me = speak.session_key(os.getpid())
         os.makedirs(speak.CONF, exist_ok=True)
         with open(speak.SPEED_FILE, 'w') as fh:
             fh.write('2\n')  # the general choice, which the session's own beats
         speak.set_session(me, speed='0.75')
-        seen = []
-
-        class Engine:
-            voices = {}
-
-            def __init__(self, *files):
-                pass
-
-            def create(self, piece, voice, speed, lang):
-                seen.append((voice, speed, lang))
-                return [0.0] * 8, speak.RATE
-
-        fake = types.ModuleType('kokoro_onnx')
-        fake.Kokoro = Engine
-        with mock.patch.dict(sys.modules, {'kokoro_onnx': fake}), \
-                mock.patch.dict(os.environ, {'CLAUDE_SPEAK_SESSION': me}), \
-                mock.patch.object(speak, 'wait_turn', return_value=True), \
-                mock.patch.object(speak, 'player_command', return_value=['tocador-de-teste']), \
-                mock.patch.object(speak.speak_os, 'streams', return_value=False), \
-                mock.patch.object(speak, 'play_files', side_effect=lambda command, chunks, watch, session=None:
-                                  len(list(chunks)) and 0) as played:
-            self.assertEqual(speak.play('Olá.'), 0)
-        self.assertEqual(seen, [('pf_dora', 0.825, 'pt-br')])
-        self.assertEqual(played.call_count, 1)
+        FakeServer.made.clear()
+        self.assertEqual(self.play(me), [(bytes(16), 0.75)])
+        server, = FakeServer.made
+        self.assertEqual((server.voice, server.asked, server.closed), ('lola', ['Olá.'], True))
 
     def test_the_speech_speaks_in_the_voice_and_speed_in_force_when_it_takes_its_turn(self):
         """The voice the other sessions are told (speech_facts, written at the turn) is the one heard: a choice that
         changes while the engine loads holds from the next speech on."""
-        import types
         isolate(self, self.tmp.name)
         os.makedirs(speak.CONF, exist_ok=True)
-        seen = []
 
-        class Engine:
-            voices = {}
-
-            def __init__(self, *files):  # the engine takes a moment to load: meanwhile the choices change
+        class Slow(FakeServer):
+            def __init__(self, folder, voice, log=None):  # the engine takes a moment to load: meanwhile the choices change
+                super().__init__(folder, voice, log)
                 with open(speak.VOICE_FILE, 'w') as fh:
-                    fh.write('pm_alex\n')
+                    fh.write('rafael\n')
                 with open(speak.SPEED_FILE, 'w') as fh:
                     fh.write('2\n')
 
-            def create(self, piece, voice, speed, lang):
-                seen.append((voice, speed, lang))
-                return [0.0] * 8, speak.RATE
+        FakeServer.made.clear()
+        with mock.patch.object(sys.modules[__name__], 'FakeServer', Slow):
+            self.assertEqual(self.play(), [(bytes(16), 1.0)])
+            self.assertEqual(self.play(), [(bytes(16), 2.0)])  # the next speech has both
+        self.assertEqual([server.voice for server in FakeServer.made], ['lola', 'rafael'])
 
-        fake = types.ModuleType('kokoro_onnx')
-        fake.Kokoro = Engine
-        with mock.patch.dict(sys.modules, {'kokoro_onnx': fake}), \
-                mock.patch.dict(os.environ, {'CLAUDE_SPEAK_SESSION': '-'}), \
-                mock.patch.object(speak, 'wait_turn', return_value=True), \
-                mock.patch.object(speak, 'player_command', return_value=['tocador-de-teste']), \
-                mock.patch.object(speak.speak_os, 'streams', return_value=False), \
-                mock.patch.object(speak, 'play_files', side_effect=lambda command, chunks, watch, session=None:
-                                  len(list(chunks)) and 0):
-            self.assertEqual(speak.play('Olá.'), 0)
-            self.assertEqual(seen, [('pf_dora', 1.1, 'pt-br')])
-            self.assertEqual(speak.play('Olá.'), 0)  # the next speech has both
-        self.assertEqual(seen[1:], [('pm_alex', 2.0, 'pt-br')])
-
-
-class English(unittest.TestCase):
-    """English terms in the middle of the Portuguese are said with English sounds, in the same run of speech."""
-
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-
-    def play(self, text, tokenizer):
-        import types
+    def test_the_engine_is_closed_when_the_speech_fails(self):
         isolate(self, self.tmp.name)
-        seen = []
-
-        class Engine:
-            voices = {}
-
-            def __init__(self, *files):
-                self.tokenizer = tokenizer
-
-            def create(self, piece, voice, speed, lang, is_phonemes=False):
-                seen.append((piece, lang, is_phonemes))
-                return [0.0] * 8, speak.RATE
-
-        fake = types.ModuleType('kokoro_onnx')
-        fake.Kokoro = Engine
-        with mock.patch.dict(sys.modules, {'kokoro_onnx': fake}), \
+        FakeServer.made.clear()
+        with mock.patch.object(speak.speak_pocket, 'Server', FakeServer), \
                 mock.patch.dict(os.environ, {'CLAUDE_SPEAK_SESSION': '-'}), \
                 mock.patch.object(speak, 'wait_turn', return_value=True), \
                 mock.patch.object(speak, 'player_command', return_value=['tocador-de-teste']), \
                 mock.patch.object(speak.speak_os, 'streams', return_value=False), \
-                mock.patch.object(speak, 'english_raw', side_effect=lambda term: {'deploy': 'dᵻplˈɔ^ɪ '}[term]), \
-                mock.patch.object(speak, 'play_files', side_effect=lambda command, chunks, watch, session=None:
-                                  len(list(chunks)) and 0):
-            self.assertEqual(speak.play(text), 0)
-        return seen
+                mock.patch.object(speak, 'play_files', side_effect=RuntimeError('o tocador caiu')):
+            with self.assertRaises(RuntimeError):
+                speak.play('Olá.')
+        self.assertTrue(FakeServer.made[0].closed)
 
-    class Tokenizer:
-        def phonemize(self, text, lang):
-            return {('Fiz o zazá agora.', 'pt-br'): 'fˈiz ʊ zazˈa aɡˈɔɾæ.'}[(text, lang)]
+    @unittest.skipUnless(importlib.util.find_spec('numpy'), 'needs numpy')
+    def test_another_speed_is_the_same_speech_longer_or_shorter_at_the_same_pitch(self):
+        import numpy as np
+        rate = speak.RATE
+        tone = np.sin(2 * np.pi * 200 * np.arange(2 * rate) / rate).astype('float32')  # two seconds at 200 Hz
 
-    def test_a_piece_with_an_english_term_goes_to_the_engine_as_sounds(self):
-        self.assertEqual(self.play('Fiz o deploy agora.', self.Tokenizer()),
-                         [('fˈiz ʊ dᵻplˈY aɡˈɔɾæ.', 'pt-br', True)])
+        def pitch(samples):
+            middle = samples[len(samples) // 4:3 * len(samples) // 4]
+            return np.sum(middle[:-1] * middle[1:] < 0) * rate / (2 * len(middle))  # from the zero crossings
 
-    def test_a_piece_without_english_goes_as_text_as_before(self):
-        self.assertEqual(self.play('Tudo certo agora.', self.Tokenizer()), [('Tudo certo agora.', 'pt-br', False)])
+        self.assertIs(speak.stretch(tone, 1.0), tone)  # the normal speed leaves the samples as they came
+        for wanted in (0.5, 0.75, 0.9, 1.25, 1.5, 2.0):
+            out = speak.stretch(tone, wanted)
+            self.assertEqual(out.dtype, np.float32)
+            self.assertAlmostEqual(len(out) / len(tone), 1 / wanted, delta=0.03, msg=wanted)
+            self.assertAlmostEqual(pitch(out), 200, delta=4, msg=wanted)
+            self.assertLessEqual(float(np.max(np.abs(out))), 1.05, wanted)  # the windows add up to one, not more
+        short = tone[:1000]  # too short to stretch: as it came
+        self.assertIs(speak.stretch(short, 0.5), short)
 
-    def test_when_the_sounds_fail_the_piece_is_spoken_as_plain_text(self):
-        class Broken:
-            def phonemize(self, text, lang):
-                raise RuntimeError('sem espeak')
-        self.assertEqual(self.play('Fiz o deploy agora.', Broken()), [('Fiz o deploy agora.', 'pt-br', False)])
-        self.assertEqual(self.play('Fiz o deploy agora.', None), [('Fiz o deploy agora.', 'pt-br', False)])
+    @unittest.skipUnless(importlib.util.find_spec('numpy'), 'needs numpy')
+    def test_what_the_engine_gives_becomes_float_samples(self):
+        import numpy as np
+        pcm = np.array([0, 16384, -32768, 32767], dtype='<i2').tobytes()
+        out = speak.heard(pcm, 1.0)
+        self.assertEqual(out.dtype, np.float32)
+        np.testing.assert_allclose(out, [0, 0.5, -1, 32767 / 32768], rtol=1e-6)
+        self.assertEqual(len(speak.heard(b'', 1.0)), 0)  # a piece with nothing to say
 
 
 class Voice(unittest.TestCase):
@@ -3233,86 +3187,69 @@ class Voice(unittest.TestCase):
 
     def test_list_marks_the_current_one(self):
         out = self.speak('voice').stdout
-        for part in ('dora', 'pf_dora', 'alex', 'pm_alex', 'santa', 'pm_santa', 'feminina', 'masculina'):
+        for part in ('lola', 'estelle', 'fantine', 'rafael', 'charles', 'george', 'feminina', 'masculina'):
             self.assertIn(part, out)
-        self.assertRegex(out, r'(?m)^\* dora')
-        self.assertRegex(self.speak('voice', CLAUDE_SPEAK_VOICE='pm_santa').stdout, r'(?m)^\* santa')
+        self.assertEqual(len(out.splitlines()), 6)
+        self.assertRegex(out, r'(?m)^\* lola \(feminina\)$')
+        self.assertRegex(self.speak('voice', CLAUDE_SPEAK_VOICE='george').stdout, r'(?m)^\* george \(masculina\)$')
 
-    def test_short_and_full_names_are_saved(self):
-        self.assertIn('voz: pm_alex', self.speak('voice', 'alex').stdout)
-        self.assertEqual(open(data_dir(self.tmp.name, 'config', 'voice')).read().strip(), 'pm_alex')
-        self.speak('voice', 'pm_santa')
-        self.assertIn('voz: pm_santa', self.speak('status').stdout)
+    def test_the_name_is_saved_whatever_its_case(self):
+        self.assertIn('voz de leitura: rafael (masculina)', self.speak('voice', 'Rafael').stdout)
+        self.assertEqual(open(data_dir(self.tmp.name, 'config', 'voice')).read().strip(), 'rafael')
+        self.speak('voice', 'estelle')
+        self.assertIn('voz de leitura: estelle (feminina)', self.speak('status').stdout)
 
     def test_unknown_name_is_refused_and_nothing_is_saved(self):
         r = self.speak('voice', 'bob')
         self.assertEqual(r.returncode, 2)
-        self.assertIn('voz:', r.stderr)
+        self.assertIn('voz: voz desconhecida; use uma de: lola, estelle, fantine, rafael, charles, george\n', r.stderr)
         self.assertFalse(os.path.exists(data_dir(self.tmp.name, 'config', 'voice')))
 
     def test_order_is_variable_then_file_then_default(self):
-        self.assertIn('voz: pf_dora', self.speak('status').stdout)
-        self.speak('voice', 'alex')
-        self.assertIn('voz: pm_alex', self.speak('status').stdout)
-        self.assertIn('voz: pm_santa', self.speak('status', CLAUDE_SPEAK_VOICE='pm_santa').stdout)
+        self.assertIn('voz de leitura: lola', self.speak('status').stdout)
+        self.speak('voice', 'rafael')
+        self.assertIn('voz de leitura: rafael', self.speak('status').stdout)
+        self.assertIn('voz de leitura: fantine', self.speak('status', CLAUDE_SPEAK_VOICE='fantine').stdout)
+        self.assertIn('voz de leitura: lola', self.speak('status', CLAUDE_SPEAK_VOICE='ninguém').stdout)
 
-    def test_alice_left_and_who_had_chosen_her_hears_dora(self):
-        self.assertNotIn('alice', self.speak('voice').stdout)
-        r = self.speak('voice', 'alice')
-        self.assertEqual(r.returncode, 2)
-        self.assertIn('voz: voz desconhecida; use uma de: dora, alex, santa\n', r.stderr)
+    def test_the_voices_of_the_former_engine_left_and_who_had_one_hears_the_nearest(self):
+        listed = self.speak('voice').stdout
+        for former in ('dora', 'alex', 'santa', 'alice'):
+            self.assertNotIn(former, listed)
+            r = self.speak('voice', former)
+            self.assertEqual(r.returncode, 2, former)
         self.assertFalse(os.path.exists(data_dir(self.tmp.name, 'config', 'voice')))
         os.makedirs(data_dir(self.tmp.name, 'config'))
-        with open(data_dir(self.tmp.name, 'config', 'voice'), 'w') as fh:
-            fh.write('alice\n')  # saved by a version that had her
-        self.assertIn('  voz: pf_dora, velocidade no motor 1.1\n', self.speak('status').stdout)
-        self.assertRegex(self.speak('voice').stdout, r'(?m)^\* dora')
-        self.assertEqual(json.loads(self.speak('status', '--json').stdout)['voice'], 'dora')
-        self.assertIn('  voz: pf_dora, velocidade no motor 1.1\n', self.speak('status', CLAUDE_SPEAK_VOICE='Alice').stdout)
-        self.assertIn('voz: pm_alex', self.speak('voice', 'alex').stdout)  # and any other choice replaces it
-
-    # A voice made of two engine voices, with a speed of its own: no reading voice is like this today (Alice was),
-    # but the recipes still take it.
-    MIXED = {'full': 'suave', 'kind': 'feminina', 'mix': (('pf_dora', 0.6), ('af_heart', 0.4)), 'speed': 1.05}
-
-    def test_old_saved_values_still_work(self):
-        os.makedirs(os.path.dirname(data_dir(self.tmp.name, 'config', 'voice')))
-        for full, short in (('pf_dora', 'dora'), ('pm_alex', 'alex'), ('pm_santa', 'santa')):
+        for saved, now, kind in (('pf_dora', 'lola', 'feminina'), ('dora', 'lola', 'feminina'),
+                                 ('alice', 'lola', 'feminina'), ('pm_alex', 'rafael', 'masculina'),
+                                 ('alex', 'rafael', 'masculina'), ('pm_santa', 'rafael', 'masculina')):
             with open(data_dir(self.tmp.name, 'config', 'voice'), 'w') as fh:
-                fh.write(full + '\n')
-            self.assertIn('voz: %s, velocidade no motor 1.1' % full, self.speak('status').stdout)
-            self.assertRegex(self.speak('voice').stdout, r'(?m)^\* ' + short)
+                fh.write(saved + '\n')  # saved by a version that had it
+            self.assertIn('  voz de leitura: %s (%s), velocidade aplicada 1.0\n' % (now, kind),
+                          self.speak('status').stdout, saved)
+            self.assertRegex(self.speak('voice').stdout, r'(?m)^\* ' + now)
+            self.assertEqual(json.loads(self.speak('status', '--json').stdout)['voice'], now)
+        self.assertIn('voz de leitura: rafael', self.speak('status', CLAUDE_SPEAK_VOICE='PM_Santa').stdout)
+        self.assertIn('voz de leitura: george', self.speak('voice', 'george').stdout)  # and any other choice replaces it
 
-    def test_default_speed_follows_the_voice_and_the_variable_wins(self):
-        self.assertIn('velocidade no motor 1.1\n', self.speak('status').stdout)
-        self.assertIn('velocidade no motor 1.3\n', self.speak('status', CLAUDE_SPEAK_SPEED='1.3').stdout)
-        self.assertIn('velocidade no motor 1.1\n', self.speak('status', CLAUDE_SPEAK_SPEED='x').stdout)
-        self.assertIn('voz: pm_alex, velocidade no motor 1.1\n', self.speak('status', CLAUDE_SPEAK_VOICE='pm_alex').stdout)
+    def test_every_voice_is_one_the_engine_has_for_the_model_in_use(self):
+        have = speak.speak_pocket.MODELS[speak.MODEL]['voices']
+        self.assertEqual([name for name in speak.READING_VOICES if name not in have], [])
+        self.assertIn(speak.DEFAULT_VOICE, speak.READING_VOICES)
+        self.assertEqual([new for new in speak.RETIRED_VOICES.values() if new not in speak.READING_VOICES], [])
+        self.assertEqual(sorted(v['kind'] for v in speak.READING_VOICES.values()), ['feminina'] * 3 + ['masculina'] * 3)
+
+    def test_the_speed_follows_the_voice_and_the_variable_wins(self):
+        self.assertIn('velocidade aplicada 1.0\n', self.speak('status').stdout)
+        self.assertIn('velocidade aplicada 1.3\n', self.speak('status', CLAUDE_SPEAK_SPEED='1.3').stdout)
+        self.assertIn('velocidade aplicada 1.0\n', self.speak('status', CLAUDE_SPEAK_SPEED='x').stdout)
         isolate(self, self.tmp.name)
-        with mock.patch.dict(speak.READING_VOICES, {'suave': self.MIXED}), \
+        own = {'full': 'suave', 'kind': 'feminina', 'speed': 1.05}  # a voice with a normal speed of its own
+        with mock.patch.dict(speak.READING_VOICES, {'suave': own}), \
                 mock.patch.dict(os.environ, {'CLAUDE_SPEAK_VOICE': 'suave'}):
-            self.assertEqual(speak.speed(), 1.05)  # the speed of the voice itself
+            self.assertEqual(speak.speed(), 1.05)
             with mock.patch.dict(os.environ, {'CLAUDE_SPEAK_SPEED': '1.3'}):
                 self.assertEqual(speak.speed(), 1.3)
-
-    def test_recipes(self):
-        self.assertEqual(speak.recipe('pf_dora'), ((('pf_dora', 1.0),), 1.1))
-        self.assertEqual(speak.recipe('pm_other'), ((('pm_other', 1.0),), 1.1))
-        with mock.patch.dict(speak.READING_VOICES, {'suave': self.MIXED}):
-            self.assertEqual(speak.recipe('suave'), ((('pf_dora', 0.6), ('af_heart', 0.4)), 1.05))
-
-    @unittest.skipUnless(importlib.util.find_spec('numpy'), 'needs numpy')
-    def test_the_style_of_a_mixed_voice_is_the_weighted_sum_in_float32(self):
-        import numpy as np
-        path = os.path.join(self.tmp.name, 'voices.bin')
-        with open(path, 'wb') as fh:
-            np.savez(fh, pf_dora=np.array([1.0, 2.0, 3.0], dtype='float32'),
-                     af_heart=np.array([10.0, 20.0, 30.0], dtype='float32'))
-        voices = np.load(path)
-        style = speak.voice_style(voices, self.MIXED['mix'])
-        self.assertEqual(style.dtype, np.float32)
-        np.testing.assert_allclose(style, [4.6, 9.2, 13.8], rtol=1e-6)
-        self.assertEqual(speak.voice_style(voices, speak.recipe('pf_dora')[0]), 'pf_dora')
 
 
 class Rule(unittest.TestCase):
@@ -3380,8 +3317,7 @@ class StartHook(unittest.TestCase):
     def engine(self):
         data = data_dir(self.home, 'engine')
         os.makedirs(os.path.join(data, '.venv', 'bin'))
-        for rel in ('.venv/bin/python', 'kokoro-v1.0.onnx', 'voices-v1.0.bin'):
-            open(os.path.join(data, rel), 'w').close()
+        fake_engine(data)
 
     def player(self):
         os.makedirs(os.path.join(self.home, 'bin'))
@@ -3480,9 +3416,7 @@ class AutoInstallCommand(unittest.TestCase):
         open(self.uv, 'w').close()
 
     def have_engine(self):
-        for path in (speak.VENV_PY, speak.MODEL, speak.VOICES):
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            open(path, 'w').close()
+        fake_engine(speak.DATA)
 
     def test_starts_one_detached_install_with_the_log(self):
         self.have_uv()
@@ -3699,7 +3633,7 @@ class AutoInstall(unittest.TestCase):
         context = out['hookSpecificOutput']['additionalContext']
         self.assertIn('regra 🔊', context)
         self.assertIn('sendo instalado em segundo plano', context)
-        self.assertIn('350 MB', context)
+        self.assertIn('280 MB', context)
 
     def test_a_warning_for_the_person_goes_in_system_message_and_the_rules_in_the_context(self):
         out = json.loads(self.main_out('engine\n'))
@@ -3848,78 +3782,96 @@ class InstallLock(unittest.TestCase):
         self.assertIn('segundo plano', err.getvalue())
         self.assertNotIn('rode: speak install', err.getvalue())
 
-    def _install_with_fakes(self, urlretrieve):
+    def install(self, venv_works=True, engine=None, program=True, uv_run=None):
+        """speak.install_marked() with a fake uv; returns (code, the uv commands run, what the engine's own install
+        was called with, what was printed)."""
         uv = os.path.join(self.tmp.name, 'uv')
         open(uv, 'w').close()
-        with self.mock.patch.object(speak.shutil, 'which', return_value=uv), \
-                self.mock.patch.object(speak, 'venv_works', return_value=True), \
-                self.mock.patch.object(speak.subprocess, 'check_call'), \
-                self.mock.patch.object(speak.urllib.request, 'urlretrieve', side_effect=urlretrieve), \
-                self.mock.patch('sys.stdout', io.StringIO()):
-            return speak.install()
+        calls, handed, out, err = [], [], io.StringIO(), io.StringIO()
+        patches = [self.mock.patch.object(speak.shutil, 'which', return_value=uv),
+                   self.mock.patch.object(speak, 'venv_works', return_value=venv_works),
+                   self.mock.patch.object(speak.subprocess, 'check_call',
+                                          side_effect=lambda cmd: calls.append(cmd[1:]) or (uv_run and uv_run(cmd))),
+                   self.mock.patch.object(speak.speak_pocket, 'install',
+                                          side_effect=lambda *a: handed.append(a) or (engine and engine())),
+                   self.mock.patch.object(speak.speak_os, 'SYSTEM', 'linux'),
+                   self.mock.patch('sys.stdout', out), self.mock.patch('sys.stderr', err)]
+        if not program:
+            patches.append(self.mock.patch.object(speak.speak_pocket, 'program_file', return_value=None))
+        for patch in patches:
+            patch.start()
+        try:
+            return speak.install_marked(), calls, handed, out.getvalue() + err.getvalue()
+        finally:
+            for patch in reversed(patches):
+                patch.stop()
 
-    def test_download_uses_a_part_file_per_process(self):
+    def test_the_engine_is_told_its_folder_model_and_voices(self):
+        code, calls, handed, said = self.install()
+        self.assertEqual(code, 0, said)
+        self.assertEqual(calls, [['pip', 'install', '-q', '--python', speak.VENV_PY, 'numpy']])  # the environment was fine
+        (folder, system, model, voices, fetch, report), = handed
+        self.assertEqual((folder, system, model, list(voices)),
+                         (speak.DATA, 'linux', speak.MODEL, list(speak.READING_VOICES)))
+        self.assertIs(fetch, speak.urllib.request.urlretrieve)
+        self.assertNotIn('Kokoro', said)
+        self.assertFalse(os.path.exists(speak.INSTALL_FAILED))
+
+    def test_what_the_former_engine_left_is_removed_and_its_environment_rebuilt(self):
+        package = os.path.join(speak.DATA, '.venv', 'lib', 'python3.12', 'site-packages', 'kokoro_onnx')
+        os.makedirs(package)
+        former = [os.path.join(speak.DATA, name) for name in ('kokoro-v1.0.onnx', 'voices-v1.0.bin')]
+        for path in former:
+            open(path, 'w').close()
         seen = []
+        code, calls, handed, said = self.install(engine=lambda: seen.append([os.path.exists(p) for p in former + [package]]))
+        self.assertEqual(code, 0, said)
+        self.assertEqual(seen, [[False, False, False]])  # all gone before the new engine is downloaded
+        venv = os.path.join(speak.DATA, '.venv')
+        self.assertEqual(calls, [['venv', '--python', '3.12', '-q', venv],
+                                 ['pip', 'install', '-q', '--python', speak.VENV_PY, 'numpy']])
+        self.assertIn('voz: o motor antigo (Kokoro) foi removido\n', said)
+        self.assertEqual(speak.former_engine(), [])
 
-        def fake(url, dest, reporthook=None):
-            seen.append(dest)
-            open(dest, 'w').close()
-        self.assertEqual(self._install_with_fakes(fake), 0)
-        self.assertEqual(seen, [speak.MODEL + '.part-%d' % os.getpid(), speak.VOICES + '.part-%d' % os.getpid()])
-        self.assertTrue(os.path.exists(speak.MODEL) and os.path.exists(speak.VOICES))
-        self.assertEqual([n for n in os.listdir(speak.DATA) if '.part' in n], [])
+    def test_a_broken_environment_is_rebuilt_alone(self):
+        code, calls, handed, said = self.install(venv_works=False)
+        self.assertEqual((code, calls[0][0], len(handed)), (0, 'venv', 1), said)
+        self.assertNotIn('Kokoro', said)
 
-    def test_failed_download_removes_its_part_file(self):
-        def fake(url, dest, reporthook=None):
-            open(dest, 'w').close()
+    def test_an_install_that_fails_at_the_environment_leaves_no_engine_that_looks_ready(self):
+        """With the engine already there and its Python gone, the environment is rebuilt; if its package then fails
+        to install, the mark of the finished install must not be left saying the engine is ready to speak."""
+        fake_engine(speak.DATA)
+        self.assertTrue(speak.engine_ready())
+
+        def no_network(cmd):
+            if cmd[1] == 'pip':
+                raise subprocess.CalledProcessError(1, cmd)
+        code, calls, handed, said = self.install(venv_works=False, uv_run=no_network)
+        self.assertEqual((code, handed), (1, []), said)
+        self.assertFalse(speak.engine_ready())
+        self.assertTrue(os.path.exists(speak.INSTALL_FAILED))
+
+    def test_a_machine_the_engine_has_no_program_for_fails_before_anything_is_installed(self):
+        code, calls, handed, said = self.install(program=False)
+        self.assertEqual((code, calls, handed), (1, [], []))
+        self.assertIn('voz: a instalação falhou: o motor não tem programa para esta máquina', said)
+        self.assertTrue(os.path.exists(speak.INSTALL_FAILED))
+
+    def test_a_file_that_came_wrong_fails_the_install(self):
+        def wrong():
+            raise ValueError('o arquivo model.safetensors chegou diferente do esperado')
+        code, calls, handed, said = self.install(engine=wrong)
+        self.assertEqual(code, 1)
+        self.assertIn('voz: a instalação falhou: o arquivo model.safetensors chegou diferente do esperado', said)
+        self.assertTrue(os.path.exists(speak.INSTALL_FAILED))
+
+    def test_a_download_that_drops_fails_the_install(self):
+        def drops():
             raise OSError('rede caiu')
-        with self.assertRaises(OSError):
-            self._install_with_fakes(fake)
-        self.assertEqual([n for n in os.listdir(speak.DATA) if '.part' in n], [])
-
-    def test_every_failure_of_a_download_removes_its_part_file(self):
-        """Whatever stops a download (the network, the progress hook, the final replace, an interrupt, a failure of the
-        second file) leaves no `<file>.part-<pid>`; a file already complete stays."""
-        part = '.part-%d' % os.getpid()
-        real_replace = os.replace
-
-        def drops(url, dest, reporthook=None):
-            open(dest, 'w').close()
-            raise OSError('rede caiu')
-
-        def hook_fails(url, dest, reporthook=None):
-            open(dest, 'w').close()
-            with self.mock.patch.object(speak, 'write_progress', side_effect=OSError('disco cheio')):
-                reporthook(0, 1000, 5000)
-
-        def interrupted(url, dest, reporthook=None):
-            open(dest, 'w').close()
-            raise KeyboardInterrupt
-
-        def second_fails(url, dest, reporthook=None):
-            open(dest, 'w').close()
-            if dest.startswith(speak.VOICES):
-                raise OSError('rede caiu')
-
-        def replace_fails(src, dst):
-            if dst == speak.MODEL:
-                raise OSError('trocar falhou')
-            return real_replace(src, dst)
-
-        for name, fake, error, replace in (('rede', drops, OSError, real_replace),
-                                           ('progresso', hook_fails, OSError, real_replace),
-                                           ('interrupção', interrupted, KeyboardInterrupt, real_replace),
-                                           ('segundo arquivo', second_fails, OSError, real_replace),
-                                           ('trocar o nome', lambda u, d, reporthook=None: open(d, 'w').close(),
-                                            OSError, replace_fails)):
-            with self.subTest(name):
-                for path in (speak.MODEL, speak.VOICES):
-                    remove_if_there(path)
-                with self.mock.patch.object(speak.os, 'replace', replace), self.assertRaises(error):
-                    self._install_with_fakes(fake)
-                self.assertEqual([n for n in os.listdir(speak.DATA) if part in n], [])
-                if name == 'segundo arquivo':
-                    self.assertTrue(os.path.exists(speak.MODEL))  # the first one was complete, it stays
+        code, calls, handed, said = self.install(engine=drops)
+        self.assertEqual(code, 1)
+        self.assertIn('voz: a instalação falhou: rede caiu', said)
 
     def test_check_shows_the_tail_of_the_install_log_without_engine(self):
         with open(speak.INSTALL_LOG, 'w') as fh:
@@ -3963,70 +3915,73 @@ class InstallProgress(unittest.TestCase):
         with open(speak.INSTALL_PROGRESS, 'w') as fh:
             json.dump(fields, fh)
 
-    def install_with(self, urlretrieve, calls=None):
-        uv = os.path.join(self.tmp.name, 'uv')
-        open(uv, 'w').close()
-        out = io.StringIO()
-        with self.mock.patch.object(speak.shutil, 'which', return_value=uv), \
-                self.mock.patch.object(speak, 'venv_works', return_value=True), \
-                self.mock.patch.object(speak.subprocess, 'check_call', side_effect=lambda *a, **k: calls.append(a) if calls is not None else None), \
-                self.mock.patch.object(speak.urllib.request, 'urlretrieve', side_effect=urlretrieve), \
-                self.mock.patch('sys.stdout', out):
-            return speak.install()
-
-    def test_the_download_reports_the_file_and_the_bytes_and_the_file_goes_away_after(self):
-        seen = []
-
-        def fake(url, dest, reporthook=None):
-            reporthook(0, 1000, 5000)
-            reporthook(2, 1000, 5000)
-            with open(speak.INSTALL_PROGRESS) as fh:
-                seen.append(json.load(fh))
-            open(dest, 'w').close()
-        self.assertEqual(self.install_with(fake), 0)
-        self.assertEqual(seen[0], {'fase': 'baixando', 'arquivo': 'kokoro-v1.0.onnx', 'feito': 2000, 'total': 5000,
-                                   'passo': 2, 'passos': 3})
-        self.assertEqual((seen[1]['arquivo'], seen[1]['passo'], seen[1]['passos']), ('voices-v1.0.bin', 3, 3))
-        self.assertFalse(os.path.exists(speak.INSTALL_PROGRESS))
-        self.assertEqual([n for n in os.listdir(speak.STATE) if 'progress' in n], [])
-
-    def test_the_dependencies_step_is_reported_before_the_download(self):
-        phases = []
-
-        def check_call(*a, **k):
-            with open(speak.INSTALL_PROGRESS) as fh:
-                phases.append(json.load(fh))
+    def install_with(self, engine, out=None, check_call=None):
+        """speak.install() with a fake uv and `engine(report)` in the place of the engine's own install."""
         uv = os.path.join(self.tmp.name, 'uv')
         open(uv, 'w').close()
         with self.mock.patch.object(speak.shutil, 'which', return_value=uv), \
                 self.mock.patch.object(speak, 'venv_works', return_value=True), \
                 self.mock.patch.object(speak.subprocess, 'check_call', side_effect=check_call), \
-                self.mock.patch.object(speak.urllib.request, 'urlretrieve', side_effect=lambda u, d, reporthook=None: open(d, 'w').close()), \
-                self.mock.patch('sys.stdout', io.StringIO()):
-            speak.install()
+                self.mock.patch.object(speak.speak_pocket, 'install',
+                                       side_effect=lambda folder, system, model, voices, fetch, report: engine(report)), \
+                self.mock.patch('sys.stdout', out or io.StringIO()):
+            return speak.install()
+
+    def steps(self):
+        """The dependencies and each file of the engine."""
+        return 1 + len(speak.speak_pocket.wanted(speak.DATA, speak.speak_os.SYSTEM, speak.MODEL, speak.READING_VOICES))
+
+    def read(self):
+        with open(speak.INSTALL_PROGRESS) as fh:
+            return json.load(fh)
+
+    def test_the_download_reports_the_file_and_the_bytes_and_the_file_goes_away_after(self):
+        seen = []
+
+        def engine(report):  # the engine's fourth file of ten, then the fifth
+            report('model.safetensors', 0, 5000, 4, 10)
+            report('model.safetensors', 2000, 5000, 4, 10)
+            seen.append(self.read())
+            report('lola.safetensors', 0, 0, 5, 10)
+            seen.append(self.read())
+            report('lola.safetensors', 9000, 5000, 5, 10)  # more than announced: never beyond the total
+            seen.append(self.read())
+        self.assertEqual(self.install_with(engine), 0)
+        self.assertEqual(seen[0], {'fase': 'baixando', 'arquivo': 'model.safetensors', 'feito': 2000, 'total': 5000,
+                                   'passo': 5, 'passos': self.steps()})
+        self.assertEqual((seen[1]['arquivo'], seen[1]['passo'], seen[1]['feito'], seen[1]['total']),
+                         ('lola.safetensors', 6, 0, 0))
+        self.assertEqual(seen[2]['feito'], 5000)
+        self.assertFalse(os.path.exists(speak.INSTALL_PROGRESS))
+        self.assertEqual([n for n in os.listdir(speak.STATE) if 'progress' in n], [])
+
+    def test_the_dependencies_step_is_reported_before_the_download(self):
+        phases = []
+        self.install_with(lambda report: None, check_call=lambda *a, **k: phases.append(self.read()))
         self.assertEqual(phases[0]['fase'], 'dependências')
-        self.assertEqual((phases[0]['passo'], phases[0]['passos']), (1, 3))
+        self.assertEqual((phases[0]['passo'], phases[0]['passos']), (1, self.steps()))
+        self.assertGreater(self.steps(), 5)  # the program, the model's three files and the voices
 
     def test_the_progress_file_is_written_at_most_every_half_second(self):
         writes = []
         real = speak.write_progress
 
-        def fake(url, dest, reporthook=None):
-            for blocks in range(5):
-                reporthook(blocks, 1000, 5000)
-            open(dest, 'w').close()
+        def engine(report):
+            for done in range(0, 5000, 1000):
+                report('model.safetensors', done, 5000, 4, 10)
+            report('lola.safetensors', 0, 10, 5, 10)  # a new file is always told
         with self.mock.patch.object(speak, 'PROGRESS_EVERY', 60), \
                 self.mock.patch.object(speak, 'write_progress', side_effect=lambda **f: writes.append(f) or real(**f)):
-            self.install_with(fake)
-        downloads = [w for w in writes if w.get('fase') == 'baixando' and w['arquivo'] == 'kokoro-v1.0.onnx']
-        self.assertLessEqual(len(downloads), 2)  # the one at the start of the file and the first call of the hook
+            self.install_with(engine)
+        self.assertEqual([w['arquivo'] for w in writes if w.get('fase') == 'baixando'],
+                         ['model.safetensors', 'lola.safetensors'])
 
     def test_a_failed_download_also_removes_the_progress_file(self):
-        def fake(url, dest, reporthook=None):
-            reporthook(1, 1000, 5000)
+        def engine(report):
+            report('model.safetensors', 1000, 5000, 4, 10)
             raise OSError('rede caiu')
         with self.assertRaises(OSError):
-            self.install_with(fake)
+            self.install_with(engine)
         self.assertFalse(os.path.exists(speak.INSTALL_PROGRESS))
 
     def test_the_install_log_gets_every_line_at_once(self):
@@ -4036,19 +3991,17 @@ class InstallProgress(unittest.TestCase):
             def flush(self):
                 self.flushes.append(self.getvalue())
         out = Recording()
-        uv = os.path.join(self.tmp.name, 'uv')
-        open(uv, 'w').close()
-        with self.mock.patch.object(speak.shutil, 'which', return_value=uv), \
-                self.mock.patch.object(speak, 'venv_works', return_value=True), \
-                self.mock.patch.object(speak.subprocess, 'check_call'), \
-                self.mock.patch.object(speak.urllib.request, 'urlretrieve', side_effect=lambda u, d, reporthook=None: open(d, 'w').close()), \
-                self.mock.patch('sys.stdout', out):
-            speak.install()
-        self.assertTrue(any(f.endswith('voz: baixando kokoro-v1.0.onnx\n') for f in out.flushes))
+
+        def engine(report):
+            report('model.safetensors', 0, 5000, 4, 10)
+            report('model.safetensors', 1000, 5000, 4, 10)
+        self.install_with(engine, out)
+        self.assertTrue(any(f.endswith('voz: baixando model.safetensors\n') for f in out.flushes))
+        self.assertEqual(out.getvalue().count('baixando model.safetensors'), 1)  # each file is announced once
         self.assertTrue(out.flushes[-1].endswith('voz: motor instalado em %s\n' % speak.DATA))
 
     def test_a_leftover_file_with_the_lock_free_is_ignored_and_removed(self):
-        self.put(fase='baixando', arquivo='kokoro-v1.0.onnx', feito=10, total=100, passo=2, passos=3)
+        self.put(fase='baixando', arquivo='model.safetensors', feito=10, total=100, passo=2, passos=3)
         self.assertIsNone(speak.install_progress())
         self.assertFalse(os.path.exists(speak.INSTALL_PROGRESS))
 
@@ -4069,7 +4022,7 @@ class InstallProgress(unittest.TestCase):
     def test_with_the_lock_held_the_progress_is_read(self):
         self.hold()
         self.assertIsNone(speak.install_progress())  # no file yet
-        self.put(fase='baixando', arquivo='kokoro-v1.0.onnx', feito=10, total=100, passo=2, passos=3)
+        self.put(fase='baixando', arquivo='model.safetensors', feito=10, total=100, passo=2, passos=3)
         self.assertEqual(speak.install_progress()['feito'], 10)
         with open(speak.INSTALL_PROGRESS, 'w') as fh:
             fh.write('{ruim')
@@ -4078,17 +4031,23 @@ class InstallProgress(unittest.TestCase):
     def test_the_text(self):
         text = speak.progress_text
         self.assertEqual(text({'fase': 'dependências'}), 'instalando as dependências')
-        self.assertEqual(text({'fase': 'baixando', 'arquivo': 'kokoro-v1.0.onnx', 'feito': 252698624, 'total': 325532232}),
+        self.assertEqual(text({'fase': 'baixando', 'arquivo': 'model.safetensors', 'feito': 252698624, 'total': 325532232}),
                          'baixando o modelo de voz: 253 de 326 MB (78%)')
-        self.assertEqual(text({'fase': 'baixando', 'arquivo': 'voices-v1.0.bin', 'feito': 1000000, 'total': 2000000}),
+        self.assertEqual(text({'fase': 'baixando', 'arquivo': 'lola.safetensors', 'feito': 1000000, 'total': 2000000}),
                          'baixando as vozes: 1 de 2 MB (50%)')
-        self.assertEqual(text({'fase': 'baixando', 'arquivo': 'kokoro-v1.0.onnx', 'feito': 5000000, 'total': 0}),
+        self.assertEqual(text({'fase': 'baixando', 'arquivo': 'model.safetensors', 'feito': 5000000, 'total': 0}),
                          'baixando o modelo de voz: 5 MB')
+        program = speak.speak_pocket.program_file('linux', 'x86_64')[0]
+        self.assertEqual(text({'fase': 'baixando', 'arquivo': program, 'feito': 3000000, 'total': 0}),
+                         'baixando o motor: 3 MB')
+        for small in ('tokenizer.json', 'original.yaml'):
+            self.assertEqual(text({'fase': 'baixando', 'arquivo': small, 'feito': 0, 'total': 0}),
+                             'baixando o modelo de voz: 0 MB')
         self.assertIsNone(text(None))
 
     def test_status_and_json_show_the_progress(self):
         self.hold()
-        self.put(fase='baixando', arquivo='kokoro-v1.0.onnx', feito=500000, total=1000000, passo=2, passos=3)
+        self.put(fase='baixando', arquivo='model.safetensors', feito=500000, total=1000000, passo=2, passos=3)
         out = io.StringIO()
         with self.mock.patch('sys.stdout', out):
             speak.main(['status'])
@@ -4114,7 +4073,7 @@ class InstallProgress(unittest.TestCase):
         with self.mock.patch.object(speak, 'install', return_value=0), self.mock.patch('sys.stdout', out):
             t = threading.Thread(target=speak.install_marked)
             t.start()
-            self.put(fase='baixando', arquivo='kokoro-v1.0.onnx', feito=2000000, total=4000000, passo=2, passos=3)
+            self.put(fase='baixando', arquivo='model.safetensors', feito=2000000, total=4000000, passo=2, passos=3)
             deadline = time.time() + 5
             while '50%' not in out.getvalue() and time.time() < deadline:
                 time.sleep(0.02)
@@ -4132,7 +4091,7 @@ class InstallProgress(unittest.TestCase):
         self.assertEqual(why(), (0, 'missing\n'))
         held = self.hold()
         self.assertEqual(why(), (0, 'installing\n'))
-        self.put(fase='baixando', arquivo='kokoro-v1.0.onnx', feito=77, total=100, passo=2, passos=3)
+        self.put(fase='baixando', arquivo='model.safetensors', feito=77, total=100, passo=2, passos=3)
         self.assertEqual(why(), (0, 'installing 77\n'))
         self.fcntl.flock(held, self.fcntl.LOCK_UN)
         with self.mock.patch.object(speak, 'power', return_value='off'):
@@ -4295,7 +4254,7 @@ class StatusJson(unittest.TestCase):
                 self.assertEqual(speak.main(['status', '--json']), 0)
             data = json.loads(out.getvalue())
             self.assertEqual((data['mode'], data['size'], data['voice'], data['on']),
-                             ('summary', 'medium', 'dora', True))
+                             ('summary', 'medium', 'lola', True))
             os.makedirs(os.path.dirname(speak.MODE_FILE), exist_ok=True)
             with open(speak.MODE_FILE, 'w') as fh:
                 fh.write('full\n')  # a mode already saved in the general file is kept
@@ -4314,7 +4273,7 @@ class StatusJson(unittest.TestCase):
                 self.assertEqual(speak.main(['status', '--json']), 0)
         data = json.loads(out.getvalue())
         self.assertEqual((data['mode'], data['size'], data['voice'], data['engine']),
-                         ('summary', 'medium', 'dora', False))
+                         ('summary', 'medium', 'lola', False))
 
 
 class Plugin(unittest.TestCase):
@@ -4350,7 +4309,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.23.0')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.24.0')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

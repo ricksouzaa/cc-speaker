@@ -2,6 +2,8 @@
 
 Estado: **só plano**, sem prazo. Decidido pelo Ricardo em 30/10/2026: não fazer agora; o português do Brasil continua o padrão e quem quiser pode fazer um fork e traduzir.
 
+Nota de 14/11/2026: o plano foi escrito para o Kokoro. Desde a 0.24.0 o motor é o Pocket TTS, que tem um modelo por língua (o de inglês é outro arquivo, a baixar). Se o plano for retomado, a parte do motor precisa ser refeita.
+
 ## Objetivo
 
 Quem mora fora do Brasil instala o mesmo plugin e usa a voz e os textos em inglês. Quem usa hoje não percebe mudança nenhuma.

@@ -315,13 +315,10 @@ class Venv(Base):
         loader.exec_module(self.speak)
         self.data = self.path('engine')
         self.py = os.path.join(self.data, '.venv', 'bin', 'python')
-        for name, value in (('DATA', self.data), ('VENV_PY', self.py),
-                            ('MODEL', os.path.join(self.data, 'm')), ('VOICES', os.path.join(self.data, 'v'))):
+        for name, value in (('DATA', self.data), ('VENV_PY', self.py)):
             patch = mock.patch.object(self.speak, name, value)
             patch.start()
             self.addCleanup(patch.stop)
-        put(os.path.join(self.data, 'm'))
-        put(os.path.join(self.data, 'v'))
 
     def test_python_invalido_e_quebrado(self):
         put(self.py, 'isto nao e um executavel')
@@ -347,10 +344,11 @@ class Venv(Base):
         put(uv)
         with mock.patch.object(self.speak.shutil, 'which', return_value=uv), \
                 mock.patch.object(self.speak.subprocess, 'check_call', side_effect=lambda a: calls.append(a)), \
-                mock.patch.object(self.speak.urllib.request, 'urlretrieve', side_effect=AssertionError('baixou')):
+                mock.patch.object(self.speak.speak_pocket, 'install') as engine:
             with mock.patch('sys.stdout', new=io.StringIO()):
                 self.assertEqual(self.speak.install(), 0)
         self.assertEqual(calls[0][:2], [uv, 'venv'])
+        self.assertEqual(engine.call_count, 1)  # the engine's own install fetches only what is missing
         self.assertFalse(os.path.exists(self.py))  # the broken environment was removed before the new one
 
 
