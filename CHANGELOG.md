@@ -7,6 +7,17 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.29.0] - 2026-11-14
+
+### Quebra
+- **Ficaram três vozes de cada: Eve, Jane e Lola; Rafael, Giovanni e George.** Mary, Vera e Charles saíram, para o motor ocupar menos espaço. Quem tinha escolhido a Mary ou a Vera passa a ouvir a Eve, e quem tinha escolhido o Charles passa a ouvir o Giovanni, sem fazer nada; `/speak voice mary`, `vera` e `charles` não são mais aceitos. Ao atualizar, o plugin apaga os arquivos das três, baixa o do Giovanni e o programa do motor (cerca de 30 MB no modelo maior, 10 MB no normal), e a voz fica calada por alguns segundos, até terminar.
+
+### Adicionado
+- **Voz masculina Giovanni**, no lugar do Charles: `/speak voice giovanni`, ou a linha "Voz de leitura" do painel. Ela fala um pouco mais devagar que as outras.
+
+### Alterado
+- Com seis vozes em vez de oito, o motor ficou menor: cerca de 820 MB para baixar no modelo maior (860 MB no disco) e 260 MB no normal (300 MB no disco).
+
 ## [0.28.0] - 2026-11-14
 
 ### Alterado
@@ -465,7 +476,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.28.0...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.29.0...HEAD
+[0.29.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.26.0...v0.27.0
 [0.26.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.25.0...v0.26.0

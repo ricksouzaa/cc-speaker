@@ -73,6 +73,13 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 - **Quanto pesa cada voz** (pergunta dele): no modelo maior, de 22 a 29 MB cada (Lola 22, George e Mary 24, Eve, Charles e Rafael 25, Vera 27, Jane 29); as oito somam 200 MB dos 880 MB do motor, e o modelo sozinho pesa 672 MB. No modelo normal, de 5 a 7 MB cada. Duas vozes a mais custam uns 50 MB no maior.
 - **Mais vozes masculinas ("uma 5 de cada").** Ele quer chegar a cinco masculinas. Candidatas do catálogo com licença livre, já com tamanho e SHA-256 fixados em `MODELS`: Michael e Paul (VCTK, CC BY 4.0), Javert e Marius (doações de voz à Kyutai, CC0) e Giovanni (Common Voice em italiano, CC0). Ficaram de fora: Jean (EARS, uso não comercial); Bill Boerst, Peter Yearsley e Stuart Bell (voice-zero, CC0) não foram gerados nesta rodada. As cinco foram geradas no modelo maior, com a mesma fala das outras, numa página de escuta; a escolha de duas é dele, de ouvido (veja Pendências).
 
+## Decisões de 14/11/2026: três vozes de cada, com o Giovanni (0.29.0)
+
+- **Três de cada, para ocupar menos espaço.** Depois de ver quanto pesa cada voz (22 a 29 MB no modelo maior), o Ricardo desistiu das cinco de cada: "como elas ocupam mais espaço, vamos deixar três de cada. Vamos deixar a Eve, a Jane e a Lola. E o homem, nós vamos substituir a segunda voz pelo Giovanni". Femininas: Eve (padrão), Jane, Lola. Masculinas: Rafael, Giovanni, George. Saíram Mary, Vera e Charles. "A segunda voz" foi lida como a segunda masculina da lista, o Charles: é leitura minha.
+- **Escolha guardada de voz retirada.** Mary e Vera valem como Eve (a padrão); Charles vale como Giovanni (quem tomou o lugar dele). Os nomes retirados não são aceitos em `speak voice`.
+- **Giovanni**: trecho do Common Voice em italiano (CC0), ouvido pelo Ricardo na página das candidatas. Fala mais devagar que as outras (a mesma fala levou 48 s, contra uns 40 s). Sem ajuste de velocidade própria por ora.
+- **Tamanhos**: 820 MB para baixar no modelo maior (860 MB no disco, medido) e 260 MB no normal (uns 300 MB no disco, por conta). As seis vozes somam 141 MB no maior.
+
 ## Feito
 
 - Plugin `speak` no catálogo `cc-speaker`, com o comando `/speak`: um painel com listas nativas (ligar, leitura, tamanho, voz, alcance) que fica aberto até Esc, pedidos em palavras e o motor instalado sozinho na primeira sessão.
@@ -110,7 +117,6 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 
 ## Pendências
 
-- **Escolher duas vozes masculinas.** O Ricardo quer cinco de cada; faltam duas masculinas, a escolher de ouvido entre Michael, Paul, Javert, Marius e Giovanni (página de escuta de 14/11/2026). Ao entrar, cada uma soma cerca de 25 MB ao download do modelo maior.
 - **Ouvir a 0.27.0 no uso de verdade.** Falta o Ricardo dizer, de ouvido: se "pull request" melhorou com a escrita nova (a página de escuta tem as três para comparar); se "validação" e os outros fins de frase pararam de ser cortados; se a espera de 5 a 6 segundos até o primeiro som incomoda no dia a dia; e se a velocidade esticada soa bem (ninguém ouviu ainda o 0.75x, o 1.25x e os extremos).
 - **Inglês no modelo normal.** Continua fraco fora da lista de `RESPELL`. Desde a 0.26.0 o padrão é o modelo maior, que lê inglês melhor; para quem fica no normal, os caminhos são crescer a lista de ouvido ou um arquivo do usuário com as próprias reescritas (o `config/english` antigo não serve, porque guardava só a palavra, não o jeito de dizer).
 - **Licença do áudio de origem do Rafael.** A Kyutai publica a voz junto do modelo (CC BY 4.0), mas o cartão do modelo só aponta o arquivo (`g-Vi8PgmSY0-enhanced-v2.wav`, num ramo do repositório `kyutai/pocket-tts`), sem dizer de onde veio a gravação. O README diz isso. Se for preciso certeza, perguntar à Kyutai numa issue ou tirar o Rafael.

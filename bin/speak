@@ -26,12 +26,12 @@
                            prints the version before and after, in Portuguese; the new version holds after
                            /reload-plugins or in a new session
   speak status --json      the same state as one JSON line (used by the /speak pane)
-  speak voice [name]       without a name: list the voices (eve, jane, mary, vera, lola, rafael, charles, george) and
+  speak voice [name]       without a name: list the voices (eve, jane, lola, rafael, giovanni, george) and
                            mark the current one; with a name: choose it for every session
   speak model [large|normal]  without a name: list the two models of the engine and mark the current one; with a
                            name: choose it for every session (large, the default: reads numbers, acronyms and
-                           English better, ~880 MB to fetch, ~2 GB of memory while it speaks; normal: lighter,
-                           ~280 MB, ~1 GB of memory and about half the wait before the first sound). A model not
+                           English better, ~820 MB to fetch, ~2 GB of memory while it speaks; normal: lighter,
+                           ~260 MB, ~1 GB of memory and about half the wait before the first sound). A model not
                            installed yet is fetched in the background, in the place of the other, and the voice is
                            silent until it ends
   speak rule               print rules/speak.md with {line} replaced by the line of the mode and size in force
@@ -41,7 +41,7 @@
                            (on stderr, a line "processos acima: pid nome, ...": the ancestors, to find the session)
   speak test [text]        speak a test sentence, in the foreground (errors show)
   speak install            install the engine: Python 3.12 via uv with numpy (on the Mac also sounddevice, optional),
-                           the Pocket TTS program, the chosen Portuguese model and the voices (~880 MB, or ~280 MB with
+                           the Pocket TTS program, the chosen Portuguese model and the voices (~820 MB, or ~260 MB with
                            the normal model; each file checked
                            against its SHA-256); no sudo; what the former engine (Kokoro) left is removed
   speak autoinstall        start `speak install` in the background unless it is running, failed already in this plugin
@@ -143,19 +143,19 @@ DEFAULT_SPEED = 1.0
 READING_VOICES = {  # name -> its kind and its normal speed (the engine speaks at one speed; see `stretch`)
     'eve': {'full': 'eve', 'kind': 'feminina', 'speed': DEFAULT_SPEED},
     'jane': {'full': 'jane', 'kind': 'feminina', 'speed': DEFAULT_SPEED},
-    'mary': {'full': 'mary', 'kind': 'feminina', 'speed': DEFAULT_SPEED},
-    'vera': {'full': 'vera', 'kind': 'feminina', 'speed': DEFAULT_SPEED},
     'lola': {'full': 'lola', 'kind': 'feminina', 'speed': DEFAULT_SPEED},
     'rafael': {'full': 'rafael', 'kind': 'masculina', 'speed': DEFAULT_SPEED},
-    'charles': {'full': 'charles', 'kind': 'masculina', 'speed': DEFAULT_SPEED},
+    'giovanni': {'full': 'giovanni', 'kind': 'masculina', 'speed': DEFAULT_SPEED},
     'george': {'full': 'george', 'kind': 'masculina', 'speed': DEFAULT_SPEED},
 }
 PT_VOICES = {short: (v['full'], v['kind']) for short, v in READING_VOICES.items()}
 DEFAULT_VOICE = 'eve'
 # A voice that left the plugin -> the one a saved choice of it now means. The voices of the former engine (Kokoro,
 # until 0.23.0) became the nearest of the new one: the feminine ones Lola, the masculine ones Rafael. Estelle and
-# Fantine left in 0.27.0 for the default voice (Jane then, Eve since 0.28.0).
+# Fantine left in 0.27.0 and Mary and Vera in 0.29.0, for the default voice (Eve since 0.28.0); Charles left in
+# 0.29.0 for Giovanni, who took its place.
 RETIRED_VOICES = {'alice': 'lola', 'dora': 'lola', 'pf_dora': 'lola', 'estelle': 'eve', 'fantine': 'eve',
+                  'mary': 'eve', 'vera': 'eve', 'charles': 'giovanni',
                   'alex': 'rafael', 'pm_alex': 'rafael', 'santa': 'rafael', 'pm_santa': 'rafael'}
 RULE = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'rules', 'speak.md')
 VENV_PY = os.path.join(DATA, '.venv', 'bin', 'python')

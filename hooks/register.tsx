@@ -32,18 +32,18 @@ const MODES: Record<string, string> = { full: 'Resposta inteira', summary: 'Só 
 const SIZES: Record<string, string> = { small: 'Pequeno', medium: 'Médio', large: 'Grande' }
 const MICS: Record<string, string> = { wait: 'Espera', play: 'Toca', auto: 'Toca nesta reunião' }
 const VOICES: Record<string, string> = {
-  eve: 'Eve (feminina)', jane: 'Jane (feminina)', mary: 'Mary (feminina)', vera: 'Vera (feminina)', lola: 'Lola (feminina)',
-  rafael: 'Rafael (masculina)', charles: 'Charles (masculina)', george: 'George (masculina)',
+  eve: 'Eve (feminina)', jane: 'Jane (feminina)', lola: 'Lola (feminina)',
+  rafael: 'Rafael (masculina)', giovanni: 'Giovanni (masculina)', george: 'George (masculina)',
 }
 const READERS: Record<string, string> = {
-  eve: 'Eve', jane: 'Jane', mary: 'Mary', vera: 'Vera', lola: 'Lola',
-  rafael: 'Rafael', charles: 'Charles', george: 'George',
+  eve: 'Eve', jane: 'Jane', lola: 'Lola',
+  rafael: 'Rafael', giovanni: 'Giovanni', george: 'George',
 }
 // Os dois modelos do motor: o maior (padrão desde a 0.26.0), que lê melhor números, siglas e inglês, e o normal,
 // mais leve.
 const ENGINES: Record<string, string> = { large: 'Maior (padrão: lê melhor números, siglas e inglês)', normal: 'Normal (mais leve)' }
 const ENGINE_NAMES: Record<string, string> = { normal: 'normal', large: 'maior' }
-const ENGINE_MB: Record<string, number> = { large: 880, normal: 280 } // o que cada um baixa, como o speak informa
+const ENGINE_MB: Record<string, number> = { large: 820, normal: 260 } // o que cada um baixa, como o speak informa
 const POWER: Record<string, string> = { on: 'Ligada', quiet: 'Só o resumo escrito', off: 'Desligada' }
 // A velocidade da fala é um número de 0.5 a 2 que multiplica a velocidade normal da voz (1 é o normal). O painel
 // oferece estes passos; escrita (/speak speed 0.95), vale qualquer número da faixa, que o speak confere.
@@ -62,7 +62,7 @@ const speedOptions = (now: State | undefined) =>
 const USAGE =
   'Escreva a ação: /speak on, /speak quiet, /speak off, /speak mode full|summary, /speak size small|medium|large, /speak mic wait|play|auto, ' +
   '/speak speed <número de 0.5 a 2; 1 é o normal>, ' +
-  '/speak voice eve|jane|mary|vera|lola|rafael|charles|george, /speak model large|normal, /speak again [summary|full], /speak pause, /speak resume, /speak status, /speak stop, ' +
+  '/speak voice eve|jane|lola|rafael|giovanni|george, /speak model large|normal, /speak again [summary|full], /speak pause, /speak resume, /speak status, /speak stop, ' +
   '/speak install, /speak update ' +
   '(com "all" no fim, vale para todas as sessões).'
 const where = (all: boolean) => (all ? 'em todas as sessões' : 'nesta sessão')
@@ -387,7 +387,7 @@ async function kick($: Engine) {
   startWatch($, why)
 }
 
-// O tamanho vem do `speak autoinstall` (`installing started 880`); sem ele, vale o do modelo padrão, o maior.
+// O tamanho vem do `speak autoinstall` (`installing started 820`); sem ele, vale o do modelo padrão, o maior.
 const installingNote = (mb?: string) =>
   `Instalando a voz (cerca de ${mb && /^\d+$/.test(mb) ? mb : ENGINE_MB.large} MB, alguns minutos). Acompanhe com /speak status.`
 

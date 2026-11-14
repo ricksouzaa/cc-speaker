@@ -21,7 +21,7 @@ Funciona no Linux e no macOS, mas o macOS **nunca foi testado num Mac de verdade
 | Python | `python3` | `python3` (o do sistema serve) |
 | Instalador do motor | [`uv`](https://docs.astral.sh/uv/) | [`uv`](https://docs.astral.sh/uv/) |
 | Tocador de áudio | `pw-play` (PipeWire 1.1 ou mais novo), `paplay` ou `aplay` | já vem no sistema |
-| Espaço | cerca de 950 MB (340 MB com o [modelo normal](#modelo-da-voz)) | cerca de 950 MB (340 MB com o modelo normal) |
+| Espaço | cerca de 860 MB (300 MB com o [modelo normal](#modelo-da-voz)) | cerca de 860 MB (300 MB com o modelo normal) |
 | Situação | testado no Linux | só nos testes automáticos do GitHub; nunca num Mac de verdade |
 
 No Ubuntu 24.04 o `pw-play` é mais velho, e o speak usa o `paplay` ou o `aplay` no lugar. O código do Mac tem suporte e passa nos testes automáticos do GitHub, mas nunca foi testado num Mac de verdade. Quem usar no Mac e tiver problema pode abrir uma issue em https://github.com/ricksouzaa/cc-speaker/issues.
@@ -35,7 +35,7 @@ No Claude Code:
 /plugin install speak@cc-speaker
 ```
 
-Pronto. A voz se instala sozinha, em segundo plano e sem sudo: ali mesmo, logo depois do `/plugin install`, ou na próxima sessão que você abrir. São cerca de 880 MB para baixar (uns 950 MB no disco), entre o motor, o modelo de voz e as vozes, e leva alguns minutos. Enquanto isso:
+Pronto. A voz se instala sozinha, em segundo plano e sem sudo: ali mesmo, logo depois do `/plugin install`, ou na próxima sessão que você abrir. São cerca de 820 MB para baixar (uns 860 MB no disco), entre o motor, o modelo de voz e as vozes, e leva alguns minutos. Enquanto isso:
 
 - aparece uma linha na conversa dizendo que a voz está sendo instalada;
 - embaixo do campo de texto, o progresso: `🔊 Instalando a voz: 78% (171 de 219 MB)`;
@@ -55,7 +55,7 @@ Digite `/speak` sozinho. Abre um painel com uma lista por linha, já com o tecla
 | Voz | ligada (padrão), só o resumo escrito (a voz cala e a linha 🔊 continua saindo, mesmo sem o motor; na leitura inteira vale como desligada) ou desligada |
 | Leitura | só o resumo (padrão) ou a resposta inteira |
 | Tamanho do resumo | pequeno (uma frase), médio (padrão, duas ou três frases) ou grande (um parágrafo); a linha só aparece com a leitura em "só o resumo" (o `/speak size` escrito vale em qualquer modo) |
-| Voz de leitura | Eve (padrão), Jane, Mary, Vera ou Lola (femininas); Rafael, Charles ou George (masculinas); vale sempre para todas as sessões |
+| Voz de leitura | Eve (padrão), Jane ou Lola (femininas); Rafael, Giovanni ou George (masculinas); vale sempre para todas as sessões |
 | Modelo da voz | Maior (padrão), que lê melhor números, siglas e inglês, ou Normal, mais leve; vale sempre para todas as sessões (veja [Modelo da voz](#modelo-da-voz)) |
 | Velocidade da fala | de 0.5x a 2x; o 1x (padrão) é a velocidade normal da voz escolhida. Vale a partir da próxima fala (veja [Velocidade](#velocidade)) |
 | Com o microfone em uso | Espera (padrão), Toca ou Toca nesta reunião (veja [Microfone](#microfone)) |
@@ -78,7 +78,7 @@ Para pular o painel, escreva a ação. Com `all` no fim, vale para todas as sess
 | `/speak on` · `/speak quiet` · `/speak off` | liga a voz, cala a voz mas mantém o resumo escrito, ou desliga tudo (padrão: `on`) |
 | `/speak mode summary` · `full` | lê só o resumo ou a resposta inteira (padrão: `summary`) |
 | `/speak size small` · `medium` · `large` | tamanho do resumo (padrão: `medium`) |
-| `/speak voice eve` · `jane` · `mary` · `vera` · `lola` · `rafael` · `charles` · `george` | troca a voz, sempre em todas as sessões (padrão: `eve`) |
+| `/speak voice eve` · `jane` · `lola` · `rafael` · `giovanni` · `george` | troca a voz, sempre em todas as sessões (padrão: `eve`) |
 | `/speak model large` · `normal` | troca o modelo da voz, sempre em todas as sessões (padrão: `large`; veja [Modelo da voz](#modelo-da-voz)) |
 | `/speak speed 0.9` · `1` · `1.25` | velocidade da fala: um número de 0.5 a 2, em que 1 é a velocidade normal da voz (padrão: `1`) |
 | `/speak mic wait` · `play` · `auto` | o que fazer com o microfone em uso (padrão: `wait`) |
@@ -150,7 +150,7 @@ O motor tem dois modelos de português, e você escolhe qual fala com `/speak mo
 | | Maior (padrão) | Normal |
 |---|---|---|
 | Comando | `/speak model large` | `/speak model normal` |
-| Para baixar | cerca de 880 MB | cerca de 280 MB |
+| Para baixar | cerca de 820 MB | cerca de 260 MB |
 | Memória durante a fala | cerca de 2 GB | cerca de 1 GB |
 | Espera até o primeiro som (resumo de duas frases) | 5 a 6 segundos | 2 a 3 segundos |
 | Números, siglas e inglês | lê melhor | erra mais (por exemplo, "cinquenta" dentro de um número); o plugin reescreve o que consegue |
@@ -230,8 +230,8 @@ O motor de voz não vem neste repositório: o `speak install` o baixa na sua má
 |---|---|---|
 | Programa | [Pocket TTS](https://github.com/kyutai-labs/pocket-tts), da Kyutai | MIT |
 | Modelo de português | [`kyutai/pocket-tts-without-voice-cloning`](https://huggingface.co/kyutai/pocket-tts-without-voice-cloning), da Kyutai | CC BY 4.0 |
-| Vozes Jane, Eve, Mary, Vera, Charles e George | gravações do [VCTK](https://datashare.ed.ac.uk/handle/10283/3443), da Universidade de Edimburgo, no [catálogo de vozes da Kyutai](https://huggingface.co/kyutai/tts-voices) | CC BY 4.0 |
-| Voz Lola | um trecho do Common Voice, da Mozilla | CC0 |
+| Vozes Eve, Jane e George | gravações do [VCTK](https://datashare.ed.ac.uk/handle/10283/3443), da Universidade de Edimburgo, no [catálogo de vozes da Kyutai](https://huggingface.co/kyutai/tts-voices) | CC BY 4.0 |
+| Vozes Lola e Giovanni | trechos do Common Voice, da Mozilla (ela em espanhol, ele em italiano) | CC0 |
 | Voz Rafael | um trecho de áudio que a Kyutai publica junto do modelo, sem dizer a origem | a do modelo (CC BY 4.0); a do áudio original não foi confirmada |
 
 O plugin usa só as vozes prontas desse catálogo. Ele não clona voz de ninguém, e o modelo que baixa é a edição sem essa função.

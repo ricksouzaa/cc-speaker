@@ -3,7 +3,7 @@ import { expect, mock, test } from 'claude-code/testing'
 // Nada aqui toca o motor, o áudio nem as pastas reais: `process.run` é respondido pelo teste, que guarda o estado
 // do speak numa variável. O menu é montado no painel `speak` da superfície `terminal` e operado pela escolha nas listas.
 
-const NAMES = ['eve', 'jane', 'mary', 'vera', 'lola', 'rafael', 'charles', 'george'] // as vozes de leitura, como o speak as lista
+const NAMES = ['eve', 'jane', 'lola', 'rafael', 'giovanni', 'george'] // as vozes de leitura, como o speak as lista
 
 type Opts = { noFile?: boolean; proc?: boolean; autoinstall?: string; fail?: boolean; statusFails?: boolean; scope?: Record<string, string>; placed?: boolean; again?: string; surface?: string; headless?: boolean; init?: Record<string, unknown> }
 
@@ -485,13 +485,13 @@ test('as vozes do motor antigo saíram: o painel lista as oito do novo, e a esco
   const { ran } = await setup($, on)
   const { ui } = await openMenu($, 'voice')
   expect((await selects(ui)).voice.options).toEqual([
-    { value: 'eve', label: 'Eve' }, { value: 'jane', label: 'Jane' }, { value: 'mary', label: 'Mary' }, { value: 'vera', label: 'Vera' }, { value: 'lola', label: 'Lola' },
-    { value: 'rafael', label: 'Rafael' }, { value: 'charles', label: 'Charles' }, { value: 'george', label: 'George' }])
+    { value: 'eve', label: 'Eve' }, { value: 'jane', label: 'Jane' }, { value: 'lola', label: 'Lola' },
+    { value: 'rafael', label: 'Rafael' }, { value: 'giovanni', label: 'Giovanni' }, { value: 'george', label: 'George' }])
   await ui.select({ key: 'voice', value: 'alice' }) // um valor que a lista não oferece não roda nada
   expect(changes(ran)).toEqual([])
   await ui.unmount()
   expect((await $.command.run({ command: 'speak', args: 'voice alice' })).text).toBe(
-    'voz: voz desconhecida; use uma de: eve, jane, mary, vera, lola, rafael, charles, george')
+    'voz: voz desconhecida; use uma de: eve, jane, lola, rafael, giovanni, george')
   expect(changes(ran)).toEqual(['voice alice'])
   expect((await $.command.run({ command: 'speak', args: 'dance' })).text).not.toContain('alice')
 })
@@ -509,14 +509,14 @@ test('o modelo da voz: o painel oferece o maior e o normal, e a escolha nunca le
   await ui.select({ key: 'model', value: 'normal' })
   expect(changes(ran)).toEqual(['model normal'])
   expect((await selects(ui)).model.value).toBe('normal')
-  expect(await footer(ui)).toContain('cerca de 280 MB')
+  expect(await footer(ui)).toContain('cerca de 260 MB')
   await ui.unmount()
 })
 
 test('/speak model escrito: avisa do download quando o modelo não é o instalado, e só confirma quando é', async ($, on) => {
   const { ran } = await setup($, on)
   expect((await $.command.run({ command: 'speak', args: 'model normal' })).text).toBe(
-    'O modelo da voz agora é o normal, em todas as sessões. Ele é baixado em segundo plano (cerca de 280 MB) e a voz fica calada até terminar; acompanhe com /speak status.')
+    'O modelo da voz agora é o normal, em todas as sessões. Ele é baixado em segundo plano (cerca de 260 MB) e a voz fica calada até terminar; acompanhe com /speak status.')
   expect((await $.command.run({ command: 'speak', args: 'model large' })).text).toBe(
     'O modelo da voz agora é o maior, em todas as sessões.')
   expect(changes(ran)).toEqual(['model normal', 'model large'])
@@ -814,12 +814,12 @@ test('autoinstall que falha ou responde algo estranho: cai no relógio de antes,
 
 test('quando este módulo inicia a instalação, deixa uma linha escrita na conversa', async ($, on) => {
   const { logs } = await setup($, on, { autoinstall: 'installing started', init: { engine: false, installing: true } })
-  expect(logs).toEqual(['Instalando a voz (cerca de 880 MB, alguns minutos). Acompanhe com /speak status.'])
+  expect(logs).toEqual(['Instalando a voz (cerca de 820 MB, alguns minutos). Acompanhe com /speak status.'])
 })
 
 test('o aviso da instalação diz o tamanho que o speak informou (o modelo normal baixa um terço)', async ($, on) => {
-  const { logs } = await setup($, on, { autoinstall: 'installing started 280', init: { engine: false, installing: true } })
-  expect(logs).toEqual(['Instalando a voz (cerca de 280 MB, alguns minutos). Acompanhe com /speak status.'])
+  const { logs } = await setup($, on, { autoinstall: 'installing started 260', init: { engine: false, installing: true } })
+  expect(logs).toEqual(['Instalando a voz (cerca de 260 MB, alguns minutos). Acompanhe com /speak status.'])
 })
 
 test('se o gancho de começo já iniciou a instalação, o módulo não repete o aviso', async ($, on) => {

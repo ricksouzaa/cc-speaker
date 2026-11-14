@@ -2156,10 +2156,11 @@ class Pause(unittest.TestCase):
         self.assertEqual(proc.wait(timeout=5), 0)
         self.assertIsNone(self.json())  # nothing playing, nothing paused: no file
         # The voice in force when the speech takes its turn, however the variable spells it (the speech takes
-        # `Vera` too); a name that is no reading voice counts as the default one, and a voice that left the plugin
+        # `Lola` too); a name that is no reading voice counts as the default one, and a voice that left the plugin
         # as the one that took its place.
         for name, chosen, told in (('b', 'rafael', 'rafael'), ('c', 'af_heart', 'eve'), ('d', 'alice', 'lola'),
-                                   ('e', 'Vera', 'vera'), ('f', 'PM_ALEX', 'rafael'), ('g', 'Fantine', 'eve')):
+                                   ('e', 'Lola', 'lola'), ('f', 'PM_ALEX', 'rafael'), ('g', 'Fantine', 'eve'),
+                                   ('h', 'Mary', 'eve'), ('i', 'charles', 'giovanni')):
             proc = self.waiter(name, self.me, CLAUDE_SPEAK_VOICE=chosen)
             self.assertTrue(self.until(lambda: self.started()[-1:] == [name]), name)
             self.assertEqual(self.json()['playing']['voice'], told)
@@ -3238,9 +3239,9 @@ class Model(unittest.TestCase):
         self.assertTrue(speak.engine_ready())
 
     def test_how_much_each_model_fetches(self):
-        self.assertEqual(speak.download_mb(), 880)
+        self.assertEqual(speak.download_mb(), 820)
         self.choose('normal')
-        self.assertEqual(speak.download_mb(), 280)
+        self.assertEqual(speak.download_mb(), 260)
 
     def test_an_update_counts_only_what_it_still_has_to_fetch(self):
         files = speak.speak_pocket.wanted(speak.DATA, speak.speak_os.SYSTEM, speak.engine_model(), speak.READING_VOICES)
@@ -3277,7 +3278,7 @@ class Model(unittest.TestCase):
         fake_engine(speak.DATA)
         code, said = self.run_model('large', ('installing', True))
         self.assertEqual(code, 0)
-        self.assertIn('o modelo maior está sendo baixado em segundo plano (cerca de 880 MB)', said)
+        self.assertIn('o modelo maior está sendo baixado em segundo plano (cerca de 820 MB)', said)
         self.assertIn('a voz fica calada até terminar', said)
 
     def test_choosing_the_one_installed_starts_nothing(self):
@@ -3433,28 +3434,28 @@ class Voice(unittest.TestCase):
     def test_list_marks_the_current_one(self):
         out = self.speak('voice').stdout
         self.assertEqual([line.lstrip('* ') for line in out.splitlines()],
-                         ['eve (feminina)', 'jane (feminina)', 'mary (feminina)', 'vera (feminina)',
-                          'lola (feminina)', 'rafael (masculina)', 'charles (masculina)', 'george (masculina)'])
+                         ['eve (feminina)', 'jane (feminina)',
+                          'lola (feminina)', 'rafael (masculina)', 'giovanni (masculina)', 'george (masculina)'])
         self.assertRegex(out, r'(?m)^\* eve \(feminina\)$')
         self.assertRegex(self.speak('voice', CLAUDE_SPEAK_VOICE='george').stdout, r'(?m)^\* george \(masculina\)$')
 
     def test_the_name_is_saved_whatever_its_case(self):
         self.assertIn('voz de leitura: rafael (masculina)', self.speak('voice', 'Rafael').stdout)
         self.assertEqual(open(data_dir(self.tmp.name, 'config', 'voice')).read().strip(), 'rafael')
-        self.speak('voice', 'vera')
-        self.assertIn('voz de leitura: vera (feminina)', self.speak('status').stdout)
+        self.speak('voice', 'lola')
+        self.assertIn('voz de leitura: lola (feminina)', self.speak('status').stdout)
 
     def test_unknown_name_is_refused_and_nothing_is_saved(self):
         r = self.speak('voice', 'bob')
         self.assertEqual(r.returncode, 2)
-        self.assertIn('voz: voz desconhecida; use uma de: eve, jane, mary, vera, lola, rafael, charles, george\n', r.stderr)
+        self.assertIn('voz: voz desconhecida; use uma de: eve, jane, lola, rafael, giovanni, george\n', r.stderr)
         self.assertFalse(os.path.exists(data_dir(self.tmp.name, 'config', 'voice')))
 
     def test_order_is_variable_then_file_then_default(self):
         self.assertIn('voz de leitura: eve', self.speak('status').stdout)
         self.speak('voice', 'rafael')
         self.assertIn('voz de leitura: rafael', self.speak('status').stdout)
-        self.assertIn('voz de leitura: mary', self.speak('status', CLAUDE_SPEAK_VOICE='mary').stdout)
+        self.assertIn('voz de leitura: jane', self.speak('status', CLAUDE_SPEAK_VOICE='jane').stdout)
         self.assertIn('voz de leitura: eve', self.speak('status', CLAUDE_SPEAK_VOICE='ninguém').stdout)
 
     def test_the_model_is_the_larger_one_unless_chosen_and_the_list_marks_it(self):
@@ -3491,6 +3492,8 @@ class Voice(unittest.TestCase):
         for saved, now, kind in (('pf_dora', 'lola', 'feminina'), ('dora', 'lola', 'feminina'),
                                  ('alice', 'lola', 'feminina'),
                                  ('estelle', 'eve', 'feminina'), ('fantine', 'eve', 'feminina'),
+                                 ('mary', 'eve', 'feminina'), ('vera', 'eve', 'feminina'),
+                                 ('charles', 'giovanni', 'masculina'),
                                  ('pm_alex', 'rafael', 'masculina'),
                                  ('alex', 'rafael', 'masculina'), ('pm_santa', 'rafael', 'masculina')):
             with open(data_dir(self.tmp.name, 'config', 'voice'), 'w') as fh:
@@ -3508,7 +3511,7 @@ class Voice(unittest.TestCase):
             self.assertEqual([name for name in speak.READING_VOICES if name not in have], [])
         self.assertIn(speak.DEFAULT_VOICE, speak.READING_VOICES)
         self.assertEqual([new for new in speak.RETIRED_VOICES.values() if new not in speak.READING_VOICES], [])
-        self.assertEqual(sorted(v['kind'] for v in speak.READING_VOICES.values()), ['feminina'] * 5 + ['masculina'] * 3)
+        self.assertEqual(sorted(v['kind'] for v in speak.READING_VOICES.values()), ['feminina'] * 3 + ['masculina'] * 3)
 
     def test_the_speed_follows_the_voice_and_the_variable_wins(self):
         self.assertIn('velocidade aplicada 1.0\n', self.speak('status').stdout)
@@ -3783,7 +3786,7 @@ class AutoInstallCommand(unittest.TestCase):
         self.popen.assert_not_called()
 
     def test_the_command_prints_the_word_and_exits_0(self):
-        for setup, word in ((lambda: None, 'no-uv'), (self.have_uv, 'installing started 880')):  # and the MB to fetch
+        for setup, word in ((lambda: None, 'no-uv'), (self.have_uv, 'installing started 820')):  # and the MB to fetch
             setup()
             out = io.StringIO()
             with self.mock.patch('sys.stdout', out):
@@ -3856,7 +3859,7 @@ class AutoInstall(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.state = os.path.join(self.tmp.name, 'state')
         self.words = {'autoinstall': 'installing started\n'}
-        START_MOD.DOWNLOAD['mb'] = '880'
+        START_MOD.DOWNLOAD['mb'] = '820'
         self.calls = []
         self.addCleanup(mock.patch.stopall)
         mock.patch.object(START_MOD, 'run', self.fake_run).start()
@@ -3905,13 +3908,13 @@ class AutoInstall(unittest.TestCase):
         context = out['hookSpecificOutput']['additionalContext']
         self.assertIn('regra 🔊', context)
         self.assertIn('sendo instalado em segundo plano', context)
-        self.assertIn('880 MB', context)
+        self.assertIn('820 MB', context)
 
     def test_the_notice_says_how_much_the_chosen_model_fetches(self):
-        self.words['autoinstall'] = 'installing started 280\n'
+        self.words['autoinstall'] = 'installing started 260\n'
         out = json.loads(self.main_out('engine\n'))
-        self.assertIn('cerca de 280 MB', out['hookSpecificOutput']['additionalContext'])
-        self.assertIn('cerca de 280 MB', out['systemMessage'])
+        self.assertIn('cerca de 260 MB', out['hookSpecificOutput']['additionalContext'])
+        self.assertIn('cerca de 260 MB', out['systemMessage'])
         self.assertNotIn('{mb}', json.dumps(out))
 
     def test_a_warning_for_the_person_goes_in_system_message_and_the_rules_in_the_context(self):
@@ -4588,7 +4591,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.28.0')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.29.0')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):
