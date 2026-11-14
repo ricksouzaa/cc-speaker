@@ -7,6 +7,13 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.28.0] - 2026-11-14
+
+### Alterado
+- **A voz padrão agora é a Eve** (na 0.27.0 era a Jane). Quem nunca escolheu uma voz passa a ouvi-la; para voltar à Jane, `/speak voice jane`. Quem tinha escolhido uma voz que continua no plugin fica com ela.
+- Quem tinha guardada a Estelle ou a Fantine, que saíram na 0.27.0, também passa a ouvir a Eve.
+- A Eve é a primeira da lista no painel e na ajuda: Eve, Jane, Mary, Vera e Lola; depois Rafael, Charles e George. Nada é baixado nesta atualização.
+
 ## [0.27.0] - 2026-11-14
 
 ### Quebra
@@ -458,7 +465,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.27.0...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.28.0...HEAD
+[0.28.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.26.0...v0.27.0
 [0.26.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.25.0...v0.26.0
 [0.25.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.24.0...v0.25.0

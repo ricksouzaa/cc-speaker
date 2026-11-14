@@ -3,7 +3,7 @@ import { expect, mock, test } from 'claude-code/testing'
 // Nada aqui toca o motor, o áudio nem as pastas reais: `process.run` é respondido pelo teste, que guarda o estado
 // do speak numa variável. O menu é montado no painel `speak` da superfície `terminal` e operado pela escolha nas listas.
 
-const NAMES = ['jane', 'eve', 'mary', 'vera', 'lola', 'rafael', 'charles', 'george'] // as vozes de leitura, como o speak as lista
+const NAMES = ['eve', 'jane', 'mary', 'vera', 'lola', 'rafael', 'charles', 'george'] // as vozes de leitura, como o speak as lista
 
 type Opts = { noFile?: boolean; proc?: boolean; autoinstall?: string; fail?: boolean; statusFails?: boolean; scope?: Record<string, string>; placed?: boolean; again?: string; surface?: string; headless?: boolean; init?: Record<string, unknown> }
 
@@ -485,13 +485,13 @@ test('as vozes do motor antigo saíram: o painel lista as oito do novo, e a esco
   const { ran } = await setup($, on)
   const { ui } = await openMenu($, 'voice')
   expect((await selects(ui)).voice.options).toEqual([
-    { value: 'jane', label: 'Jane' }, { value: 'eve', label: 'Eve' }, { value: 'mary', label: 'Mary' }, { value: 'vera', label: 'Vera' }, { value: 'lola', label: 'Lola' },
+    { value: 'eve', label: 'Eve' }, { value: 'jane', label: 'Jane' }, { value: 'mary', label: 'Mary' }, { value: 'vera', label: 'Vera' }, { value: 'lola', label: 'Lola' },
     { value: 'rafael', label: 'Rafael' }, { value: 'charles', label: 'Charles' }, { value: 'george', label: 'George' }])
   await ui.select({ key: 'voice', value: 'alice' }) // um valor que a lista não oferece não roda nada
   expect(changes(ran)).toEqual([])
   await ui.unmount()
   expect((await $.command.run({ command: 'speak', args: 'voice alice' })).text).toBe(
-    'voz: voz desconhecida; use uma de: jane, eve, mary, vera, lola, rafael, charles, george')
+    'voz: voz desconhecida; use uma de: eve, jane, mary, vera, lola, rafael, charles, george')
   expect(changes(ran)).toEqual(['voice alice'])
   expect((await $.command.run({ command: 'speak', args: 'dance' })).text).not.toContain('alice')
 })

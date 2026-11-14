@@ -26,7 +26,7 @@
                            prints the version before and after, in Portuguese; the new version holds after
                            /reload-plugins or in a new session
   speak status --json      the same state as one JSON line (used by the /speak pane)
-  speak voice [name]       without a name: list the voices (jane, eve, mary, vera, lola, rafael, charles, george) and
+  speak voice [name]       without a name: list the voices (eve, jane, mary, vera, lola, rafael, charles, george) and
                            mark the current one; with a name: choose it for every session
   speak model [large|normal]  without a name: list the two models of the engine and mark the current one; with a
                            name: choose it for every session (large, the default: reads numbers, acronyms and
@@ -79,7 +79,7 @@ the space bar to dictate in Claude Code does), seen through pw-dump on Linux and
 speeches waiting are kept and go on when the microphone is free. `speak off` in a session also drops that session's speeches (playing or waiting).
 Env: CLAUDE_SPEAK=0 silences one session (a first choice that a later `speak on` beats);
 CLAUDE_SPEAK_SESSION forces the session key ('-' means none; for tests and to force a key);
-CLAUDE_SPEAK_MODE overrides the mode; CLAUDE_SPEAK_SIZE the size; CLAUDE_SPEAK_MIC the microphone choice; CLAUDE_SPEAK_VOICE the voice (default jane);
+CLAUDE_SPEAK_MODE overrides the mode; CLAUDE_SPEAK_SIZE the size; CLAUDE_SPEAK_MIC the microphone choice; CLAUDE_SPEAK_VOICE the voice (default eve);
 CLAUDE_SPEAK_SPEED the speed of the speech as it is, whatever `speak speed` says (without it: the `speak speed`
 choice, kept within 0.5 to 2).
 Files live in the plugin's data folder (CLAUDE_SPEAK_DATA, else where the script is; see lib/speak_paths.py): engine/, config/, state/.
@@ -141,8 +141,8 @@ SPEED_FILE = os.path.join(CONF, 'speed')  # the general speed choice, as `speed_
 SPEED_RANGE = (0.5, 2.0)  # of the speed choice and of the speed of the speech
 DEFAULT_SPEED = 1.0
 READING_VOICES = {  # name -> its kind and its normal speed (the engine speaks at one speed; see `stretch`)
-    'jane': {'full': 'jane', 'kind': 'feminina', 'speed': DEFAULT_SPEED},
     'eve': {'full': 'eve', 'kind': 'feminina', 'speed': DEFAULT_SPEED},
+    'jane': {'full': 'jane', 'kind': 'feminina', 'speed': DEFAULT_SPEED},
     'mary': {'full': 'mary', 'kind': 'feminina', 'speed': DEFAULT_SPEED},
     'vera': {'full': 'vera', 'kind': 'feminina', 'speed': DEFAULT_SPEED},
     'lola': {'full': 'lola', 'kind': 'feminina', 'speed': DEFAULT_SPEED},
@@ -151,11 +151,11 @@ READING_VOICES = {  # name -> its kind and its normal speed (the engine speaks a
     'george': {'full': 'george', 'kind': 'masculina', 'speed': DEFAULT_SPEED},
 }
 PT_VOICES = {short: (v['full'], v['kind']) for short, v in READING_VOICES.items()}
-DEFAULT_VOICE = 'jane'
+DEFAULT_VOICE = 'eve'
 # A voice that left the plugin -> the one a saved choice of it now means. The voices of the former engine (Kokoro,
 # until 0.23.0) became the nearest of the new one: the feminine ones Lola, the masculine ones Rafael. Estelle and
-# Fantine left in 0.27.0 for Jane, the default since then.
-RETIRED_VOICES = {'alice': 'lola', 'dora': 'lola', 'pf_dora': 'lola', 'estelle': 'jane', 'fantine': 'jane',
+# Fantine left in 0.27.0 for the default voice (Jane then, Eve since 0.28.0).
+RETIRED_VOICES = {'alice': 'lola', 'dora': 'lola', 'pf_dora': 'lola', 'estelle': 'eve', 'fantine': 'eve',
                   'alex': 'rafael', 'pm_alex': 'rafael', 'santa': 'rafael', 'pm_santa': 'rafael'}
 RULE = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'rules', 'speak.md')
 VENV_PY = os.path.join(DATA, '.venv', 'bin', 'python')
@@ -188,9 +188,9 @@ MIC_WAIT_POLL = 1.0  # seconds between looks at the microphone while waiting a t
 
 
 def voice():
-    """The voice that reads, by its name: CLAUDE_SPEAK_VOICE, then the general file, then jane. A voice that left
+    """The voice that reads, by its name: CLAUDE_SPEAK_VOICE, then the general file, then eve. A voice that left
     the plugin (RETIRED_VOICES) counts as the one that took its place, so a choice saved by an older version still
-    speaks; any other name the engine has no voice for counts as jane."""
+    speaks; any other name the engine has no voice for counts as eve."""
     wanted = os.environ.get('CLAUDE_SPEAK_VOICE')
     if not wanted:
         try:
@@ -204,12 +204,12 @@ def voice():
 
 
 def voice_short():
-    """The voice in force by the name people know it by (`jane`)."""
+    """The voice in force by the name people know it by (`eve`)."""
     return voice()
 
 
 def voice_name(wanted):
-    """The name of a voice as it is saved, from what was typed (`Jane`); None if unknown."""
+    """The name of a voice as it is saved, from what was typed (`Eve`); None if unknown."""
     wanted = wanted.strip().lower()
     return wanted if wanted in READING_VOICES else None
 

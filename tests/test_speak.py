@@ -2151,15 +2151,15 @@ class Pause(unittest.TestCase):
         proc = self.waiter('a', self.me, CLAUDE_SPEAK_DIR='/home/x/projeto', CLAUDE_SPEAK_HOW='summary')
         self.assertTrue(self.until(lambda: self.started() == ['a']))
         self.assertEqual(self.json(), {'playing': {'pid': proc.pid, 'session': self.me, 'dir': '/home/x/projeto',
-                                                   'how': 'summary', 'voice': 'jane'}, 'paused': []})
+                                                   'how': 'summary', 'voice': 'eve'}, 'paused': []})
         self.let_go('a')
         self.assertEqual(proc.wait(timeout=5), 0)
         self.assertIsNone(self.json())  # nothing playing, nothing paused: no file
         # The voice in force when the speech takes its turn, however the variable spells it (the speech takes
         # `Vera` too); a name that is no reading voice counts as the default one, and a voice that left the plugin
         # as the one that took its place.
-        for name, chosen, told in (('b', 'rafael', 'rafael'), ('c', 'af_heart', 'jane'), ('d', 'alice', 'lola'),
-                                   ('e', 'Vera', 'vera'), ('f', 'PM_ALEX', 'rafael'), ('g', 'Fantine', 'jane')):
+        for name, chosen, told in (('b', 'rafael', 'rafael'), ('c', 'af_heart', 'eve'), ('d', 'alice', 'lola'),
+                                   ('e', 'Vera', 'vera'), ('f', 'PM_ALEX', 'rafael'), ('g', 'Fantine', 'eve')):
             proc = self.waiter(name, self.me, CLAUDE_SPEAK_VOICE=chosen)
             self.assertTrue(self.until(lambda: self.started()[-1:] == [name]), name)
             self.assertEqual(self.json()['playing']['voice'], told)
@@ -3021,7 +3021,7 @@ class Speed(unittest.TestCase):
     def test_default_is_the_normal_speed_of_the_voice(self):
         out = self.speak('status').stdout
         self.assertIn('  velocidade da fala: 1x\n', out)
-        self.assertIn('  voz de leitura: jane (feminina), velocidade aplicada 1.0\n', out)
+        self.assertIn('  voz de leitura: eve (feminina), velocidade aplicada 1.0\n', out)
         data = json.loads(self.speak('status', '--json').stdout)
         self.assertEqual((data['speed'], data['scope']['speed']), ('1', 'all'))
 
@@ -3064,7 +3064,7 @@ class Speed(unittest.TestCase):
                                      ('0.9', 1.05, 0.945)):  # a voice may have a normal speed of its own
             with open(speak.SPEED_FILE, 'w') as fh:
                 fh.write(chosen + '\n')
-            with mock.patch.dict(speak.READING_VOICES, {'jane': {'full': 'jane', 'kind': 'feminina', 'speed': own}}):
+            with mock.patch.dict(speak.READING_VOICES, {'eve': {'full': 'eve', 'kind': 'feminina', 'speed': own}}):
                 self.assertEqual(speak.speed(), applied, (chosen, own))
 
     def test_the_variable_is_the_speed_of_the_speech_and_beats_the_choice(self):
@@ -3141,7 +3141,7 @@ class Speed(unittest.TestCase):
         FakeServer.made.clear()
         self.assertEqual(self.play(me), [(bytes(16), 0.75)])
         server, = FakeServer.made
-        self.assertEqual((server.voice, server.asked, server.closed), ('jane', ['Olá.'], True))
+        self.assertEqual((server.voice, server.asked, server.closed), ('eve', ['Olá.'], True))
 
     def test_the_speech_speaks_in_the_voice_and_speed_in_force_when_it_takes_its_turn(self):
         """The voice the other sessions are told (speech_facts, written at the turn) is the one heard: a choice that
@@ -3161,7 +3161,7 @@ class Speed(unittest.TestCase):
         with mock.patch.object(sys.modules[__name__], 'FakeServer', Slow):
             self.assertEqual(self.play(), [(bytes(16), 1.0)])
             self.assertEqual(self.play(), [(bytes(16), 2.0)])  # the next speech has both
-        self.assertEqual([server.voice for server in FakeServer.made], ['jane', 'rafael'])
+        self.assertEqual([server.voice for server in FakeServer.made], ['eve', 'rafael'])
 
     def test_the_engine_is_closed_when_the_speech_fails(self):
         isolate(self, self.tmp.name)
@@ -3433,9 +3433,9 @@ class Voice(unittest.TestCase):
     def test_list_marks_the_current_one(self):
         out = self.speak('voice').stdout
         self.assertEqual([line.lstrip('* ') for line in out.splitlines()],
-                         ['jane (feminina)', 'eve (feminina)', 'mary (feminina)', 'vera (feminina)',
+                         ['eve (feminina)', 'jane (feminina)', 'mary (feminina)', 'vera (feminina)',
                           'lola (feminina)', 'rafael (masculina)', 'charles (masculina)', 'george (masculina)'])
-        self.assertRegex(out, r'(?m)^\* jane \(feminina\)$')
+        self.assertRegex(out, r'(?m)^\* eve \(feminina\)$')
         self.assertRegex(self.speak('voice', CLAUDE_SPEAK_VOICE='george').stdout, r'(?m)^\* george \(masculina\)$')
 
     def test_the_name_is_saved_whatever_its_case(self):
@@ -3447,15 +3447,15 @@ class Voice(unittest.TestCase):
     def test_unknown_name_is_refused_and_nothing_is_saved(self):
         r = self.speak('voice', 'bob')
         self.assertEqual(r.returncode, 2)
-        self.assertIn('voz: voz desconhecida; use uma de: jane, eve, mary, vera, lola, rafael, charles, george\n', r.stderr)
+        self.assertIn('voz: voz desconhecida; use uma de: eve, jane, mary, vera, lola, rafael, charles, george\n', r.stderr)
         self.assertFalse(os.path.exists(data_dir(self.tmp.name, 'config', 'voice')))
 
     def test_order_is_variable_then_file_then_default(self):
-        self.assertIn('voz de leitura: jane', self.speak('status').stdout)
+        self.assertIn('voz de leitura: eve', self.speak('status').stdout)
         self.speak('voice', 'rafael')
         self.assertIn('voz de leitura: rafael', self.speak('status').stdout)
         self.assertIn('voz de leitura: mary', self.speak('status', CLAUDE_SPEAK_VOICE='mary').stdout)
-        self.assertIn('voz de leitura: jane', self.speak('status', CLAUDE_SPEAK_VOICE='ninguém').stdout)
+        self.assertIn('voz de leitura: eve', self.speak('status', CLAUDE_SPEAK_VOICE='ninguém').stdout)
 
     def test_the_model_is_the_larger_one_unless_chosen_and_the_list_marks_it(self):
         out = self.speak('model').stdout
@@ -3490,7 +3490,7 @@ class Voice(unittest.TestCase):
         os.makedirs(data_dir(self.tmp.name, 'config'))
         for saved, now, kind in (('pf_dora', 'lola', 'feminina'), ('dora', 'lola', 'feminina'),
                                  ('alice', 'lola', 'feminina'),
-                                 ('estelle', 'jane', 'feminina'), ('fantine', 'jane', 'feminina'),
+                                 ('estelle', 'eve', 'feminina'), ('fantine', 'eve', 'feminina'),
                                  ('pm_alex', 'rafael', 'masculina'),
                                  ('alex', 'rafael', 'masculina'), ('pm_santa', 'rafael', 'masculina')):
             with open(data_dir(self.tmp.name, 'config', 'voice'), 'w') as fh:
@@ -4533,7 +4533,7 @@ class StatusJson(unittest.TestCase):
                 self.assertEqual(speak.main(['status', '--json']), 0)
             data = json.loads(out.getvalue())
             self.assertEqual((data['mode'], data['size'], data['voice'], data['on']),
-                             ('summary', 'medium', 'jane', True))
+                             ('summary', 'medium', 'eve', True))
             os.makedirs(os.path.dirname(speak.MODE_FILE), exist_ok=True)
             with open(speak.MODE_FILE, 'w') as fh:
                 fh.write('full\n')  # a mode already saved in the general file is kept
@@ -4552,7 +4552,7 @@ class StatusJson(unittest.TestCase):
                 self.assertEqual(speak.main(['status', '--json']), 0)
         data = json.loads(out.getvalue())
         self.assertEqual((data['mode'], data['size'], data['voice'], data['engine']),
-                         ('summary', 'medium', 'jane', False))
+                         ('summary', 'medium', 'eve', False))
 
 
 class Plugin(unittest.TestCase):
@@ -4588,7 +4588,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.27.0')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.28.0')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

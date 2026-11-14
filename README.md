@@ -55,7 +55,7 @@ Digite `/speak` sozinho. Abre um painel com uma lista por linha, já com o tecla
 | Voz | ligada (padrão), só o resumo escrito (a voz cala e a linha 🔊 continua saindo, mesmo sem o motor; na leitura inteira vale como desligada) ou desligada |
 | Leitura | só o resumo (padrão) ou a resposta inteira |
 | Tamanho do resumo | pequeno (uma frase), médio (padrão, duas ou três frases) ou grande (um parágrafo); a linha só aparece com a leitura em "só o resumo" (o `/speak size` escrito vale em qualquer modo) |
-| Voz de leitura | Jane (padrão), Eve, Mary, Vera ou Lola (femininas); Rafael, Charles ou George (masculinas); vale sempre para todas as sessões |
+| Voz de leitura | Eve (padrão), Jane, Mary, Vera ou Lola (femininas); Rafael, Charles ou George (masculinas); vale sempre para todas as sessões |
 | Modelo da voz | Maior (padrão), que lê melhor números, siglas e inglês, ou Normal, mais leve; vale sempre para todas as sessões (veja [Modelo da voz](#modelo-da-voz)) |
 | Velocidade da fala | de 0.5x a 2x; o 1x (padrão) é a velocidade normal da voz escolhida. Vale a partir da próxima fala (veja [Velocidade](#velocidade)) |
 | Com o microfone em uso | Espera (padrão), Toca ou Toca nesta reunião (veja [Microfone](#microfone)) |
@@ -78,7 +78,7 @@ Para pular o painel, escreva a ação. Com `all` no fim, vale para todas as sess
 | `/speak on` · `/speak quiet` · `/speak off` | liga a voz, cala a voz mas mantém o resumo escrito, ou desliga tudo (padrão: `on`) |
 | `/speak mode summary` · `full` | lê só o resumo ou a resposta inteira (padrão: `summary`) |
 | `/speak size small` · `medium` · `large` | tamanho do resumo (padrão: `medium`) |
-| `/speak voice jane` · `eve` · `mary` · `vera` · `lola` · `rafael` · `charles` · `george` | troca a voz, sempre em todas as sessões (padrão: `jane`) |
+| `/speak voice eve` · `jane` · `mary` · `vera` · `lola` · `rafael` · `charles` · `george` | troca a voz, sempre em todas as sessões (padrão: `eve`) |
 | `/speak model large` · `normal` | troca o modelo da voz, sempre em todas as sessões (padrão: `large`; veja [Modelo da voz](#modelo-da-voz)) |
 | `/speak speed 0.9` · `1` · `1.25` | velocidade da fala: um número de 0.5 a 2, em que 1 é a velocidade normal da voz (padrão: `1`) |
 | `/speak mic wait` · `play` · `auto` | o que fazer com o microfone em uso (padrão: `wait`) |

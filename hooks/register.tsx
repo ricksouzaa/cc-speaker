@@ -32,11 +32,11 @@ const MODES: Record<string, string> = { full: 'Resposta inteira', summary: 'Só 
 const SIZES: Record<string, string> = { small: 'Pequeno', medium: 'Médio', large: 'Grande' }
 const MICS: Record<string, string> = { wait: 'Espera', play: 'Toca', auto: 'Toca nesta reunião' }
 const VOICES: Record<string, string> = {
-  jane: 'Jane (feminina)', eve: 'Eve (feminina)', mary: 'Mary (feminina)', vera: 'Vera (feminina)', lola: 'Lola (feminina)',
+  eve: 'Eve (feminina)', jane: 'Jane (feminina)', mary: 'Mary (feminina)', vera: 'Vera (feminina)', lola: 'Lola (feminina)',
   rafael: 'Rafael (masculina)', charles: 'Charles (masculina)', george: 'George (masculina)',
 }
 const READERS: Record<string, string> = {
-  jane: 'Jane', eve: 'Eve', mary: 'Mary', vera: 'Vera', lola: 'Lola',
+  eve: 'Eve', jane: 'Jane', mary: 'Mary', vera: 'Vera', lola: 'Lola',
   rafael: 'Rafael', charles: 'Charles', george: 'George',
 }
 // Os dois modelos do motor: o maior (padrão desde a 0.26.0), que lê melhor números, siglas e inglês, e o normal,
@@ -62,7 +62,7 @@ const speedOptions = (now: State | undefined) =>
 const USAGE =
   'Escreva a ação: /speak on, /speak quiet, /speak off, /speak mode full|summary, /speak size small|medium|large, /speak mic wait|play|auto, ' +
   '/speak speed <número de 0.5 a 2; 1 é o normal>, ' +
-  '/speak voice jane|eve|mary|vera|lola|rafael|charles|george, /speak model large|normal, /speak again [summary|full], /speak pause, /speak resume, /speak status, /speak stop, ' +
+  '/speak voice eve|jane|mary|vera|lola|rafael|charles|george, /speak model large|normal, /speak again [summary|full], /speak pause, /speak resume, /speak status, /speak stop, ' +
   '/speak install, /speak update ' +
   '(com "all" no fim, vale para todas as sessões).'
 const where = (all: boolean) => (all ? 'em todas as sessões' : 'nesta sessão')
