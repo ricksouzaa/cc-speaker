@@ -87,6 +87,13 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 - **`speak model` escrito** não cai na ajuda inteira: responde uma frase dizendo que a escolha saiu na 0.30.0, com saída 2 (no painel, `/speak model` responde a mesma coisa). Uma sessão ainda com a regra de uma versão anterior pode rodar o comando a pedido da pessoa, e a frase explica o que houve.
 - **O aviso de quem fala "não está mais aparecendo" (queixa do Ricardo no mesmo dia): não achei defeito.** Visto em sessões descartáveis do Claude Code 2.1.325, sem som, com uma fala de mentira: o aviso aparece na tela padrão e na tela cheia (`tui: fullscreen`, a que ele usa), com a barra de status própria dele, no modo sem permissões, em 150, 90 e 60 colunas, depois de `/reload-plugins` e depois de trocar o código do plugin e recarregar. Com a barra de status dele, o aviso sai no canto direito da linha da barra, ou numa linha própria abaixo, à direita, quando não cabe: desde a 0.22.1 ele não fica mais embaixo do campo de texto, à esquerda. Na máquina dele, a última fala tinha sido em 14/11 às 11h30: a chave geral está em "só o resumo escrito" desde 10/11 e, além disso, nenhuma sessão recarregou os plugins depois da 0.26.0, então o motor no disco ainda era o da 0.24.0 (modelo normal, vozes antigas), que o código novo não aceita. Sem fala não há aviso. Fica para ele dizer se, com a voz falando, o aviso aparece no canto direito.
 
+## Decisões de 15/11/2026: Jane como padrão e pendências encerradas (0.31.0)
+
+- **A Jane é a voz padrão e a primeira da lista.** Depois de usar a 0.30.0, o Ricardo escreveu: "a última coisa que eu quero que você faça é que você coloque por padrão a voz da Jane". Ordem das femininas: Jane, Eve e Lola. As vozes são as mesmas seis, então a marca `ready` não muda e nada é baixado.
+- **Escolha guardada de voz retirada.** Estelle, Fantine, Mary e Vera valem como a padrão, agora a Jane (`RETIRED_VOICES` aponta para `DEFAULT_VOICE`); Charles continua valendo como Giovanni.
+- **Pendências encerradas.** No mesmo pedido: "o que tiver de lista aí de coisas próximas para serem feitas, pode limpar tudo, porque para mim agora está funcionando perfeitamente"; ele vai usar o motor novo por um tempo antes de pedir qualquer coisa. A lista de pendências foi esvaziada (o que havia nela está no histórico do git, na versão 0.30.0 deste arquivo). Nada dela se reabre sem pedido dele.
+- **Páginas de escuta e arquivos de prova apagados**, a pedido dele: a pasta de escuta na pasta pessoal e as pastas de prova da sessão. Os artefatos publicados no claude.ai ficam para ele apagar, porque a sessão não tem como.
+
 ## Feito
 
 - Plugin `speak` no catálogo `cc-speaker`, com o comando `/speak`: um painel com listas nativas (ligar, leitura, tamanho, voz, alcance) que fica aberto até Esc, pedidos em palavras e o motor instalado sozinho na primeira sessão.
@@ -124,12 +131,9 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 
 ## Pendências
 
-- **Ouvir a 0.27.0 no uso de verdade.** Falta o Ricardo dizer, de ouvido: se "validação" e os outros fins de frase pararam de ser cortados; se a espera de 5 a 6 segundos até o primeiro som incomoda no dia a dia; e se a velocidade esticada soa bem (ninguém ouviu ainda o 0.75x, o 1.25x e os extremos).
-- **Aviso de quem fala, no uso de verdade.** Falta o Ricardo dizer se, com a voz falando, ele vê o aviso no canto direito do rodapé (veja as decisões de 15/11/2026). Se o lugar novo não servir, a volta para baixo do campo de texto traz de novo o `speak:` na frente.
-- **Inglês fora da lista de `RESPELL`.** Sai como o motor lê. Os caminhos são crescer a lista de ouvido ou um arquivo do usuário com as próprias reescritas (o `config/english` antigo não serve, porque guardava só a palavra, não o jeito de dizer).
-- **Licença do áudio de origem do Rafael.** A Kyutai publica a voz junto do modelo (CC BY 4.0), mas o cartão do modelo só aponta o arquivo (`g-Vi8PgmSY0-enhanced-v2.wav`, num ramo do repositório `kyutai/pocket-tts`), sem dizer de onde veio a gravação. O README diz isso. Se for preciso certeza, perguntar à Kyutai numa issue ou tirar o Rafael.
-- **Mac de verdade**: confirmar som, microfone e achar a sessão (`speak check`, que desde a 0.14.2 também mostra a linha `microfone:`). Ninguém tem um Mac para testar por ora; o teste fica aberto para quem aparecer pelas issues (https://github.com/ricksouzaa/cc-speaker/issues), e o README avisa que o macOS nunca foi testado num Mac de verdade. As constantes e o formato da lista de áudio do CoreAudio ganharam teste em 29/10/2026 (`test_coreaudio_constants_and_layouts`), conferidos contra os nomes dos cabeçalhos da Apple.
-- **Microfone embutido sempre ligado no Mac**: se a escuta da Siri (ou outro programa) deixar a entrada embutida em uso o tempo todo, a fila pode achar que alguém grava e a voz esperar para sempre. Sem como testar, o preparo é: `speak check` mostra o que ele enxerga e o README manda usar `/speak mic play` nesse caso. A ver no teste do Mac.
+Nenhuma. Em 15/11/2026 o Ricardo mandou limpar a lista: o plugin está funcionando como ele quer, e ele vai usar o motor novo por um tempo.
+
+Dois fatos que continuam valendo, ditos no README: o macOS nunca foi testado num Mac de verdade, e a origem do áudio da voz Rafael não foi confirmada.
 
 ## Pedidos para depois
 
