@@ -7,6 +7,14 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.30.0] - 2026-11-15
+
+### Quebra
+- **A voz agora usa um modelo só, o maior.** A escolha entre o modelo maior e o normal, que existia desde a 0.25.0, saiu: `/speak model` e a linha "Modelo da voz" do painel não existem mais, e o comando escrito responde que a escolha saiu. Quem tinha escolhido o modelo normal passa ao maior sem fazer nada: ao atualizar, o plugin baixa o modelo maior no lugar do normal (cerca de 820 MB, em segundo plano), e a voz fica calada até o download terminar; o progresso aparece embaixo do campo de texto e no `/speak status`. O modelo maior pede cerca de 2 GB de memória enquanto a voz fala e leva de 5 a 6 segundos até o primeiro som. Quem já estava no maior, que é o padrão desde a 0.26.0, não baixa nada.
+
+### Removido
+- A linha `modelo:` do `/speak status`, que dizia qual dos dois modelos estava em uso.
+
 ## [0.29.0] - 2026-11-14
 
 ### Quebra
@@ -476,7 +484,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.29.0...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.30.0...HEAD
+[0.30.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.29.0...v0.30.0
 [0.29.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.26.0...v0.27.0

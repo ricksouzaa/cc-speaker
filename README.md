@@ -21,7 +21,8 @@ Funciona no Linux e no macOS, mas o macOS **nunca foi testado num Mac de verdade
 | Python | `python3` | `python3` (o do sistema serve) |
 | Instalador do motor | [`uv`](https://docs.astral.sh/uv/) | [`uv`](https://docs.astral.sh/uv/) |
 | Tocador de áudio | `pw-play` (PipeWire 1.1 ou mais novo), `paplay` ou `aplay` | já vem no sistema |
-| Espaço | cerca de 860 MB (300 MB com o [modelo normal](#modelo-da-voz)) | cerca de 860 MB (300 MB com o modelo normal) |
+| Espaço | cerca de 860 MB | cerca de 860 MB |
+| Memória | cerca de 2 GB livres enquanto a voz fala | cerca de 2 GB livres enquanto a voz fala |
 | Situação | testado no Linux | só nos testes automáticos do GitHub; nunca num Mac de verdade |
 
 No Ubuntu 24.04 o `pw-play` é mais velho, e o speak usa o `paplay` ou o `aplay` no lugar. O código do Mac tem suporte e passa nos testes automáticos do GitHub, mas nunca foi testado num Mac de verdade. Quem usar no Mac e tiver problema pode abrir uma issue em https://github.com/ricksouzaa/cc-speaker/issues.
@@ -56,7 +57,6 @@ Digite `/speak` sozinho. Abre um painel com uma lista por linha, já com o tecla
 | Leitura | só o resumo (padrão) ou a resposta inteira |
 | Tamanho do resumo | pequeno (uma frase), médio (padrão, duas ou três frases) ou grande (um parágrafo); a linha só aparece com a leitura em "só o resumo" (o `/speak size` escrito vale em qualquer modo) |
 | Voz de leitura | Eve (padrão), Jane ou Lola (femininas); Rafael, Giovanni ou George (masculinas); vale sempre para todas as sessões |
-| Modelo da voz | Maior (padrão), que lê melhor números, siglas e inglês, ou Normal, mais leve; vale sempre para todas as sessões (veja [Modelo da voz](#modelo-da-voz)) |
 | Velocidade da fala | de 0.5x a 2x; o 1x (padrão) é a velocidade normal da voz escolhida. Vale a partir da próxima fala (veja [Velocidade](#velocidade)) |
 | Com o microfone em uso | Espera (padrão), Toca ou Toca nesta reunião (veja [Microfone](#microfone)) |
 | Ouvir de novo | dois botões, Resumo e Resposta inteira: tocam na hora a última fala desta sessão; a linha não guarda valor |
@@ -79,7 +79,6 @@ Para pular o painel, escreva a ação. Com `all` no fim, vale para todas as sess
 | `/speak mode summary` · `full` | lê só o resumo ou a resposta inteira (padrão: `summary`) |
 | `/speak size small` · `medium` · `large` | tamanho do resumo (padrão: `medium`) |
 | `/speak voice eve` · `jane` · `lola` · `rafael` · `giovanni` · `george` | troca a voz, sempre em todas as sessões (padrão: `eve`) |
-| `/speak model large` · `normal` | troca o modelo da voz, sempre em todas as sessões (padrão: `large`; veja [Modelo da voz](#modelo-da-voz)) |
 | `/speak speed 0.9` · `1` · `1.25` | velocidade da fala: um número de 0.5 a 2, em que 1 é a velocidade normal da voz (padrão: `1`) |
 | `/speak mic wait` · `play` · `auto` | o que fazer com o microfone em uso (padrão: `wait`) |
 | `/speak again` · `again summary` · `again full` | ouve de novo a última fala desta sessão, mesmo com a voz desligada: do jeito em que tocou, só o resumo ou a resposta inteira |
@@ -145,21 +144,11 @@ Quando o plugin é ativado com uma sessão já aberta, a instalação começa al
 
 ### Modelo da voz
 
-O motor tem dois modelos de português, e você escolhe qual fala com `/speak model` ou na linha "Modelo da voz" do painel. A escolha vale para todas as sessões.
+O plugin usa um modelo só: o maior dos dois modelos de português do motor. De ouvido, é o que lê certo números, siglas e inglês. Ele pede cerca de 2 GB de memória enquanto a voz fala, e a espera até o primeiro som de um resumo de duas frases fica entre 5 e 6 segundos (medido numa máquina de 12 núcleos, sem placa de vídeo).
 
-| | Maior (padrão) | Normal |
-|---|---|---|
-| Comando | `/speak model large` | `/speak model normal` |
-| Para baixar | cerca de 820 MB | cerca de 260 MB |
-| Memória durante a fala | cerca de 2 GB | cerca de 1 GB |
-| Espera até o primeiro som (resumo de duas frases) | 5 a 6 segundos | 2 a 3 segundos |
-| Números, siglas e inglês | lê melhor | erra mais (por exemplo, "cinquenta" dentro de um número); o plugin reescreve o que consegue |
-
-Os tempos e a memória foram medidos numa máquina de 12 núcleos, sem placa de vídeo. A fluência é boa nos dois. O maior é o padrão desde a 0.26.0, porque de ouvido a pronúncia dele é a melhor; numa máquina com pouca memória, ou para esperar menos pelo primeiro som, use o normal.
+Da 0.25.0 à 0.29.0 dava para escolher também o modelo normal, mais leve, com `/speak model`. A escolha saiu na 0.30.0: o normal errava números (por exemplo, "cinquenta" dentro de um número) e inglês, e o plugin ficou com uma opção a menos para configurar.
 
 O motor não repete uma fala igual: a mesma frase sai um pouco diferente a cada vez, e de vez em quando uma palavra escorrega. O deslize mais comum era engolir a última sílaba de uma frase ("validação" saía "valida" em uma de cada treze falas); desde a 0.27.0 o plugin pede ao motor mais certeza de que a frase acabou antes de parar, e em 52 falas medidas a palavra saiu inteira em todas. Se uma palavra sair errada, ouvir de novo costuma sair certo.
-
-Só um modelo fica no disco. Ao trocar, o outro é baixado em segundo plano no lugar do atual, e a voz fica calada até o download terminar; o progresso aparece embaixo do campo de texto e no `/speak status`. Trocar de volta baixa de novo.
 
 ### Números
 
@@ -199,7 +188,7 @@ Para acrescentar uma sigla que deve ser lida como palavra, ponha-a numa linha do
 
 ### Palavras em inglês
 
-O motor só recebe texto escrito e lê o que está em inglês com as regras do português. Para alguns termos comuns (plugin, GitHub, pull request, bug, backend, release, commit, downtime, Slack), o plugin escreve a palavra do jeito que se fala antes de entregá-la ao motor ("plâguin", "bâg"); os outros saem como o motor os lê. O [modelo maior](#modelo-da-voz) lê inglês melhor que o normal. O arquivo `config/english`, que a versão 0.23.0 usava, não tem mais efeito.
+O motor só recebe texto escrito e lê o que está em inglês com as regras do português. Para alguns termos comuns (plugin, GitHub, pull request, bug, backend, release, commit, downtime, Slack), o plugin escreve a palavra do jeito que se fala antes de entregá-la ao motor ("plâguin", "bâg"); os outros saem como o motor os lê. O arquivo `config/english`, que a versão 0.23.0 usava, não tem mais efeito.
 
 ### Palavras que o motor acentua errado
 

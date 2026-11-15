@@ -45,41 +45,19 @@ VOICES_REVISION = 'a3055dcb533cf2ec90458008a01e7cef550bae2a'  # of the voices
 # How sure the model must be that a sentence ended for the program to stop it (the program's own is -4.0, and the
 # server takes it only from the configuration). With -4.0 the last syllable was swallowed now and then ("validação"
 # came out "valida" in 4 of 52 speeches of the voice Jane, larger model); with -1.0, in none of 52. The speech is
-# as long as before in the larger model and about 0.15 s longer per sentence in the normal one.
+# as long as before.
 EOS_THRESHOLD = -1.0
 RATE = 24000  # what the server gives: mono, 16 bits
 START_WAIT = 60.0  # seconds for the server to load the model and answer
 PIECE_WAIT = 300.0  # seconds for the audio of one piece
 RUN_WAIT = 30.0  # seconds for the program to say its version, at the install
 HEADER = 44  # bytes of the WAV header the server sends before the samples
-# What each model is made of: the revision of its weights there, the one the project's own configuration names (the
+# What the model is made of (the larger of the engine's two Portuguese ones; the plugin installs no other since
+# 0.30.0): the revision of its weights there, the one the project's own configuration names (the
 # install checks that it does, see `check_config`), and file -> (size in bytes, SHA-256). The tokenizer and the
 # configuration (`original.yaml`, from the project's tag) are small text files kept in git, with no SHA-256
 # published: theirs are of the files as first fetched and heard.
 MODELS = {
-    'portuguese': {
-        'revision': '1e08e6a23401048648a9fdcfde2f89348215c2a7',
-        'model.safetensors': (219029196, '28e20f32515ba8bd0eaec69671f11f8921414fcdc375aa072fa09f46cc1057c5'),
-        'tokenizer.json': (247014, 'b33e269f7f042a763080d71ba087d74d2f6759674b238a723c028e436b1a25ab'),
-        'original.yaml': (1552, '80e1ad86c2e6e1ae0ba979cebc0c9b9964f2e976c9774ebe4df9cabf85787399'),
-        'voices': {
-            'lola': (5457720, '0169b537f8a562907eacba75bfa35ce645fa88f9f2e7da3b29aa35af8ac10bad'),
-            'estelle': (7571256, '3272dfb763dab2f834357b583c603654ac6752a916fb47253c7a186591525e63'),
-            'fantine': (6440760, '0934eabaa5fa5fe12535614c136bf4d073d4fe1085124495b4866011a02b4a11'),
-            'eve': (6145848, '86840ca3163b6050212ff37e9048575581aff75b74fb40d74ae2f52e6366fc7a'),
-            'jane': (7325496, '161d4cc6b023d20207220d3687e42d41847c1f823956062646b0c9e22705805e'),
-            'mary': (5949240, '148e07e6297293af34ea09bcbe2039eb703060c6650122f7de1dd116d4a94226'),
-            'vera': (6686520, '8f802122e2970eb3ae7f193ba3b6604f8da3cc4d59f932e5b30a6fae995dfdeb'),
-            'rafael': (6244152, '5aadaa0adf8d4c095f8c90cd2ece0006bbd5c66325ed01af9f955ddc8a2b5236'),
-            'charles': (6195000, '26654297467c0a3541a37c8e64be9cbad7a78d86bc8f8b51e58874e7eecfd800'),
-            'george': (5900088, '8e37c8fd8839aab501bdc0c30c8e4d37996e62fb66c063d3e54c80c98b4b6ea5'),
-            'michael': (7128888, '07b19d1897d626a8456a9c58e76461bb8d21289f42b594b9c05ec7b4091cb8b2'),
-            'paul': (6833976, '08c2e7e31b232866c124c312af8e34daf35e867782b2cd5271fde4b4b3c79002'),
-            'giovanni': (4130608, '8ef09c84eea9f9b8a6fbea92518815514a09f59cc63a8bb1273ac67ef00e3b73'),
-            'javert': (6145848, '1c8cb25be8928811ab7632a0a915f88ef52d05447352ac5d9fee679b62715224'),
-            'marius': (6244152, '9f6cc305d08f6652aa15ff0ac17c216bcd17a3fe50432afc0bcab6cd4573cbdd'),
-        },
-    },
     'portuguese_24l': {
         'revision': '4e1e0a3e611c51c0b4ed8174fc10f32a54644303',
         'model.safetensors': (672178676, 'ce7911fe914d055e55dcb8dcc973f735d9f51d09fe6fec4fe35d80ac2c9d9670'),

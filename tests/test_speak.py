@@ -55,7 +55,7 @@ def fake_engine(data):
         if not os.path.exists(os.path.join(data, rel)):
             open(os.path.join(data, rel), 'w').close()
     with open(os.path.join(data, 'ready'), 'w') as fh:
-        fh.write(speak.speak_pocket.stamp(speak.engine_model(), speak.READING_VOICES))
+        fh.write(speak.speak_pocket.stamp(speak.ENGINE_MODEL, speak.READING_VOICES))
 
 
 class FakeServer:
@@ -3208,43 +3208,41 @@ class Speed(unittest.TestCase):
 
 
 class Model(unittest.TestCase):
-    """Which of the engine's two Portuguese models speaks: the larger one, or the normal one the person chose."""
+    """One model since 0.30.0, the larger Portuguese one: the choice of 0.25.0 to 0.29.0 (`speak model`) is gone."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         isolate(self, self.tmp.name)
 
-    def choose(self, name):
+    def saved(self, name):
+        """The choice as a version that had it left it."""
         os.makedirs(speak.CONF, exist_ok=True)
-        with open(speak.MODEL_FILE, 'w') as fh:
+        with open(os.path.join(speak.CONF, 'model'), 'w') as fh:
             fh.write(name + '\n')
 
-    def test_the_engine_model_is_the_larger_one_unless_the_normal_was_chosen(self):
-        self.assertEqual((speak.model_choice(), speak.engine_model()), ('large', 'portuguese_24l'))
-        self.choose('normal')
-        self.assertEqual((speak.model_choice(), speak.engine_model()), ('normal', 'portuguese'))
-        self.choose('large')
-        self.assertEqual((speak.model_choice(), speak.engine_model()), ('large', 'portuguese_24l'))
-        self.choose('lixo')
-        self.assertEqual((speak.model_choice(), speak.engine_model()), ('large', 'portuguese_24l'))
+    def test_the_engine_model_is_the_larger_one_and_the_only_one(self):
+        self.assertEqual(speak.ENGINE_MODEL, 'portuguese_24l')
+        self.assertEqual(list(speak.speak_pocket.MODELS), ['portuguese_24l'])
 
-    def test_an_engine_installed_with_the_other_model_is_not_ready(self):
-        self.choose('normal')
-        fake_engine(speak.DATA)
+    def test_a_normal_model_chosen_before_does_not_hold_any_more(self):
+        self.saved('normal')
+        fake_engine(speak.DATA)  # the larger one, installed
         self.assertTrue(speak.engine_ready())
-        self.choose('large')
+        with open(speak.speak_pocket.mark(speak.DATA), 'w') as fh:  # the normal one, as 0.25.0 to 0.29.0 installed it
+            fh.write(speak.speak_pocket.stamp('portuguese', speak.READING_VOICES))
         self.assertFalse(speak.engine_ready())
-        fake_engine(speak.DATA)  # installed again, now with the larger one
-        self.assertTrue(speak.engine_ready())
 
-    def test_how_much_each_model_fetches(self):
+    def test_the_saved_choice_is_removed(self):
+        self.saved('normal')
+        speak.migrate()
+        self.assertFalse(os.path.exists(os.path.join(speak.CONF, 'model')))
+
+    def test_how_much_the_install_fetches(self):
         self.assertEqual(speak.download_mb(), 820)
-        self.choose('normal')
-        self.assertEqual(speak.download_mb(), 260)
 
     def test_an_update_counts_only_what_it_still_has_to_fetch(self):
-        files = speak.speak_pocket.wanted(speak.DATA, speak.speak_os.SYSTEM, speak.engine_model(), speak.READING_VOICES)
+        files = speak.speak_pocket.wanted(speak.DATA, speak.speak_os.SYSTEM, speak.ENGINE_MODEL, speak.READING_VOICES)
         os.makedirs(os.path.join(speak.DATA, 'voices'))
         for path, _, size, _ in files[1:]:  # all there with the right size, as after an update that only dropped voices
             with open(path, 'wb') as fh:
@@ -3256,100 +3254,32 @@ class Model(unittest.TestCase):
             fh.truncate(5)
         self.assertEqual(speak.download_mb(), 700)
 
-    def test_the_install_fetches_the_chosen_model(self):
-        self.choose('large')
-        handed = []
-        with mock.patch.object(speak.speak_pocket, 'install', lambda *a: handed.append(a)), \
-                mock.patch.object(speak.speak_pocket, 'program_file', lambda system: ('x.tar.gz', 'abc')), \
-                mock.patch.object(speak.subprocess, 'check_call', lambda *a, **k: 0), \
-                mock.patch.object(speak, 'venv_works', lambda: True), \
-                mock.patch.object(speak.speak_os, 'SYSTEM', 'linux'), mock.patch('sys.stdout', io.StringIO()):
-            self.assertEqual(speak.install_steps('uv'), 0)
-        self.assertEqual(handed[0][2], 'portuguese_24l')
+    def test_the_install_fetches_the_larger_model_and_the_progress_names_it(self):
+        self.saved('normal')
+        handed, written = [], []
 
-    def run_model(self, name, word):
-        out = io.StringIO()
-        with mock.patch.object(speak, 'autoinstall', lambda: word) as _, mock.patch('sys.stdout', out):
-            code = speak.main(['model', name])
-        return code, out.getvalue()
-
-    def test_choosing_one_not_installed_starts_its_download_and_says_how_much(self):
-        self.choose('normal')
-        fake_engine(speak.DATA)
-        code, said = self.run_model('large', ('installing', True))
-        self.assertEqual(code, 0)
-        self.assertIn('o modelo maior está sendo baixado em segundo plano (cerca de 820 MB)', said)
-        self.assertIn('a voz fica calada até terminar', said)
-
-    def test_choosing_the_one_installed_starts_nothing(self):
-        self.choose('normal')
-        fake_engine(speak.DATA)
-        started = []
-        with mock.patch.object(speak, 'autoinstall', lambda: started.append(1) or ('ready', False)), \
-                mock.patch('sys.stdout', io.StringIO()) as out:
-            self.assertEqual(speak.main(['model', 'normal']), 0)
-        self.assertEqual(started, [])
-        self.assertNotIn('baixado', out.getvalue())
-
-    def test_an_install_already_running_of_the_other_model_is_followed_by_this_one(self):
-        self.choose('normal')
-        fake_engine(speak.DATA)
-        with mock.patch.object(speak, 'install_progress', lambda: {'fase': 'baixando', 'modelo': 'portuguese'}):
-            code, said = self.run_model('large', ('installing', False))
-        self.assertEqual(code, 0)
-        self.assertIn('outra instalação está em andamento; o modelo maior é baixado em seguida, sozinho', said)
-        self.assertNotIn('rode', said.splitlines()[0])
-
-    def test_an_install_already_running_of_this_model_is_said_so(self):
-        self.choose('normal')
-        fake_engine(speak.DATA)
-        with mock.patch.object(speak, 'install_progress', lambda: {'fase': 'baixando', 'modelo': 'portuguese_24l'}):
-            code, said = self.run_model('large', ('installing', False))
-        self.assertEqual(code, 0)
-        self.assertIn('o modelo maior já está sendo baixado em segundo plano', said)
-        self.assertNotIn('outra instalação', said)
-
-    def test_choosing_a_model_tries_again_an_install_that_failed(self):
-        self.choose('normal')
-        fake_engine(speak.DATA)
-        os.makedirs(speak.STATE, exist_ok=True)
-        with open(speak.INSTALL_FAILED, 'w') as fh:
-            fh.write(speak.plugin_version())
-        self.run_model('large', ('installing', True))
-        self.assertFalse(os.path.exists(speak.INSTALL_FAILED))
-
-    def test_a_choice_made_while_the_install_runs_is_installed_right_after(self):
-        self.choose('normal')
-        calls = []
-
-        def install():
-            calls.append(speak.engine_model())
-            if len(calls) == 1:
-                self.choose('large')  # the person changes the model in the middle of the download
-            return 0
-        with mock.patch.object(speak, 'install', install):
-            self.assertEqual(speak.install_unlocked(), 0)
-        self.assertEqual(calls, ['portuguese', 'portuguese_24l'])
-
-    def test_the_progress_says_which_model_is_being_installed(self):
-        self.choose('large')
-        written = []
-        with mock.patch.object(speak.speak_pocket, 'install', lambda *a: a[-1]('model.safetensors', 1, 2, 1, 3)), \
+        def engine(*a):
+            handed.append(a)
+            a[-1]('model.safetensors', 1, 2, 1, 3)
+        with mock.patch.object(speak.speak_pocket, 'install', engine), \
                 mock.patch.object(speak.speak_pocket, 'program_file', lambda system: ('x.tar.gz', 'abc')), \
                 mock.patch.object(speak.subprocess, 'check_call', lambda *a, **k: 0), \
                 mock.patch.object(speak, 'venv_works', lambda: True), \
                 mock.patch.object(speak, 'write_progress', lambda **fields: written.append(fields)), \
                 mock.patch.object(speak.speak_os, 'SYSTEM', 'linux'), mock.patch('sys.stdout', io.StringIO()):
             self.assertEqual(speak.install_steps('uv'), 0)
+        self.assertEqual(handed[0][2], 'portuguese_24l')
         self.assertEqual([f.get('modelo') for f in written], ['portuguese_24l', 'portuguese_24l'])
 
-    def test_without_what_installs_it_the_person_is_told_to_install(self):
-        self.choose('normal')
-        fake_engine(speak.DATA)
-        for word in ('no-uv', 'failed', 'off'):
-            code, said = self.run_model('large', (word, False))
-            self.assertEqual(code, 0)
-            self.assertIn('o modelo maior ainda não está instalado; rode: speak install', said)
+    def test_the_command_that_chose_the_model_says_it_is_gone_and_saves_nothing(self):
+        for args in (['model'], ['model', 'normal'], ['model', 'large']):
+            err = io.StringIO()
+            with mock.patch('sys.stderr', err), mock.patch('sys.stdout', io.StringIO()) as out:
+                self.assertEqual(speak.main(args), 2, args)
+            self.assertEqual(err.getvalue(), 'voz: o plugin usa um modelo só, o maior; a escolha de modelo (speak model) '
+                                             'saiu na versão 0.30.0\n')
+            self.assertEqual(out.getvalue(), '')
+        self.assertFalse(os.path.exists(os.path.join(speak.CONF, 'model')))
 
 
 class Reviewed(unittest.TestCase):
@@ -3458,27 +3388,12 @@ class Voice(unittest.TestCase):
         self.assertIn('voz de leitura: jane', self.speak('status', CLAUDE_SPEAK_VOICE='jane').stdout)
         self.assertIn('voz de leitura: eve', self.speak('status', CLAUDE_SPEAK_VOICE='ninguém').stdout)
 
-    def test_the_model_is_the_larger_one_unless_chosen_and_the_list_marks_it(self):
-        out = self.speak('model').stdout
-        self.assertRegex(out, r'(?m)^\* large \(o padrão')
-        self.assertRegex(out, r'(?m)^  normal \(')
-        self.assertIn('modelo: maior', self.speak('status').stdout)
-        self.assertEqual(json.loads(self.speak('status', '--json').stdout)['model'], 'large')
-
-    def test_choosing_a_model_saves_it_for_every_session_and_says_what_is_missing(self):
-        r = self.speak('model', 'normal')  # no uv in this PATH: nothing is started
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(open(data_dir(self.tmp.name, 'config', 'model')).read().strip(), 'normal')
-        self.assertIn('modelo: normal', r.stdout)
-        self.assertIn('ainda não está instalado', r.stdout)
-        self.assertRegex(self.speak('model').stdout, r'(?m)^\* normal \(')
-        self.assertEqual(json.loads(self.speak('status', '--json').stdout)['model'], 'normal')
-        self.assertIn('modelo: maior', self.speak('model', 'large').stdout)
-
-    def test_an_unknown_model_is_refused_and_nothing_is_saved(self):
-        r = self.speak('model', 'gigante')
+    def test_the_status_says_nothing_of_a_model_and_the_command_is_refused(self):
+        self.assertNotIn('  modelo:', self.speak('status').stdout)
+        self.assertNotIn('model', json.loads(self.speak('status', '--json').stdout))
+        r = self.speak('model', 'normal')
         self.assertEqual(r.returncode, 2)
-        self.assertIn('speak model normal', r.stderr)
+        self.assertIn('saiu na versão 0.30.0', r.stderr)
         self.assertFalse(os.path.exists(data_dir(self.tmp.name, 'config', 'model')))
 
     def test_the_voices_of_the_former_engine_left_and_who_had_one_hears_the_nearest(self):
@@ -3506,9 +3421,8 @@ class Voice(unittest.TestCase):
         self.assertIn('voz de leitura: george', self.speak('voice', 'george').stdout)  # and any other choice replaces it
 
     def test_every_voice_is_one_the_engine_has_for_the_model_in_use(self):
-        for model in speak.MODELS.values():
-            have = speak.speak_pocket.MODELS[model]['voices']
-            self.assertEqual([name for name in speak.READING_VOICES if name not in have], [])
+        have = speak.speak_pocket.MODELS[speak.ENGINE_MODEL]['voices']
+        self.assertEqual([name for name in speak.READING_VOICES if name not in have], [])
         self.assertIn(speak.DEFAULT_VOICE, speak.READING_VOICES)
         self.assertEqual([new for new in speak.RETIRED_VOICES.values() if new not in speak.READING_VOICES], [])
         self.assertEqual(sorted(v['kind'] for v in speak.READING_VOICES.values()), ['feminina'] * 3 + ['masculina'] * 3)
@@ -4211,7 +4125,7 @@ class InstallProgress(unittest.TestCase):
 
     def steps(self):
         """The dependencies and each file of the engine."""
-        return 1 + len(speak.speak_pocket.wanted(speak.DATA, speak.speak_os.SYSTEM, speak.engine_model(), speak.READING_VOICES))
+        return 1 + len(speak.speak_pocket.wanted(speak.DATA, speak.speak_os.SYSTEM, speak.ENGINE_MODEL, speak.READING_VOICES))
 
     def read(self):
         with open(speak.INSTALL_PROGRESS) as fh:
@@ -4591,7 +4505,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.29.0')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.30.0')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

@@ -62,7 +62,7 @@ def start_install():
     except (OSError, subprocess.SubprocessError):
         return None
     if words[0] == 'installing':
-        if words[2].isdigit():  # how much the chosen model fetches (the normal one is a third of the larger)
+        if words[2].isdigit():  # how much it fetches now (an update that keeps the model fetches little)
             DOWNLOAD['mb'] = words[2]
         return 'installing' if words[1] == 'started' else None
     return words[0] if words[0] in ('no-uv', 'failed') else None

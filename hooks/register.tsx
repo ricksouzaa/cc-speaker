@@ -13,8 +13,6 @@ type Reply = { text?: string }
 type State = {
   version?: string
   on: boolean; power?: string; mode: string; size: string; mic?: string; speed?: string; voice: string; engine: boolean
-  // Qual dos dois modelos do motor fala (normal ou large); um speak antigo não diz, e então é o normal.
-  model?: string
   // A velocidade que a variável CLAUDE_SPEAK_SPEED entrega ao motor, quando ela está definida: a escolha não vale.
   speedFixed?: string | null
   scope?: { on?: string; mode?: string; size?: string; mic?: string; speed?: string }
@@ -39,11 +37,10 @@ const READERS: Record<string, string> = {
   eve: 'Eve', jane: 'Jane', lola: 'Lola',
   rafael: 'Rafael', giovanni: 'Giovanni', george: 'George',
 }
-// Os dois modelos do motor: o maior (padrão desde a 0.26.0), que lê melhor números, siglas e inglês, e o normal,
-// mais leve.
-const ENGINES: Record<string, string> = { large: 'Maior (padrão: lê melhor números, siglas e inglês)', normal: 'Normal (mais leve)' }
-const ENGINE_NAMES: Record<string, string> = { normal: 'normal', large: 'maior' }
-const ENGINE_MB: Record<string, number> = { large: 820, normal: 260 } // o que cada um baixa, como o speak informa
+// O que a instalação do motor baixa quando nada dele está no disco, como o speak informa. O modelo é um só desde a
+// 0.30.0; a escolha de antes (/speak model, da 0.25.0 à 0.29.0) saiu.
+const ENGINE_MB = 820
+const ONE_MODEL = 'A voz usa um modelo só, o maior: a escolha de modelo saiu na versão 0.30.0.'
 const POWER: Record<string, string> = { on: 'Ligada', quiet: 'Só o resumo escrito', off: 'Desligada' }
 // A velocidade da fala é um número de 0.5 a 2 que multiplica a velocidade normal da voz (1 é o normal). O painel
 // oferece estes passos; escrita (/speak speed 0.95), vale qualquer número da faixa, que o speak confere.
@@ -62,7 +59,7 @@ const speedOptions = (now: State | undefined) =>
 const USAGE =
   'Escreva a ação: /speak on, /speak quiet, /speak off, /speak mode full|summary, /speak size small|medium|large, /speak mic wait|play|auto, ' +
   '/speak speed <número de 0.5 a 2; 1 é o normal>, ' +
-  '/speak voice eve|jane|lola|rafael|giovanni|george, /speak model large|normal, /speak again [summary|full], /speak pause, /speak resume, /speak status, /speak stop, ' +
+  '/speak voice eve|jane|lola|rafael|giovanni|george, /speak again [summary|full], /speak pause, /speak resume, /speak status, /speak stop, ' +
   '/speak install, /speak update ' +
   '(com "all" no fim, vale para todas as sessões).'
 const where = (all: boolean) => (all ? 'em todas as sessões' : 'nesta sessão')
@@ -387,9 +384,9 @@ async function kick($: Engine) {
   startWatch($, why)
 }
 
-// O tamanho vem do `speak autoinstall` (`installing started 820`); sem ele, vale o do modelo padrão, o maior.
+// O tamanho vem do `speak autoinstall` (`installing started 820`); sem ele, vale o da instalação inteira.
 const installingNote = (mb?: string) =>
-  `Instalando a voz (cerca de ${mb && /^\d+$/.test(mb) ? mb : ENGINE_MB.large} MB, alguns minutos). Acompanhe com /speak status.`
+  `Instalando a voz (cerca de ${mb && /^\d+$/.test(mb) ? mb : ENGINE_MB} MB, alguns minutos). Acompanhe com /speak status.`
 
 const cap = (word: string) => word.charAt(0).toUpperCase() + word.slice(1)
 
@@ -424,26 +421,16 @@ function said(args: string[], after: State | undefined): string {
         : `A voz passa a falar a ${speedLabel(now)} ${where(all)}, a partir da próxima fala.`
     }
     case 'voice': return `A voz agora é a ${cap(after?.voice ?? value ?? '')}, em todas as sessões.`
-    case 'model': {
-      const now = after?.model ?? value ?? ''
-      const chosen = `O modelo da voz agora é o ${ENGINE_NAMES[now] ?? now}, em todas as sessões.`
-      // Um modelo que não é o instalado é baixado no lugar do outro: até terminar, não há voz.
-      if (after?.engine !== false) return chosen
-      return after.installing
-        ? `${chosen} Ele é baixado em segundo plano (cerca de ${ENGINE_MB[now] ?? ENGINE_MB.large} MB) e a voz fica calada até terminar; acompanhe com /speak status.`
-        : `${chosen} Ele ainda não está instalado: rode /speak install.`
-    }
     default: return 'Pronto.'
   }
 }
 
-// Roda uma mudança (on, off, mode, size, mic, speed, voice, model) e devolve a frase, ou a mensagem de erro do speak.
+// Roda uma mudança (on, off, mode, size, mic, speed, voice) e devolve a frase, ou a mensagem de erro do speak.
 // Lê o estado uma vez, depois da mudança, e o devolve para quem quiser redesenhar.
 async function change($: Engine, args: string[]): Promise<{ ok: boolean; text: string; after: State | undefined }> {
   const r = await run($, args)
   const after = await state($)
   if (!r.ok) return { ok: false, text: r.out || 'O speak falhou.', after }
-  if (args[0] === 'model' && after?.engine === false) startWatch($) // o progresso do download na linha de status
   return { ok: true, text: said(args, after), after }
 }
 
@@ -473,8 +460,7 @@ async function direct($: Engine, body: string[], all: boolean): Promise<Reply | 
       if (all) return { text: USAGE }
       return value ? runChoice($, 'voice', value, VOICES, []) : undefined
     case 'model':
-      if (all) return { text: USAGE }
-      return value ? runChoice($, 'model', value, ENGINES, []) : undefined
+      return { text: ONE_MODEL }
     case 'again':
       if (all || extra.length > 0 || (value && value !== 'summary' && value !== 'full')) return { text: USAGE }
       return { text: await again($, value) }
@@ -537,7 +523,7 @@ const UNREAD = 'Não deu para ler o estado da voz.'
 const AGAIN_LABEL = 'Ouvir de novo'
 const AGAINS: Record<string, string> = { summary: 'Resumo', full: 'Resposta inteira' }
 
-type Key = 'where' | 'power' | 'mode' | 'size' | 'voice' | 'model' | 'speed' | 'mic'
+type Key = 'where' | 'power' | 'mode' | 'size' | 'voice' | 'speed' | 'mic'
 type Option = { value: string; label: string }
 // Uma linha do painel: os valores que ela oferece (na ordem em que aparecem), os que ela aceita, o valor em vigor e
 // se ele é só desta sessão.
@@ -557,7 +543,6 @@ const ROWS: Row[] = [
   { key: 'mode', label: 'Leitura', ...fromTable(MODES), current: s => s.mode, own: s => s.scope?.mode === 'session' },
   { key: 'size', label: 'Tamanho do resumo', ...fromTable(SIZES), current: s => s.size, own: s => s.scope?.size === 'session' },
   { key: 'voice', label: 'Voz de leitura', ...fromTable(READERS), current: s => s.voice, own: () => false },
-  { key: 'model', label: 'Modelo da voz', ...fromTable(ENGINES), current: s => s.model ?? 'large', own: () => false },
   { key: 'speed', label: 'Velocidade da fala', options: speedOptions, accepts: isSpeed, current: s => s.speed ?? '1', own: s => s.scope?.speed === 'session' },
   { key: 'mic', label: 'Com o microfone em uso', ...fromTable(MICS), current: s => s.mic ?? 'wait', own: s => s.scope?.mic === 'session' },
 ]
@@ -575,7 +560,7 @@ let queue: Promise<unknown> = Promise.resolve()
 const enqueue = (job: () => Promise<void>): Promise<unknown> => (queue = queue.then(job).catch(() => undefined))
 
 // Uma troca vinda do menu: "Mudar em" só guarda o alcance; o resto roda o speak (com `all` quando o alcance é todas
-// as sessões, menos a voz de leitura e o modelo, que são sempre gerais) e guarda a frase, ou o erro, para o rodapé.
+// as sessões, menos a voz de leitura, que é sempre geral) e guarda a frase, ou o erro, para o rodapé.
 async function menuChange($: Engine, key: Key, value: string): Promise<void> {
   const row = ROWS.find(r => r.key === key)
   if (!row || !row.accepts(value)) return
@@ -584,7 +569,7 @@ async function menuChange($: Engine, key: Key, value: string): Promise<void> {
     await $.state.set(NOTE, '')
   } else {
     const all = ((await $.state.get(STATE)).value ?? 'all') === 'all'
-    const tail = all && row.key !== 'voice' && row.key !== 'model' ? ['all'] : []
+    const tail = all && row.key !== 'voice' ? ['all'] : []
     const args = row.key === 'power' ? [value, ...tail] : [row.key, value, ...tail]
     const done = await change($, args)
     view = { now: done.after }
@@ -739,8 +724,8 @@ export const register: Register = on => {
     await lookDraw($, e.surface ?? '')
     await $.command.register({
       name: 'speak',
-      description: 'Ajusta a voz que lê as respostas: ligar, modo, tamanho, microfone, voz, modelo, velocidade; ouve de novo, pausa e continua a fala',
-      argumentHint: '[on|quiet|off|mode|size|mic|voice|model|speed|again|pause|resume|status|stop|install|update] [all]',
+      description: 'Ajusta a voz que lê as respostas: ligar, modo, tamanho, microfone, voz, velocidade; ouve de novo, pausa e continua a fala',
+      argumentHint: '[on|quiet|off|mode|size|mic|voice|speed|again|pause|resume|status|stop|install|update] [all]',
       immediate: true,
     })
     void kick($) // em segundo plano: não atrasa o registro da sessão
