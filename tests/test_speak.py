@@ -416,6 +416,17 @@ class Deliver(unittest.TestCase):
     def test_zero_rate_waits_until_the_end(self):
         self.assertFalse(speak.enough_buffered(50.0, 1.0, 0.0))
 
+    def test_the_waits_for_the_pieces_still_to_ask_are_audio_to_have_ready(self):
+        """Each piece asked waits a moment for its first sound: that time plays from what is ready."""
+        self.assertTrue(speak.enough_buffered(0.0, 10.0, 1 / speak.SAFETY))
+        self.assertFalse(speak.enough_buffered(0.5, 10.0, 1 / speak.SAFETY, waits=0.8))
+        self.assertTrue(speak.enough_buffered(0.8, 10.0, 1 / speak.SAFETY, waits=0.8))
+        rm = 0.5 * speak.SAFETY
+        need = 12.0 * (1 - rm) / rm + 1.2
+        self.assertFalse(speak.enough_buffered(need - 0.01, 12.0, 0.5, waits=1.2))
+        self.assertTrue(speak.enough_buffered(need + 0.01, 12.0, 0.5, waits=1.2))
+        self.assertTrue(speak.enough_buffered(0.0, 20.0, 2.0, waits=1.0))  # plenty fast: the waits are made up
+
 
 class AdaptiveWait(unittest.TestCase):
     """The generator holds the speech back while the engine is slower than speech, then plays it through."""
@@ -473,6 +484,63 @@ class AdaptiveWait(unittest.TestCase):
                                                   clock=clock, duration=lambda s: s):
                 got.append(samples)
         self.assertEqual(got, [4.0, 4.0])
+
+    def flowing(self, clock, wait, cost, seconds, parts, log, hold=None):
+        """A fake synth that sends each piece in `parts` parts as the engine does: the first after `wait`, each of
+        `seconds` of audio and `cost` seconds of work; `hold` (an Event) stops it after its third part."""
+        def synth(piece):
+            clock.now += wait
+            for n in range(parts):
+                if n:
+                    clock.now += cost
+                log.append((piece, n))
+                yield seconds
+                if hold is not None and len(log) == 3:
+                    hold.wait(5)
+        return synth
+
+    def test_a_fast_engine_is_heard_from_its_first_parts_without_waiting_for_the_piece(self):
+        import threading
+        clock, log, hold = FakeClock(), [], threading.Event()
+        synth = self.flowing(clock, 0.4, 0.1, 0.2, 30, log, hold)
+        gen = speak.synthesize_ahead(['a' * 100, 'b' * 100], synth, clock=clock, duration=lambda s: s)
+        try:
+            self.assertEqual(next(gen), 0.2)  # while the engine is still on the first piece
+            self.assertEqual(len(log), 3)
+        finally:
+            hold.set()
+            gen.close()
+
+    def test_a_slow_engine_sending_parts_is_held_until_the_rest_can_keep_up(self):
+        clock, log = FakeClock(), []
+        texts = [c * 100 for c in 'abcd']
+        gen = speak.synthesize_ahead(texts, self.flowing(clock, 0.3, 2.0, 1.0, 4, log), clock=clock,
+                                     duration=lambda s: s)
+        first = next(gen)
+        # 16 s of audio at half the speed of speech: playing from 10 s ready on, the rest comes in time
+        self.assertGreaterEqual(len(log), 10)
+        self.assertEqual(first, 1.0)
+        self.assertEqual(list(gen), [1.0] * 15)
+        self.assertEqual(log, [(t, n) for t in texts for n in range(4)])
+
+    def test_closing_stops_the_engine_in_the_middle_of_a_piece(self):
+        import threading
+        stopped, release = threading.Event(), threading.Event()
+
+        def synth(piece):
+            try:
+                for n in range(100):
+                    if n == 3:
+                        release.wait(5)
+                    yield 0.5
+            finally:
+                stopped.set()
+
+        gen = speak.synthesize_ahead(['a' * 400], synth, duration=lambda s: s)
+        self.assertEqual(next(gen), 0.5)
+        gen.close()
+        release.set()
+        self.assertTrue(stopped.wait(5))
 
     def test_closing_stops_the_generation_between_pieces(self):
         import threading
@@ -3204,6 +3272,58 @@ class Speed(unittest.TestCase):
         self.assertIs(speak.stretch(short, 0.5), short)
 
     @unittest.skipUnless(importlib.util.find_spec('numpy'), 'needs numpy')
+    def test_the_speed_made_part_by_part_as_the_engine_sends_is_the_speed_made_at_once(self):
+        import numpy as np
+        rate = speak.RATE
+        t = np.arange(int(1.3 * rate)) / rate
+        voice = (np.sin(2 * np.pi * 180 * t) + 0.5 * np.sin(2 * np.pi * 410 * t)
+                 + 0.1 * np.random.default_rng(7).standard_normal(len(t))).astype('float32') / 2
+        sizes = np.random.default_rng(3).integers(1, 4000, 200)
+        for wanted in (1.0, 0.5, 0.75, 1.25, 2.0):
+            whole = speak.stretch(voice, wanted)
+            for name, cuts in (('80 ms', range(1920, len(voice), 1920)), ('aos poucos', range(7, len(voice), 7 * 97)),
+                               ('ao acaso', np.cumsum(sizes)[np.cumsum(sizes) < len(voice)]), ('de uma vez', [])):
+                stretcher = speak.Stretcher(wanted)
+                out = [stretcher.feed(part) for part in np.split(voice, list(cuts))] + [stretcher.finish()]
+                np.testing.assert_array_equal(np.concatenate(out), whole, err_msg='%s %s' % (wanted, name))
+                self.assertTrue(all(part.dtype == np.float32 for part in out))
+        short = voice[:1000]  # too short to stretch: as it came
+        stretcher = speak.Stretcher(0.5)
+        np.testing.assert_array_equal(np.concatenate([stretcher.feed(short[:300]), stretcher.feed(short[300:]),
+                                                      stretcher.finish()]), short)
+
+    @unittest.skipUnless(importlib.util.find_spec('numpy'), 'needs numpy')
+    def test_the_speech_goes_to_the_player_as_the_engine_sends_it(self):
+        """Linux: each part the engine sends goes to the player as it comes, at the speed of the session."""
+        import numpy as np
+        isolate(self, self.tmp.name)
+        out = os.path.join(self.tmp.name, 'tocado')
+
+        class Flowing(FakeServer):
+            def stream(self, text):
+                self.asked.append(text)
+                yield np.array([0, 16384], dtype='<i2').tobytes()
+                yield np.array([-32768, 8192, 0, 0], dtype='<i2').tobytes()
+
+            def speak(self, text):
+                raise AssertionError('a speech that streams asks for its pieces in parts')
+
+        FakeServer.made.clear()
+        with mock.patch.object(speak.speak_pocket, 'Server', Flowing), \
+                mock.patch.dict(os.environ, {'CLAUDE_SPEAK_SESSION': '-'}), \
+                mock.patch.object(speak, 'wait_turn', return_value=True), \
+                mock.patch.object(speak.shutil, 'which', return_value=None), \
+                mock.patch.object(speak.speak_os, 'realtime'), \
+                mock.patch.object(speak, 'player_command', return_value=[
+                    sys.executable, '-c', 'import sys; open(sys.argv[1], "wb").write(sys.stdin.buffer.read())', out]), \
+                mock.patch.object(speak.speak_os, 'streams', return_value=True):
+            self.assertEqual(speak.play('Olá.'), 0)
+        server, = FakeServer.made
+        self.assertEqual((server.asked, server.closed), (['Olá.'], True))
+        with open(out, 'rb') as fh:
+            np.testing.assert_array_equal(np.frombuffer(fh.read(), dtype='float32'), [0, 0.5, -1, 0.25, 0, 0])
+
+    @unittest.skipUnless(importlib.util.find_spec('numpy'), 'needs numpy')
     def test_what_the_engine_gives_becomes_float_samples(self):
         import numpy as np
         pcm = np.array([0, 16384, -32768, 32767], dtype='<i2').tobytes()
@@ -4511,7 +4631,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.32.0')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.33.0')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

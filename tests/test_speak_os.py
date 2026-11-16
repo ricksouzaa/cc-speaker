@@ -421,6 +421,10 @@ class MacTest(unittest.TestCase):
             def speak(self, piece):
                 return piece
 
+            def stream(self, piece):  # Linux asks for the piece in parts, as the engine sends it
+                yield bytes(8)
+                yield bytes(8)
+
             def close(self):
                 pass
 

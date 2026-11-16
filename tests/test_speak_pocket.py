@@ -8,6 +8,7 @@ import stat
 import sys
 import tarfile
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -35,7 +36,9 @@ mimi:
 # In the place of the engine's program: `--version` says it runs, and `serve --host H --port P --config C
 # --default-voice V` answers /health and /tts as the real one does: a WAV whose data size is a placeholder; 400 for
 # an empty text; for a text it empties itself (only quotes and brackets), the header and a stream cut short. Of the
-# test alone: "corta" is cut in the middle of the audio, "demora" answers late the first time, "trava" always.
+# test alone: "corta" is cut in the middle of the audio, "demora" answers late the first time, "trava" always;
+# "aos poucos" comes as the real one sends it, in chunks over time (sizes that split the header and the samples);
+# "engasga" sends its first samples, then nothing more for 3 seconds; "tropeça" the same, the first time only.
 PROGRAM = '''#!%s -I
 import struct, sys, time, urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -69,6 +72,29 @@ class Handler(BaseHTTPRequestHandler):
         header = (b'RIFF' + struct.pack('<I', 2000000036) + b'WAVEfmt '
                   + struct.pack('<IHHIIHH', 16, 1, 1, 24000, 48000, 2, 16) + b'data' + struct.pack('<I', 2000000000))
         pcm = struct.pack('<%%dh' %% len(text), *[ord(c) %% 1000 for c in text])
+        if text == 'aos poucos':
+            self.protocol_version = 'HTTP/1.1'
+            self.send_response(200)
+            self.send_header('Transfer-Encoding', 'chunked')
+            self.send_header('Connection', 'close')
+            self.end_headers()
+            data, at = header + pcm, 0
+            for cut, pause in ((30, 0.3), (47, 0.6), (53, 0.3), (len(data), 0)):
+                self.wfile.write(b'%%x\\r\\n%%s\\r\\n' %% (cut - at, data[at:cut]))
+                self.wfile.flush()
+                at = cut
+                time.sleep(pause)
+            self.wfile.write(b'0\\r\\n\\r\\n')
+            return
+        if text == 'engasga' or (text == 'tropeça' and text not in slow):
+            slow.append(text)
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(header + pcm[:6])
+            self.wfile.flush()
+            time.sleep(3)
+            self.wfile.write(pcm[6:])
+            return
         self.send_response(200)
         if text == 'corta' or not text.strip('"()[] '):
             self.send_header('Content-Length', '100000')  # more than what is sent: the stream ends before its end
@@ -461,6 +487,44 @@ class Server(Base):
             self.assertEqual(len(server.speak('demora')), 12)
             with self.assertRaises(OSError):
                 server.speak('trava')
+            self.assertEqual(len(b''.join(server.stream('demora'))), 12)
+
+    def test_a_piece_comes_while_the_engine_makes_it(self):
+        """The engine sends the audio as it makes it: the first samples are handed over before the last are made,
+        in even sizes (a sample is two bytes), whatever the sizes the stream came in."""
+        import struct
+        server = self.start()
+        began, parts, times = time.monotonic(), [], []
+        for part in server.stream('aos poucos'):
+            parts.append(part)
+            times.append(time.monotonic() - began)
+        self.assertEqual(b''.join(parts), struct.pack('<10h', *[ord(c) % 1000 for c in 'aos poucos']))
+        self.assertEqual([len(part) for part in parts], [2, 6, 12])
+        self.assertLess(times[0], 0.6)  # the engine was still making the rest
+        self.assertGreater(times[-1], 0.9)
+        self.assertEqual(server.speak('aos poucos'), b''.join(parts))
+        for text in ('   ', '()', '"'):
+            self.assertEqual(list(server.stream(text)), [], text)
+        with self.assertRaises(Exception):
+            list(server.stream('corta'))
+
+    def test_a_piece_that_stops_coming_after_its_first_samples_is_a_failure_and_not_asked_again(self):
+        """Asking again would say the beginning twice."""
+        with mock.patch.object(speak_pocket, 'PIECE_WAIT', 0.5):
+            server = self.start()
+            got = []
+            with self.assertRaises(OSError):
+                for part in server.stream('engasga'):
+                    got.append(part)
+            self.assertEqual(b''.join(got), b'e\x00n\x00g\x00')
+
+    def test_a_piece_asked_whole_that_stops_coming_midway_is_asked_once_more(self):
+        """The Mac plays whole pieces, frozen by SIGSTOP in a pause: nothing of the piece was heard yet."""
+        with mock.patch.object(speak_pocket, 'PIECE_WAIT', 0.5):
+            server = self.start()
+            self.assertEqual(len(server.speak('tropeça')), 14)
+            with self.assertRaises(OSError):
+                server.speak('engasga')
 
     def test_a_data_folder_that_moved_gets_its_configuration_written_again(self):
         moved = os.path.join(self.tmp.name, 'mudou')

@@ -293,21 +293,39 @@ def install(folder, system, model, voices, fetch, report=lambda name, done, tota
         fh.write(stamp(model, voices))
 
 
-def samples(wav):
-    """The 16-bit samples inside what the server answers: a WAV that says 24 kHz, mono, 16 bits, with the samples
-    after the `data` header (the size written there is a placeholder: the audio is sent as it is made)."""
+def audio_start(wav):
+    """Where the samples start in what the server answers, a WAV that says 24 kHz, mono, 16 bits, with the samples
+    after the `data` header (the size written there is a placeholder: the audio is sent as it is made); None while
+    the beginning given does not hold the whole header yet."""
+    if len(wav) < 12:
+        return None
     if wav[:4] != b'RIFF' or wav[8:12] != b'WAVE':
         raise ValueError('o motor não respondeu com áudio')
     fmt, data = wav.find(b'fmt '), wav.find(b'data')
-    if fmt < 0 or data < 0 or len(wav) < fmt + 24:
-        raise ValueError('o motor respondeu com um áudio sem cabeçalho')
+    if fmt < 0 or data < 0 or len(wav) < fmt + 24 or len(wav) < data + 8:
+        return None
     kind, channels = int.from_bytes(wav[fmt + 8:fmt + 10], 'little'), int.from_bytes(wav[fmt + 10:fmt + 12], 'little')
     rate, bits = int.from_bytes(wav[fmt + 12:fmt + 16], 'little'), int.from_bytes(wav[fmt + 22:fmt + 24], 'little')
     if (kind, channels, rate, bits) != (1, 1, RATE, 16):
         raise ValueError('o motor respondeu com um áudio de outro formato (%d Hz, %d canais, %d bits)'
                          % (rate, channels, bits))
-    pcm = wav[data + 8:]
+    return data + 8
+
+
+def samples(wav):
+    """The 16-bit samples inside a whole answer of the server (see audio_start)."""
+    start = audio_start(wav)
+    if start is None:
+        if len(wav) >= 4 and wav[:4] != b'RIFF':
+            raise ValueError('o motor não respondeu com áudio')
+        raise ValueError('o motor respondeu com um áudio sem cabeçalho')
+    pcm = wav[start:]
     return pcm[:len(pcm) - len(pcm) % 2]
+
+
+def late(error):
+    """True for an answer that took longer than its wait, however urllib tells it."""
+    return isinstance(error, socket.timeout) or isinstance(getattr(error, 'reason', None), socket.timeout)
 
 
 def free_port():
@@ -374,32 +392,69 @@ class Server:
             time.sleep(0.05)
 
     def speak(self, text):
-        """The 16-bit samples (bytes) of `text` in the voice the server was started with; none for a text the engine
-        finds nothing to say in. A piece whose answer takes longer than PIECE_WAIT is asked once more: a speech
-        frozen by a pause finds the wait run out when it continues."""
+        """The 16-bit samples (bytes) of `text` in the voice the server was started with, all at once (see stream).
+        Nothing of it was heard yet, so a piece whose answer takes longer than PIECE_WAIT, even midway, is asked once
+        more: a speech frozen by a pause (SIGSTOP, the Mac) finds the wait run out when it continues."""
         try:
-            return self._ask(text)
-        except socket.timeout:
-            return self._ask(text)
-        except urllib.error.URLError as error:
-            if not isinstance(error.reason, socket.timeout):
+            return b''.join(self._flow(text))
+        except (socket.timeout, urllib.error.URLError) as error:
+            if not late(error):
                 raise
-            return self._ask(text)
+            return b''.join(self._flow(text))
 
-    def _ask(self, text):
+    def stream(self, text):
+        """The 16-bit samples (bytes, in even sizes) of `text` in the voice the server was started with, as the engine
+        makes them: the first come in a fraction of a second, long before the rest. None for a text the engine finds
+        nothing to say in. A piece whose answer takes longer than PIECE_WAIT before its first samples is asked once
+        more (a speech frozen by a pause finds the wait run out when it continues); after them, it is a failure:
+        asking again would say the beginning twice."""
+        given = False
+        for last in (False, True):
+            try:
+                for part in self._flow(text):
+                    given = True
+                    yield part
+                return
+            except (socket.timeout, urllib.error.URLError) as error:
+                if given or last or not late(error):
+                    raise
+
+    def _flow(self, text):
         body = urllib.parse.urlencode({'text': text}).encode()
+        got = 0
         try:
             with self.direct.open(urllib.request.Request(self._url('/tts'), data=body), timeout=PIECE_WAIT) as answer:
-                return samples(answer.read())
+                read = getattr(answer, 'read1', None) or answer.read
+                head, start, odd = b'', None, b''
+                while True:
+                    data = read(65536)
+                    if not data:
+                        break
+                    got += len(data)
+                    if start is None:
+                        head += data
+                        start = audio_start(head)
+                        if start is None:
+                            continue
+                        data, head = head[start:], b''
+                    data, odd = odd + data, b''
+                    if len(data) % 2:
+                        data, odd = data[:-1], data[-1:]
+                    if data:
+                        yield data
+                if getattr(answer, 'length', None):  # the stream ended before the size it announced
+                    raise http.client.IncompleteRead(b'', answer.length)
+                if start is None and got:
+                    samples(head)  # says what is wrong with it
         except urllib.error.HTTPError as error:
             if error.code == 400:  # an empty text: silence, not a failure
-                return b''
+                return
             raise
         except http.client.IncompleteRead as cut:
             # a text the engine empties by itself (it drops quotes and brackets): it sends the header of the audio
             # and ends the stream. Silence too; cut after that, it is a failure
-            if len(cut.partial) <= HEADER:
-                return b''
+            if got + len(cut.partial) <= HEADER:
+                return
             raise
 
     def kill(self):

@@ -7,6 +7,14 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.33.0] - 2026-11-16
+
+### Alterado
+- **A voz começa a falar mais cedo.** O som agora sai enquanto o motor ainda gera o resto da frase, em vez de esperar a frase inteira ficar pronta. Com a máquina livre, a espera até o primeiro som de um resumo de duas frases caiu de cerca de 2,9 para cerca de 1,7 segundo. Com a máquina ocupada nada muda: a voz continua esperando juntar áudio suficiente para ir até o fim sem parar. No Mac, que nunca foi testado num Mac de verdade, a fala continua indo frase por frase.
+
+### Corrigido
+- **A pausa no meio da fala depois de uma primeira frase curta.** Quando a fala começava com uma frase curta ("Publiquei a versão nova:"), o resto podia demorar uns 3 segundos para vir, e a voz ficava calada no meio. Agora ela só começa quando dá para seguir sem parar.
+
 ## [0.32.0] - 2026-11-15
 
 ### Alterado
@@ -499,7 +507,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.32.0...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.33.0...HEAD
+[0.33.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.32.0...v0.33.0
 [0.32.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.31.0...v0.32.0
 [0.31.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.30.0...v0.31.0
 [0.30.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.29.0...v0.30.0
