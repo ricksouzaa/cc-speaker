@@ -144,7 +144,7 @@ Quando o plugin é ativado com uma sessão já aberta, a instalação começa al
 
 ### Modelo da voz
 
-O plugin usa um modelo só: o maior dos dois modelos de português do motor. De ouvido, é o que lê certo números, siglas e inglês. Ele pede cerca de 2 GB de memória enquanto a voz fala. O som começa enquanto o motor ainda gera o resto da frase: com a máquina livre, a espera até o primeiro som de um resumo de duas frases fica perto de 1,7 segundo (medido numa máquina de 12 núcleos, sem placa de vídeo). Com a máquina ocupada, o motor fica mais lento que a fala, e a voz espera juntar áudio suficiente para ir até o fim sem parar.
+O plugin usa um modelo só: o maior dos dois modelos de português do motor. De ouvido, é o que lê certo números, siglas e inglês. Ele pede cerca de 2 GB de memória enquanto a voz fala. O som começa enquanto o motor ainda gera o resto da frase: com a máquina livre, a espera até o primeiro som de um resumo de duas frases fica perto de 1,3 segundo (medido numa máquina de 12 núcleos, sem placa de vídeo). Para isso, a fala guarda o ritmo do motor e, na fala seguinte, começa no primeiro áudio quando a máquina não está mais ocupada do que naquela vez e o motor respondeu no tempo de costume; senão, mede de novo antes de tocar, o que custa uns 0,3 segundo. Com a máquina ocupada, o motor fica mais lento que a fala, e a voz espera juntar áudio suficiente para ir até o fim sem parar.
 
 Da 0.25.0 à 0.29.0 dava para escolher também o modelo normal, mais leve, com `/speak model`. A escolha saiu na 0.30.0: o normal errava números (por exemplo, "cinquenta" dentro de um número) e inglês, e o plugin ficou com uma opção a menos para configurar.
 

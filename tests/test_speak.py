@@ -62,9 +62,12 @@ class FakeServer:
     """In the place of speak_pocket.Server: remembers what it was started with and asked, and gives 8 samples."""
     made = []
 
-    def __init__(self, folder, voice, log=None):
-        self.voice, self.asked, self.closed = voice, [], False
+    def __init__(self, folder, voice, log=None, wait=True):
+        self.voice, self.asked, self.closed, self.waited = voice, [], False, wait
         FakeServer.made.append(self)
+
+    def ready(self):
+        self.waited = True
 
     def speak(self, text):
         self.asked.append(text)
@@ -538,6 +541,57 @@ class AdaptiveWait(unittest.TestCase):
         self.assertEqual(list(gen), [1.0] * 15)
         self.assertEqual(log, [(t, n) for t in texts for n in range(4)])
 
+    def test_with_a_known_rate_the_first_part_is_heard_at_once(self):
+        """Measuring the engine's rate takes 0.4 s of audio before the first sound; with the rate of the speech before
+        (`prior`, given only when the machine is no busier than then) the first part plays as it comes."""
+        import threading
+        clock, log, hold = FakeClock(), [], threading.Event()
+        synth = self.flowing(clock, 0.4, 0.025, 0.05, 30, log, hold)
+        gen = speak.synthesize_ahead(['a' * 100], synth, clock=clock, duration=lambda s: s, prior=(1.6, 0.6))
+        try:
+            self.assertEqual(next(gen), 0.05)  # 3 parts at most, 0.15 s of audio, short of the 0.4 s to measure
+            self.assertLessEqual(len(log), 3)
+        finally:
+            hold.set()
+            gen.close()
+
+    def test_a_known_rate_is_not_trusted_when_the_first_part_comes_late(self):
+        """The load of the machine is an average over a minute: a load that starts with the speech shows first in the
+        engine's wait for the first part. Later than the wait seen with the known rate, the speech measures again."""
+        import threading
+        clock, log, hold = FakeClock(), [], threading.Event()
+        synth = self.flowing(clock, 3.0, 0.025, 0.05, 30, log, hold)
+        gen = speak.synthesize_ahead(['a' * 100], synth, clock=clock, duration=lambda s: s, prior=(1.6, 0.6))
+        got = []
+        threading.Thread(target=lambda: got.append(next(gen)), daemon=True).start()
+        time.sleep(0.5)
+        self.assertEqual(got, [])  # held at the third part, short of the measure: nothing was handed over
+        hold.set()
+        time.sleep(0.5)
+        self.assertEqual(got, [0.05])
+        gen.close()
+
+    def test_a_known_rate_too_slow_still_holds_the_speech(self):
+        clock, log = FakeClock(), []
+        texts = [c * 100 for c in 'abcd']
+        gen = speak.synthesize_ahead(texts, self.flowing(clock, 0.3, 2.0, 1.0, 4, log), clock=clock,
+                                     duration=lambda s: s, prior=(0.5, 1.0))
+        next(gen)
+        self.assertGreaterEqual(len(log), 10)
+
+    def test_the_rate_measured_on_the_parts_is_handed_back(self):
+        clock, log, measured = FakeClock(), [], {}
+        gen = speak.synthesize_ahead(['a' * 100], self.flowing(clock, 0.4, 0.1, 0.2, 10, log), clock=clock,
+                                     duration=lambda s: s, measured=measured)
+        self.assertEqual(len(list(gen)), 10)
+        self.assertAlmostEqual(measured['rate'], 2.0)  # 1.8 s of audio after the first part, in 0.9 s
+        self.assertAlmostEqual(measured['wait'], 0.4)  # the wait for the first part
+        measured = {}
+        gen = speak.synthesize_ahead(['a' * 100], self.flowing(clock, 0.4, 0.1, 0.1, 3, log), clock=clock,
+                                     duration=lambda s: s, measured=measured)
+        list(gen)
+        self.assertEqual(measured, {})  # 0.2 s after the first part: too little to tell
+
     def test_closing_stops_the_engine_in_the_middle_of_a_piece(self):
         import threading
         stopped, release = threading.Event(), threading.Event()
@@ -574,6 +628,97 @@ class AdaptiveWait(unittest.TestCase):
         release.set()
         time.sleep(0.3)
         self.assertLessEqual(len(calls), 3)
+
+
+class KnownRate(unittest.TestCase):
+    """The rate the engine made at the last speech, kept with the load of the machine then: the next speech starts at
+    its first part when the machine is no busier, and the rate leaves room enough."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        isolate(self, self.tmp.name)
+
+    def test_kept_and_used_while_the_machine_is_no_busier(self):
+        from unittest import mock
+        with mock.patch.object(speak.os, 'getloadavg', return_value=(1.0, 1.0, 1.0)), \
+                mock.patch.object(speak.os, 'cpu_count', return_value=4), \
+                mock.patch.object(speak.time, 'time', return_value=1000.0):
+            self.assertIsNone(speak.rate_prior())  # nothing kept yet
+            speak.save_rate(1.6, 0.5)
+            self.assertEqual(speak.rate_prior(), (1.6, 0.75))  # the first part may come up to half as late again
+        for load, when, wanted in ((1.3, 1000.0, (1.6, 0.75)), (0.2, 1000.0, (1.6, 0.75)), (1.5, 1000.0, None),
+                                   (1.0, 1000.0 + 86400 + 1, None)):
+            with mock.patch.object(speak.os, 'getloadavg', return_value=(load, load, load)), \
+                    mock.patch.object(speak.os, 'cpu_count', return_value=4), \
+                    mock.patch.object(speak.time, 'time', return_value=when):
+                self.assertEqual(speak.rate_prior(), wanted, (load, when))
+
+    def test_a_rate_without_room_or_a_broken_file_is_not_used(self):
+        from unittest import mock
+        with mock.patch.object(speak.os, 'getloadavg', return_value=(1.0, 1.0, 1.0)), \
+                mock.patch.object(speak.os, 'cpu_count', return_value=4), \
+                mock.patch.object(speak.time, 'time', return_value=1000.0):
+            speak.save_rate(1.2, 0.4)  # 1.2 x 0.85 is barely faster than speech
+            self.assertIsNone(speak.rate_prior())
+            for broken in ('', '{', '[]', '{"rate": "x", "load": 0, "at": 1000, "wait": 0.4}', '{"rate": 2}',
+                           '{"rate": 2, "load": 0, "at": 1000}'):
+                with open(speak.RATE_FILE, 'w') as fh:
+                    fh.write(broken)
+                self.assertIsNone(speak.rate_prior(), broken)
+            with mock.patch.object(speak.os, 'getloadavg', side_effect=OSError):
+                speak.save_rate(2.0, 0.4)
+                self.assertIsNone(speak.rate_prior())
+
+    @unittest.skipUnless(importlib.util.find_spec('numpy'), 'needs numpy')
+    def test_the_speech_starts_the_engine_first_uses_the_known_rate_and_keeps_the_new_one(self):
+        """The engine loads while the player starts; it is waited for only before it is asked."""
+        from unittest import mock
+        import numpy as np
+        events = []
+
+        class Flowing(FakeServer):
+            def __init__(self, *a, **k):
+                super().__init__(*a, **k)
+                events.append('motor')
+
+            def ready(self):
+                events.append('pronto')
+
+            def stream(self, text):
+                yield np.array([0, 16384], dtype='<i2').tobytes()
+
+        popen = speak.subprocess.Popen
+
+        def player(cmd, **k):
+            events.append('tocador')
+            return popen(cmd, **k)
+
+        seen = {}
+        real = speak.synthesize_ahead
+
+        def ahead(texts, synth, **k):
+            seen.update(k)
+            k['measured'].update(rate=1.9, wait=0.35)
+            return real(texts, synth, **{key: v for key, v in k.items() if key != 'measured'})
+
+        FakeServer.made.clear()
+        with mock.patch.object(speak.speak_pocket, 'Server', Flowing), \
+                mock.patch.dict(os.environ, {'CLAUDE_SPEAK_SESSION': '-'}), \
+                mock.patch.object(speak, 'wait_turn', return_value=True), \
+                mock.patch.object(speak.shutil, 'which', return_value=None), \
+                mock.patch.object(speak.speak_os, 'realtime'), \
+                mock.patch.object(speak.subprocess, 'Popen', player), \
+                mock.patch.object(speak, 'synthesize_ahead', ahead), \
+                mock.patch.object(speak, 'rate_prior', return_value=(1.7, 0.6)), \
+                mock.patch.object(speak, 'player_command', return_value=[
+                    sys.executable, '-c', 'import sys; sys.stdin.buffer.read()']), \
+                mock.patch.object(speak.speak_os, 'streams', return_value=True), \
+                mock.patch.object(speak, 'save_rate') as save:
+            self.assertEqual(speak.play('Olá.'), 0)
+        self.assertEqual(events, ['motor', 'tocador', 'pronto'])
+        self.assertEqual(seen['prior'], (1.7, 0.6))
+        save.assert_called_once_with(1.9, 0.35)
 
 
 def fake_claude(path):
@@ -2081,7 +2226,7 @@ class Session(unittest.TestCase):
         isolate(self, root)
         made = []
 
-        def server(*args):
+        def server(*args, **kw):
             made.append(args)
             raise RuntimeError('stop here')
 
@@ -3285,8 +3430,8 @@ class Speed(unittest.TestCase):
         os.makedirs(speak.CONF, exist_ok=True)
 
         class Slow(FakeServer):
-            def __init__(self, folder, voice, log=None):  # the engine takes a moment to load: meanwhile the choices change
-                super().__init__(folder, voice, log)
+            def __init__(self, folder, voice, log=None, wait=True):  # the engine takes a moment to load: meanwhile the
+                super().__init__(folder, voice, log, wait)  # choices change
                 with open(speak.VOICE_FILE, 'w') as fh:
                     fh.write('rafael\n')
                 with open(speak.SPEED_FILE, 'w') as fh:
@@ -4695,7 +4840,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.34.1')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.35.0')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

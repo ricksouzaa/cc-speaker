@@ -349,8 +349,11 @@ class Server:
     """The program serving one speech: started with the model and one voice, asked piece by piece, ended at the
     close. It listens on 127.0.0.1 alone, on a port the system gave."""
 
-    def __init__(self, folder, voice, log=None, start_wait=START_WAIT):
+    def __init__(self, folder, voice, log=None, start_wait=START_WAIT, wait=True):
+        """Starts the program; with `wait` False it returns at once, and `ready()` waits for it before it is asked
+        (the speech opens the player and its libraries meanwhile)."""
         global _LIBC
+        self.start_wait, self.up = start_wait, False
         settle_config(folder)
         self.port = free_port()
         before = None
@@ -367,11 +370,20 @@ class Server:
             stdin=subprocess.DEVNULL, stdout=log or subprocess.DEVNULL, stderr=log or subprocess.DEVNULL,
             preexec_fn=before)
         self.direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # never through a proxy
+        if wait:
+            self.ready()
+
+    def ready(self):
+        """Waits until the program answers (at once when it already did); a program that ended or never answers is a
+        failure, and is not left running."""
+        if self.up:
+            return
         try:
-            self._wait(start_wait)
+            self._wait(self.start_wait)
         except BaseException:
             self.close()
             raise
+        self.up = True
 
     def _url(self, path):
         return 'http://127.0.0.1:%d%s' % (self.port, path)

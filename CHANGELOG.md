@@ -7,6 +7,11 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.35.0] - 2026-11-16
+
+### Alterado
+- **A voz começa a falar mais cedo.** Com a máquina livre, a espera até o primeiro som de um resumo de duas frases caiu de cerca de 1,65 para cerca de 1,3 segundo. O motor agora liga enquanto o tocador e o resto do programa abrem, e não depois. E a fala guarda o ritmo do motor: na fala seguinte, ela começa já no primeiro áudio, sem parar antes para medi-lo, quando a máquina não está mais ocupada do que naquela vez e o motor respondeu no tempo de costume. Se a máquina ficar ocupada de repente, a voz volta a medir antes de tocar, e a fala continua indo até o fim sem parar no meio.
+
 ## [0.34.1] - 2026-11-16
 
 ### Corrigido
@@ -529,7 +534,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.34.1...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.0...HEAD
+[0.35.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.34.1...v0.35.0
 [0.34.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.34.0...v0.34.1
 [0.34.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.33.2...v0.34.0
 [0.33.2]: https://github.com/ricksouzaa/cc-speaker/compare/v0.33.1...v0.33.2

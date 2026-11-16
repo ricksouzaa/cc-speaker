@@ -552,6 +552,30 @@ class Server(Base):
             server = self.start()
             self.assertEqual(len(server.speak('oi')), 4)
 
+    def test_started_without_waiting_it_is_asked_only_once_ready(self):
+        """The speech starts the engine and, while it loads, opens the player and its libraries; it waits for the
+        engine only before asking it. A failure to start comes at that wait, with the program ended."""
+        real = speak_pocket.program(self.folder)
+        os.rename(real, real + '.real')
+        with open(real, 'w') as fh:
+            fh.write('#!/bin/sh\nsleep 0.6\nexec "%s.real" "$@"\n' % real)
+        os.chmod(real, 0o755)
+        began = time.monotonic()
+        server = self.start(wait=False)
+        self.assertLess(time.monotonic() - began, 0.4)
+        server.ready()
+        self.assertGreater(time.monotonic() - began, 0.5)
+        server.ready()  # once ready, at once
+        self.assertEqual(len(server.speak('segue')), 10)
+        with open(real, 'w') as fh:
+            fh.write('#!/bin/sh\nexit 7\n')
+        server = self.start(wait=False)
+        proc = server.proc
+        with self.assertRaises(RuntimeError) as failure:
+            server.ready()
+        self.assertIn('encerrou ao iniciar (código 7)', str(failure.exception))
+        self.assertIsNotNone(proc.poll())
+
     def test_close_ends_the_program_and_may_be_called_again(self):
         server = self.start()
         proc = server.proc

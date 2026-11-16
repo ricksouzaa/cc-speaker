@@ -415,7 +415,10 @@ class MacTest(unittest.TestCase):
         wavs, launched = [], []
 
         class Engine:  # in the place of speak_pocket.Server: the "samples" of a piece are the piece itself
-            def __init__(self, *a):
+            def __init__(self, *a, **k):
+                pass
+
+            def ready(self):
                 pass
 
             def speak(self, piece):
