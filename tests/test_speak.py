@@ -194,7 +194,7 @@ class Full(unittest.TestCase):
 
 class Filter(unittest.TestCase):
     def test_inline_code_keeps_only_plain_words(self):
-        self.assertEqual(speak.clean('Rode `speak off` na `main`, veja `summary`.'), 'Rode speak off na main, veja summary.')
+        self.assertEqual(speak.clean('Rode `speak off` na `main`, veja `summary`.'), 'Rode speak off na mêine, veja summary.')
         for gone in ('ci-mac', 'cc-speaker', 'speak-cc-speaker', 'install_marked', 'e863ea0', 'CLAUDE_SPEAK=0'):
             self.assertEqual(speak.clean('Veja `%s` agora.' % gone), 'Veja agora.')
 
@@ -231,6 +231,12 @@ class Filter(unittest.TestCase):
         self.assertEqual(speak.clean('O release saiu sem downtime; avisei no Slack do commit e o SAC.'),
                          'O rilíse saiu sem dáun-táim; avisei no Slék do comít e o Sac.')
         self.assertEqual(speak.clean('Dois Plugins, três Bugs.'), 'Dois plâguins, três bâgs.')
+        # heard wrong by Ricardo on 15/11/2026 ("main" came out as "mãe") and measured again with the transcriber
+        self.assertEqual(speak.clean('Depois do restart, o handoff da branch foi para a main.'),
+                         'Depois do ristárt, o rendóf da brântch foi para a mêine.')
+        self.assertEqual(speak.clean('Dois Restarts, dois handoffs e três Branches.'),
+                         'Dois ristárts, dois rendófs e três brântches.')
+        self.assertEqual(speak.clean('O mainframe e a domain ficam.'), 'O mainframe e a domain ficam.')
         # part of a longer word or of a hyphenated name: left alone; and so is any other English word
         self.assertEqual(speak.clean('O debug, o anti-bug e o deploy.'), 'O debug, o anti-bug e o deploy.')
         self.assertEqual(speak.clean('Nada em inglês aqui.'), 'Nada em inglês aqui.')
@@ -246,12 +252,12 @@ class Filter(unittest.TestCase):
 
     def test_pickup_line(self):
         self.assertEqual(speak.full_text('cc-speaker — ramo main · HEAD 93a66bd · enviado'),
-                         'cc-speaker — ramo main, enviado.')
+                         'cc-speaker — ramo mêine, enviado.')
 
     def test_branch_names_go_after_the_keyword(self):
-        self.assertEqual(speak.clean('Estou no ramo main agora'), 'Estou no ramo main agora')
+        self.assertEqual(speak.clean('Estou no ramo main agora'), 'Estou no ramo mêine agora')
         self.assertEqual(speak.clean('Estou no ramo ci-mac.'), 'Estou no ramo.')
-        self.assertEqual(speak.clean('O branch fix_1 e o worktree wt2 sumiram'), 'O branch e o worktree sumiram')
+        self.assertEqual(speak.clean('O branch fix_1 e o worktree wt2 sumiram'), 'O brântch e o worktree sumiram')
         self.assertEqual(speak.clean('No ramo fix/fila-da-voz agora'), 'No ramo agora')
         self.assertEqual(speak.clean('No `fix/fila-da-voz` agora'), 'No agora')
 
@@ -4505,7 +4511,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.31.0')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.32.0')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

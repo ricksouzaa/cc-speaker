@@ -63,7 +63,7 @@ Digite `/speak` sozinho. Abre um painel com uma lista por linha, já com o tecla
 
 Abaixo da última resposta (só depois que o turno termina) aparecem os mesmos dois botões, `[ ▶ Resumo ]` e `[ ▶ Resposta inteira ]`; sem a linha 🔊 só o segundo. Somem quando começa o turno seguinte. Clicar só funciona no terminal em tela cheia.
 
-Enquanto a fala desta sessão toca, o botão do modo dela (Resumo ou Resposta inteira, tanto sob a resposta quanto na linha do painel) vira `[ ⏸ Pausar ]`; pausada, vira `[ ▶ Continuar ]`; ao acabar, volta ao normal. Embaixo do campo de texto, em todas as sessões, um aviso diz quem fala e com que voz: "🔊 Jane falando agora" na sessão dona da fala, "🔊 Jane falando em <pasta do projeto>" nas outras, e "⏸ fala pausada" na dona, quando pausada. No terminal o aviso fica no canto direito do rodapé, na linha do modo, só do ícone em diante (num terminal estreito, na linha de baixo). No VS Code e nos aplicativos ele sai na linha de status, que o Claude Code sempre começa com o nome do plugin (`speak: 🔊 Jane falando agora`); ali, enquanto a instalação do motor usa a linha, ela vence o aviso.
+Enquanto a fala desta sessão toca, o botão do modo dela (Resumo ou Resposta inteira, tanto sob a resposta quanto na linha do painel) vira `[ ⏸ Pausar ]`; pausada, vira `[ ▶ Continuar ]`; ao acabar, volta ao normal. Logo embaixo do campo de texto, em todas as sessões, um aviso diz quem fala e com que voz: "🔊 Jane falando agora" na sessão dona da fala, "🔊 Jane falando em <pasta do projeto>" nas outras, e "⏸ fala pausada" na dona, quando pausada. Ele sai na linha de status do plugin, que o Claude Code sempre começa com o nome dele (`speak: 🔊 Jane falando agora`); enquanto a instalação do motor usa essa linha, ela vence o aviso.
 
 A pausa congela o tocador e a síntese (o sinal SIGSTOP no grupo de processos da fala) e continua com SIGCONT. Foi testada no Linux com o `pw-play`; com `paplay`, `aplay` e no Mac (`afplay`) o código é o mesmo, mas não foi testado num Mac de verdade.
 
@@ -188,7 +188,7 @@ Para acrescentar uma sigla que deve ser lida como palavra, ponha-a numa linha do
 
 ### Palavras em inglês
 
-O motor só recebe texto escrito e lê o que está em inglês com as regras do português. Para alguns termos comuns (plugin, GitHub, pull request, bug, backend, release, commit, downtime, Slack), o plugin escreve a palavra do jeito que se fala antes de entregá-la ao motor ("plâguin", "bâg"); os outros saem como o motor os lê. O arquivo `config/english`, que a versão 0.23.0 usava, não tem mais efeito.
+O motor só recebe texto escrito e lê o que está em inglês com as regras do português. Para alguns termos comuns (plugin, GitHub, pull request, bug, backend, release, commit, downtime, Slack, restart, handoff, branch, main), o plugin escreve a palavra do jeito que se fala antes de entregá-la ao motor ("plâguin", "bâg"); os outros saem como o motor os lê. O arquivo `config/english`, que a versão 0.23.0 usava, não tem mais efeito.
 
 ### Palavras que o motor acentua errado
 

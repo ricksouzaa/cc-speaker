@@ -3,9 +3,9 @@
 // A primeira linha, "Mudar em", só diz onde as próximas trocas são gravadas (todas as sessões ou só esta); abre sempre
 // em "Todas as sessões" e trocá-la não roda nada. Responde sozinho, sem o modelo. Com a escolha escrita
 // (/speak voice rafael, /speak quiet), roda direto, sem menu, e responde uma linha.
-// Também mostra, embaixo do campo de texto de todas as sessões, quem está falando (lido de state/speech.json, sem abrir
-// processo): no terminal, entre os rótulos de modo do rodapé, sem o nome do plugin na frente; nas outras telas, na linha
-// de status. E troca o rótulo do botão que deu o play por Pausar/Continuar (/speak pause, /speak resume).
+// Também mostra, na linha de status de todas as sessões (no terminal, logo embaixo do campo de texto), quem está falando
+// (lido de state/speech.json, sem abrir processo), e troca o rótulo do botão que deu o play por Pausar/Continuar
+// (/speak pause, /speak resume).
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
 type Engine = EngineInterface
@@ -117,31 +117,24 @@ let installShowing = false // a linha de status está com a instalação do moto
 let canDraw = true
 let startSurface = '' // a tela com que a sessão começou (terminal, VS Code); com ela, a linha nunca fica muda
 // O Claude Code escreve o nome do plugin na frente de toda linha de status ("speak: 🔊 Jane falando agora") e não dá
-// como tirar. Por isso, onde o terminal desenha, o aviso de quem fala vai entre os rótulos de modo do rodapé
-// (SessionMode), que saem como o plugin os escreve. Nas outras telas (VS Code, app de mesa, celular) o aviso segue na
-// linha de status, que continua também com a instalação do motor, onde o nome do plugin ajuda.
-const MODE_SURFACE = 'terminal'
-let modeSite = false // o terminal desenha esta sessão: o aviso de fala vai nos rótulos de modo, não na linha de status
+// como tirar. Da 0.22.1 à 0.31.0, para sair sem o nome, o aviso de quem fala ia no terminal entre os rótulos de modo
+// do rodapé (SessionMode), no canto direito, onde quase não se via; voltou para a linha de status, que o terminal
+// desenha logo embaixo do campo de texto (pedido do Ricardo em 15/11/2026: o lugar vale mais que o nome a menos).
 async function lookDraw($: Engine, surface?: string) {
   if (surface !== undefined) startSurface = surface
-  let surfaces: readonly string[] = startSurface ? [startSurface] : []
-  if (!startSurface) {
+  let any = !!startSurface
+  if (!any) {
     try {
-      surfaces = await $.session.surfaces()
+      any = (await $.session.surfaces()).length > 0
     } catch {
-      surfaces = []
+      any = false
     }
   }
-  const any = surfaces.length > 0
-  const modes = surfaces.includes(MODE_SURFACE)
   const back = any && !canDraw
-  const moved = modes !== modeSite
   canDraw = any
-  modeSite = modes
-  if (back) shownSpeech = undefined
-  if (back || moved) {
-    paintSpeech($) // se o aviso mudou de lugar, a linha de status é limpa (ou volta a tê-lo)
-    $.ui.invalidate('ui.render')
+  if (back) {
+    shownSpeech = undefined
+    paintSpeech($)
   }
 }
 const status = ($: Engine, line: string | undefined) => {
@@ -269,11 +262,10 @@ function speechLine(h: Heard): string | undefined {
   return ownPaused ? '⏸ fala pausada' : undefined
 }
 
-// Desenha a linha de aviso na linha de status, a menos que a instalação do motor a esteja usando. No terminal a linha
-// de status fica sem o aviso: ele vai nos rótulos de modo (o gancho de SessionMode, em `register`), lido de `heard`.
+// Desenha a linha de aviso na linha de status, a menos que a instalação do motor a esteja usando.
 function paintSpeech($: Engine) {
   if (installShowing) return
-  const line = modeSite ? undefined : speechLine(heard)
+  const line = speechLine(heard)
   if (line === shownSpeech) return
   shownSpeech = line
   status($, line)
@@ -710,13 +702,6 @@ export const register: Register = on => {
         {drawAgainButtons($.ui.resolve(e), hasSummaryLine(lastAnswer), which => enqueue(() => menuAgain($, which)))}
       </Box>
     )
-  })
-
-  // O aviso de quem fala no rodapé do terminal, depois dos rótulos do próprio Claude Code ("focus & 🔊 Jane falando
-  // agora"). O relógio da fala pede o redesenho a cada mudança.
-  on('ui.render', { component: 'SessionMode' }, ($, e, next) => {
-    const line = modeSite && e.surface === MODE_SURFACE ? speechLine(heard) : undefined
-    return line ? next({ ...e, props: { ...e.props, modes: [...e.props.modes, line] } }) : next(e)
   })
 
   on('session.start', async ($, e, next) => {

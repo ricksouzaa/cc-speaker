@@ -668,6 +668,11 @@ RESPELL = {'ENEM': 'ênêi', 'PIX': 'Pics', 'PLUGIN': 'plâguin', 'PLUGINS': 'pl
            'PULL': 'pul', 'REQUEST': 'rikuést', 'REQUESTS': 'rikuésts', 'BUG': 'bâg', 'BUGS': 'bâgs',
            'BACKEND': 'béquend', 'DOWNTIME': 'dáun-táim', 'RELEASE': 'rilíse', 'RELEASES': 'rilíses',
            'SLACK': 'Slék', 'COMMIT': 'comít', 'COMMITS': 'comíts', 'TESTE': 'téste', 'TESTES': 'téstes'}
+# Heard wrong by Ricardo on 15/11/2026 ("main" came out as "mãe", in every one of 24 speeches). Out of 24 speeches each
+# (Jane, Eve and Rafael), heard as the word by the transcriber: restart 4 as written and 24 respelt; handoff 19 and
+# 24; and, with the IT words given to the transcriber as context, branch 9 and 22, branches 13 and 21, main 0 and 22.
+RESPELL.update({'RESTART': 'ristárt', 'RESTARTS': 'ristárts', 'HANDOFF': 'rendóf', 'HANDOFFS': 'rendófs',
+                'BRANCH': 'brântch', 'BRANCHES': 'brântches', 'MAIN': 'mêine'})
 # A verb written like a noun that has an accent ("eu publico" and "o público"): without the accent the engine says the
 # noun, which it has heard more. The accent on the syllable the verb stresses makes it say the verb.
 RESPELL.update({'PUBLICO': 'publíco', 'INICIO': 'inicío', 'TERMINO': 'termíno', 'CALCULO': 'calcúlo',

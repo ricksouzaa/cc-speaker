@@ -7,6 +7,14 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.32.0] - 2026-11-15
+
+### Alterado
+- **No terminal, o aviso de quem está falando voltou para logo embaixo do campo de texto**, onde ficava até a 0.22.0. Da 0.22.1 à 0.31.0 ele aparecia no canto direito do rodapé, onde quase não se via. O preço é o `speak:` na frente ("speak: 🔊 Jane falando agora"), que o Claude Code escreve antes de toda linha de status de plugin e não deixa tirar. No VS Code e nos aplicativos nada muda.
+
+### Corrigido
+- **"restart", "handoff", "branch", "branches" e "main" saem como se fala.** O motor lia "main" como "mãe" e tropeçava nas outras; agora o plugin as escreve do jeito que ele acerta, como já fazia com "plugin" e "commit".
+
 ## [0.31.0] - 2026-11-15
 
 ### Alterado
@@ -491,7 +499,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.31.0...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.32.0...HEAD
+[0.32.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.31.0...v0.32.0
 [0.31.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.30.0...v0.31.0
 [0.30.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.29.0...v0.30.0
 [0.29.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.28.0...v0.29.0
