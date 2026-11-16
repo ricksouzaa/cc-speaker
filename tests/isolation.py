@@ -68,11 +68,13 @@ def differences(before, after):
 
 
 # What a real `speak` process (a player, a `say`) that is not ours writes in the real folders while it speaks: the
-# queue, its lock, the speech owner and pid, the session files (pruned), the error log, the microphone mark and the
-# marker of a speech that pauses itself (`soft-<pid>`, made when it starts and dropped when it ends). These names
-# count as noise only below a `state` folder (or the former `claude-speak` state folder) and only while such a
-# process is alive; everything else (engine, config, install files) is always reported.
-SPEECH_NAMES = ('queue', 'queue.lock', 'speech.pid', 'speech.owner', 'speech.json', 'sessions', 'error.log', 'mic-seen')
+# queue, its lock, the speech owner and pid, the session files (pruned), the error log, what the engine wrote during
+# that speech (`engine.log`, rewritten by every real speech), the microphone mark and the marker of a speech that
+# pauses itself (`soft-<pid>`, made when it starts and dropped when it ends). These names count as noise only below a
+# `state` folder (or the former `claude-speak` state folder) and only while such a process is alive; everything else
+# (engine, config, install files) is always reported.
+SPEECH_NAMES = ('queue', 'queue.lock', 'speech.pid', 'speech.owner', 'speech.json', 'sessions', 'error.log',
+                'engine.log', 'mic-seen')
 SOFT_MARKER = re.compile(r'soft-\d+')  # speak.soft_marker(pid): a file directly in the state folder
 SPEECH_SUBCOMMANDS = ('_play', 'say')
 

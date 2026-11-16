@@ -237,6 +237,21 @@ class Filter(unittest.TestCase):
         self.assertEqual(speak.clean('Dois Restarts, dois handoffs e três Branches.'),
                          'Dois ristárts, dois rendófs e três brântches.')
         self.assertEqual(speak.clean('O mainframe e a domain ficam.'), 'O mainframe e a domain ficam.')
+        # the sweep of the IT words of 16/11/2026: the ones the engine said wrong, measured with the transcriber
+        self.assertEqual(speak.clean('O diff da feature mexeu na sidebar, no runtime e no parser do staging.'),
+                         'O dífi da fítcher mexeu na sáidbar, no ránntaime e no párser do stêidjin.')
+        self.assertEqual(speak.clean('Um insight: a queue da response pede update e login.'),
+                         'Um ínsaite: a kíu da rispânse pede apdêit e lóguin.')
+        self.assertEqual(speak.clean('Diffs, Features, Sidebars, Runtimes, Parsers, Insights, Queues, Responses, '
+                                     'Updates e Logins.'),
+                         'dífis, fítchers, sáidbars, ránntaimes, pársers, ínsaites, kíus, rispânses, apdêits e lóguins.')
+        self.assertEqual(speak.clean('O checkout e o stash ficam.'), 'O checkout e o stash ficam.')  # heard right
+        self.assertEqual(speak.clean('A issue do agent e dois Agents.'), 'A íchiú do êidjent e dois êidjents.')
+        # the HTTP verbs, written in capitals, are said as words, not spelled (heard by Ricardo on 16/11/2026)
+        self.assertEqual(speak.clean('A rota aceita GET, POST, PUT, DELETE e PATCH.'),
+                         'A rota aceita guét, Post, pút, delíte e Patch.')
+        self.assertEqual(speak.clean('Dois GETs, três POSTs, um PUT e dois DELETEs.'),
+                         'Dois guéts, três Posts, um pút e dois delítes.')
         # part of a longer word or of a hyphenated name: left alone; and so is any other English word
         self.assertEqual(speak.clean('O debug, o anti-bug e o deploy.'), 'O debug, o anti-bug e o deploy.')
         self.assertEqual(speak.clean('Nada em inglês aqui.'), 'Nada em inglês aqui.')
@@ -285,7 +300,7 @@ class Filter(unittest.TestCase):
                          'Claude Code dois ponto um ponto trezentos e doze e um ponto cinco e um ponto dois ponto três ponto quatro.')
         self.assertEqual(speak.clean('Em 2026-10-29 sim, commit b48e609 sai.'),
                          'Em vinte e nove de outubro de dois mil e vinte e seis sim, comít sai.')
-        self.assertEqual(speak.clean('Rode `speak update` na 0.9.1.'), 'Rode speak update na zero ponto nove ponto um.')
+        self.assertEqual(speak.clean('Rode `speak update` na 0.9.1.'), 'Rode speak apdêit na zero ponto nove ponto um.')
         self.assertEqual(speak.clean('e 1.2.3.4.5 ficam'), 'e um ponto dois ponto três ponto quatro ponto cinco ficam')
 
     def test_a_speed_written_with_a_dot_is_heard_with_the_dot(self):
@@ -3294,7 +3309,9 @@ class Speed(unittest.TestCase):
 
     @unittest.skipUnless(importlib.util.find_spec('numpy'), 'needs numpy')
     def test_the_speech_goes_to_the_player_as_the_engine_sends_it(self):
-        """Linux: each part the engine sends goes to the player as it comes, at the speed of the session."""
+        """Linux: the speech goes to the engine whole, in one request (the engine groups the sentences itself; a
+        piece of ours would start again from nothing, after a second of silence), and each part the engine sends goes
+        to the player as it comes, at the speed of the session."""
         import numpy as np
         isolate(self, self.tmp.name)
         out = os.path.join(self.tmp.name, 'tocado')
@@ -3308,6 +3325,8 @@ class Speed(unittest.TestCase):
             def speak(self, text):
                 raise AssertionError('a speech that streams asks for its pieces in parts')
 
+        whole = 'Olá. ' + 'Uma frase longa o bastante para passar do primeiro pedaço. ' * 6 + 'Fim.'
+        self.assertGreater(len(speak.pieces(whole)), 2)  # the Mac, which plays whole pieces, asks for it in pieces
         FakeServer.made.clear()
         with mock.patch.object(speak.speak_pocket, 'Server', Flowing), \
                 mock.patch.dict(os.environ, {'CLAUDE_SPEAK_SESSION': '-'}), \
@@ -3317,9 +3336,9 @@ class Speed(unittest.TestCase):
                 mock.patch.object(speak, 'player_command', return_value=[
                     sys.executable, '-c', 'import sys; open(sys.argv[1], "wb").write(sys.stdin.buffer.read())', out]), \
                 mock.patch.object(speak.speak_os, 'streams', return_value=True):
-            self.assertEqual(speak.play('Olá.'), 0)
+            self.assertEqual(speak.play(whole), 0)
         server, = FakeServer.made
-        self.assertEqual((server.asked, server.closed), (['Olá.'], True))
+        self.assertEqual((server.asked, server.closed), ([whole], True))
         with open(out, 'rb') as fh:
             np.testing.assert_array_equal(np.frombuffer(fh.read(), dtype='float32'), [0, 0.5, -1, 0.25, 0, 0])
 
@@ -4631,7 +4650,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.33.1')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.33.2')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

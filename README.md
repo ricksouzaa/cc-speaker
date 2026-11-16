@@ -188,7 +188,7 @@ Para acrescentar uma sigla que deve ser lida como palavra, ponha-a numa linha do
 
 ### Palavras em inglês
 
-O motor só recebe texto escrito e lê o que está em inglês com as regras do português. Para alguns termos comuns (plugin, GitHub, pull request, bug, backend, release, commit, downtime, Slack, restart, handoff, branch, main), o plugin escreve a palavra do jeito que se fala antes de entregá-la ao motor ("plâguin", "bâg"); os outros saem como o motor os lê. O arquivo `config/english`, que a versão 0.23.0 usava, não tem mais efeito.
+O motor só recebe texto escrito e lê o que está em inglês com as regras do português. Para alguns termos comuns (plugin, GitHub, pull request, bug, backend, release, commit, downtime, Slack, restart, handoff, branch, main, diff, feature, sidebar, runtime, parser, staging, insight, queue, response, update, login, issue, agent), o plugin escreve a palavra do jeito que se fala antes de entregá-la ao motor ("plâguin", "bâg"); os outros saem como o motor os lê. Os verbos do HTTP em maiúsculas (GET, POST, PUT, DELETE, PATCH) são lidos como palavras, e não soletrados. O arquivo `config/english`, que a versão 0.23.0 usava, não tem mais efeito.
 
 ### Palavras que o motor acentua errado
 

@@ -7,6 +7,13 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.33.2] - 2026-11-16
+
+### Corrigido
+- **A pausa longa e o recomeço depois de um ponto final.** O plugin cortava a fala em pedaços e pedia cada um ao motor separadamente. Entre um pedaço e outro ficava quase um segundo de silêncio, e a frase seguinte recomeçava do zero, como uma fala nova ("…da comunidade. [pausa] Das palavras…"). Agora a fala vai inteira ao motor, que passa de uma frase para a outra no ritmo de quem fala: as pausas entre frases caíram para 0,3 a 0,6 segundo, e o primeiro som continua chegando cedo. No Mac, que nunca foi testado num Mac de verdade, a fala continua indo em pedaços.
+- **Mais termos de TI em inglês ditos do jeito certo.** Medimos como a voz diz 137 termos comuns de TI; 121 já saíam certos. Agora diff, feature, sidebar, runtime, parser, staging, insight, queue, response, update, login, issue e agent (e os plurais) também saem como se fala ("issue" saía "isso", "agent" saía "a gente"). Fetch continua como o motor lê: nenhuma grafia tentada melhorou.
+- **Os verbos do HTTP não são mais soletrados.** GET, POST, PUT, DELETE e PATCH, em maiúsculas, saíam letra por letra, como siglas. Agora são lidos como palavras, e GET, PUT e DELETE com o som do inglês.
+
 ## [0.33.1] - 2026-11-16
 
 ### Corrigido
@@ -512,7 +519,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.33.1...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.33.2...HEAD
+[0.33.2]: https://github.com/ricksouzaa/cc-speaker/compare/v0.33.1...v0.33.2
 [0.33.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.33.0...v0.33.1
 [0.33.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.32.0...v0.33.0
 [0.32.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.31.0...v0.32.0

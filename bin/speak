@@ -172,7 +172,7 @@ RATE = speak_os.RATE  # what goes to the player, mono float32 (the engine gives 
 MARK = '🔊'
 LIMIT = {'full': 6000}  # characters; a longer reply is cut at a sentence end
 SUMMARY_LIMIT = {'small': 300, 'medium': 600, 'large': 1200}  # the same, for the 🔊 line, by size
-PIECES = (120, 160, 220, 300, 400)  # characters per piece: short first, then growing, so each is ready while the last plays
+PIECES = (120, 160, 220, 300, 400)  # characters per piece (Mac): short first, then growing, so each is ready while the last plays
 SAFETY = 0.85  # margin on the measured engine rate: it varies with the load, so plan for a bit less than seen
 APC_PRIOR = 0.065  # seconds of speech per character, until a piece is made whole (measured: 0.055 to 0.06)
 FLOW_MEASURE = 0.4  # seconds of audio sent in parts before the engine's rate is taken from them
@@ -670,7 +670,8 @@ WORD_ACRONYMS = frozenset((
     'ENEM PROUNI FIES SISU CAPES FINEP FAPESP UNICAMP UNESP PUC '
     'FUNAI ANVISA ANATEL ANEEL ANAC ANTAQ IBAMA INMET INPE INMETRO BACEN COPOM SELIC CADE ABIN '
     'DETRAN PROCON SAMU UPA SEBRAE SENAI SENAC SESI SESC SENAT SENAR '
-    'PIS PASEP COFINS PIB CEP FUNDEB SERPRO DATAPREV PETROBRAS EMBRAER EMBRAPA EMBRATEL FUNASA PAC TED SAC REST').split())
+    'PIS PASEP COFINS PIB CEP FUNDEB SERPRO DATAPREV PETROBRAS EMBRAER EMBRAPA EMBRATEL FUNASA PAC TED SAC REST '
+    'GET POST PUT DELETE PATCH').split())
 # Words often written all in capitals, which are neither acronyms to spell nor Roman numerals (MIX, MIL).
 CAPITAL_WORDS = frozenset(('NOTA AVISO NUNCA SEMPRE TODO TODOS TODAS ERRO DICA NADA TUDO AGORA ANTES DEPOIS README '
                            'MIX MIL').split())
@@ -726,6 +727,24 @@ RESPELL = {'ENEM': 'ênêi', 'PIX': 'Pics', 'PLUGIN': 'plâguin', 'PLUGINS': 'pl
 # 24; and, with the IT words given to the transcriber as context, branch 9 and 22, branches 13 and 21, main 0 and 22.
 RESPELL.update({'RESTART': 'ristárt', 'RESTARTS': 'ristárts', 'HANDOFF': 'rendóf', 'HANDOFFS': 'rendófs',
                 'BRANCH': 'brântch', 'BRANCHES': 'brântches', 'MAIN': 'mêine'})
+# The sweep of 16/11/2026: 137 IT words said by Jane and Rafael (2 sentences, 2 times each, 8 speeches a word) and
+# transcribed with the IT words as context; 121 heard right as written. Of the others, heard as the word as written
+# and respelt: diff 0 and 8, feature 1 and 8, sidebar 0 and 6 (7 with the stress on "bár", which English does not
+# put there), runtime 2 and 8, parser 3 and 8, staging 3 and 8, insight 4 and 8, queue 4 and 7, response 2 and 8,
+# update 4 and 8, login 3 and 7 (8 with the stress on "guín"). Checkout ("check-out") and stash came out right.
+RESPELL.update({'DIFF': 'dífi', 'DIFFS': 'dífis', 'FEATURE': 'fítcher', 'FEATURES': 'fítchers',
+                'SIDEBAR': 'sáidbar', 'SIDEBARS': 'sáidbars', 'RUNTIME': 'ránntaime', 'RUNTIMES': 'ránntaimes',
+                'PARSER': 'párser', 'PARSERS': 'pársers', 'STAGING': 'stêidjin', 'INSIGHT': 'ínsaite',
+                'INSIGHTS': 'ínsaites', 'QUEUE': 'kíu', 'QUEUES': 'kíus', 'RESPONSE': 'rispânse',
+                'RESPONSES': 'rispânses', 'UPDATE': 'apdêit', 'UPDATES': 'apdêits', 'LOGIN': 'lóguin',
+                'LOGINS': 'lóguins', 'ISSUE': 'íchiú', 'ISSUES': 'íchiús', 'AGENT': 'êidjent', 'AGENTS': 'êidjents'})
+# Two harder ones, in a second round: issue 0 and 6 (heard as "isso"), agent 0 and 6 (heard as "a gente"). Fetch was
+# left as written: no spelling tried went beyond 2 in 8 (the transcriber writes "FET").
+# The HTTP verbs, which Ricardo heard spelled letter by letter on 16/11/2026: said as words (WORD_ACRONYMS), out of 8:
+# GET 2 as written ("jet") and 8 respelt; PUT 7 and 8 (once heard as a swear word); DELETE 8 both ways, respelt so
+# that the stress falls where English puts it; POST 8 and PATCH 7 as written.
+RESPELL.update({'GET': 'guét', 'GETS': 'guéts', 'PUT': 'pút', 'PUTS': 'púts', 'DELETE': 'delíte',
+                'DELETES': 'delítes'})
 # A verb written like a noun that has an accent ("eu publico" and "o público"): without the accent the engine says the
 # noun, which it has heard more. The accent on the syllable the verb stresses makes it say the verb.
 RESPELL.update({'PUBLICO': 'publíco', 'INICIO': 'inicío', 'TERMINO': 'termíno', 'CALCULO': 'calcúlo',
@@ -821,7 +840,8 @@ def to_speak(message, how=None, size=None):
 
 
 def pieces(text):
-    """Sentences grouped into pieces whose size grows along PIECES (the last size repeats)."""
+    """Sentences grouped into pieces whose size grows along PIECES (the last size repeats): the Mac, which plays
+    each piece whole, hears the first one sooner."""
     out, cur = [], ''
     for sentence in re.split(r'(?<=[.!?;:])\s+', text):
         cap = PIECES[min(len(out), len(PIECES) - 1)]
@@ -1866,7 +1886,10 @@ def play(text):
             watcher = watch_microphone(proc, session) if watch else None
             try:
                 try:
-                    for samples in synthesize_ahead(pieces(text), flow):
+                    # whole, in one request: the engine groups the sentences in chunks of its own (up to 50
+                    # tokens) and goes from one sentence to the next in one breath; a piece of ours would start
+                    # again from nothing after about a second of silence. Its first sound comes as early.
+                    for samples in synthesize_ahead([text], flow):
                         write_audio(proc.stdin, samples.astype('float32').tobytes())
                     hold_silence(proc.stdin)  # paused after the last piece: the speech ends only when continued
                 finally:

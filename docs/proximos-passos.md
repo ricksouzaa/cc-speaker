@@ -114,6 +114,13 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 - **Medido e não feito, decisão do Ricardo se quiser**: (1) `--quantize` do servidor: gera cerca de 1,7 vez mais rápido (frase de 6,1 s em 2,4 s contra 4,1 s), mas a issue #185 avisa que "can result in poor output for non-English languages" e o servidor demora 1,35 s para subir em vez de 0,6 s; só vale depois de ouvir ou passar pelo transcritor. (2) Servidor sempre de pé: tiraria os 0,6 s da subida, ao custo de cerca de 2 GB de memória o tempo todo. (3) Subir o servidor quando a resposta começa, antes de ela terminar: tiraria a mesma subida sem prender a memória fora das respostas, mas sobe o motor também quando a voz não vai falar.
 - **Outras issues lidas**: #238 (o servidor continua gerando depois que o cliente desiste: o plugin encerra o servidor ao fim de cada fala, então não acumula), #91 e #70 (a primeira palavra às vezes sai embolada), #2, #203 e #14 (versões compiladas e menos memória, fora do pacote oficial), #201 (sem interface assíncrona), #419 (a voz é fixa por servidor, como o plugin já usa).
 
+## Decisões de 16/11/2026: a fala inteira ao motor e a varredura do inglês (0.33.2)
+
+- **Pausa e recomeço depois do ponto final** (relato dele): o plugin cortava a fala em pedaços (`pieces()`) e pedia cada um ao motor num pedido separado, e cada pedido recomeça do estado da voz ("…da comunidade. [pausa] Das palavras…" soava como fala nova). O próprio motor já divide o texto em blocos de até 50 fichas, juntando frases inteiras (`split_into_best_sentences`, em `generate_audio_stream`). Medido: pausa na emenda de 0,8 a 1,06 s contra 0,3 a 0,6 s com o texto inteiro, e a fala 1,3 s mais curta. Agora, no Linux, a fala vai inteira num pedido só; de ponta a ponta, primeiro som em 1,5 s, sem buraco. O Mac continua em pedaços (`play_files`), porque toca frase a frase.
+- **Quem escreve o resumo** (pergunta dele): o modelo da sessão escreve a linha 🔊, seguindo `rules/speak.md`; o plugin só a tira da resposta, limpa (números por extenso, respelagens, caminhos fora) e entrega ao motor.
+- **Varredura do vocabulário de TI** (combinada na 0.32.0): 137 termos, ditos por Jane e Rafael (duas frases, duas vezes, 8 falas por termo), transcritos com o glossário de TI como contexto. 121 saíram certos como se escrevem. Respelidos (ouvidos como a palavra, escrito e respelido): diff 0 e 8, feature 1 e 8, sidebar 0 e 6, runtime 2 e 8, parser 3 e 8, staging 3 e 8, insight 4 e 8, queue 4 e 7, response 2 e 8, update 4 e 8, login 3 e 7; numa segunda rodada, issue 0 e 6 ("isso") e agent 0 e 6 ("a gente"). Checkout (o transcritor escreve "check-out", o mesmo som) e stash ficam como estão. **Fetch fica como o motor lê**: nenhuma grafia tentada passou de 2 em 8.
+- **Verbos do HTTP soletrados** (relato dele: "PUT POST DELETE GET esta sendo pronunciado como siglas"): entraram em `WORD_ACRONYMS`, lidos como palavras. Em 8 falas: GET 2 como se escreve ("jet") e 8 como "guét"; PUT 7 e 8 como "pút" (uma vez ouvido como palavrão); DELETE 8 nos dois, respelido "delíte" pela sílaba forte do inglês; POST 8 e PATCH 7 como se escrevem.
+
 ## Feito
 
 - Plugin `speak` no catálogo `cc-speaker`, com o comando `/speak`: um painel com listas nativas (ligar, leitura, tamanho, voz, alcance) que fica aberto até Esc, pedidos em palavras e o motor instalado sozinho na primeira sessão.
@@ -153,7 +160,7 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 
 Nenhuma. Em 15/11/2026 o Ricardo mandou limpar a lista: o plugin está funcionando como ele quer, e ele vai usar o motor novo por um tempo.
 
-Depois disso ele pediu uma só coisa nova, em andamento: a **varredura do vocabulário de TI em inglês** (ver as decisões da 0.32.0).
+Depois disso ele pediu a **varredura do vocabulário de TI em inglês**, feita na 0.33.2 (ver as decisões de 16/11/2026).
 
 Dois fatos que continuam valendo, ditos no README: o macOS nunca foi testado num Mac de verdade, e a origem do áudio da voz Rafael não foi confirmada.
 
