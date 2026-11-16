@@ -255,6 +255,8 @@ class Filter(unittest.TestCase):
                          'A rota aceita guét, Post, pút, delíte e Patch.')
         self.assertEqual(speak.clean('Dois GETs, três POSTs, um PUT e dois DELETEs.'),
                          'Dois guéts, três Posts, um pút e dois delítes.')
+        # OK, in any case, heard wrong by Ricardo on 16/11/2026
+        self.assertEqual(speak.clean('OK, ficou ok. Tudo Ok? Okay.'), 'okei, ficou okei. Tudo okei? okei.')
         # part of a longer word or of a hyphenated name: left alone; and so is any other English word
         self.assertEqual(speak.clean('O debug, o anti-bug e o deploy.'), 'O debug, o anti-bug e o deploy.')
         self.assertEqual(speak.clean('Nada em inglês aqui.'), 'Nada em inglês aqui.')
@@ -4840,7 +4842,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.35.0')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.35.1')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

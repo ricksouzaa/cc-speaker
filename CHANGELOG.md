@@ -7,6 +7,11 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.35.1] - 2026-11-16
+
+### Corrigido
+- **"OK" é falado como "okei".** Antes, a voz dizia algo como "oco" em metade das vezes. Vale para "OK", "ok", "Ok" e "okay".
+
 ## [0.35.0] - 2026-11-16
 
 ### Alterado
@@ -534,7 +539,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.0...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.1...HEAD
+[0.35.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.0...v0.35.1
 [0.35.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.34.1...v0.35.0
 [0.34.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.34.0...v0.34.1
 [0.34.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.33.2...v0.34.0

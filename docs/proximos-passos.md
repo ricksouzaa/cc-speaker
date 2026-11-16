@@ -139,6 +139,10 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 - **Por que a espera do primeiro áudio entrou**: a carga é uma média do último minuto. Com 24 processos ocupando a máquina no mesmo instante da fala, só com a carga a fala começou cedo e parou 35 s no meio. Com a conferência da espera, a mesma prova segurou o começo por 41 s e tocou sem buraco, como antes.
 - **Medido de ponta a ponta** (o mesmo resumo de duas frases, 11,2 s de áudio, tocador de mentira no ritmo real): antes, 1,64 a 1,69 s; agora, 1,24 a 1,39 s nas falas com o ritmo guardado, e cerca de 1,5 s na primeira, sem buraco em nenhuma.
 
+## Decisões de 16/11/2026: o "OK" (0.35.1)
+
+- Ele ouviu o "OK" errado. Com o transcritor, em 8 falas (Jane e Rafael, duas frases), o "Ok" de antes foi ouvido certo 4 vezes ("oco", "Stalk" nas outras); "okei", "oquêi" e "ôkêi" 8; "ôquei" 5. Ficou "okei", para OK e okay em qualquer caixa.
+
 ## Feito
 
 - Plugin `speak` no catálogo `cc-speaker`, com o comando `/speak`: um painel com listas nativas (ligar, leitura, tamanho, voz, alcance) que fica aberto até Esc, pedidos em palavras e o motor instalado sozinho na primeira sessão.

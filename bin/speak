@@ -751,6 +751,9 @@ RESPELL.update({'DIFF': 'dífi', 'DIFFS': 'dífis', 'FEATURE': 'fítcher', 'FEAT
 # that the stress falls where English puts it; POST 8 and PATCH 7 as written.
 RESPELL.update({'GET': 'guét', 'GETS': 'guéts', 'PUT': 'pút', 'PUTS': 'púts', 'DELETE': 'delíte',
                 'DELETES': 'delítes'})
+# OK, heard wrong by Ricardo on 16/11/2026: out of 8 (Jane and Rafael), heard as the word 4 as written ("oco",
+# "Stalk") and 8 as "okei" (also 8 as "oquêi" and "ôkêi"; 5 as "ôquei").
+RESPELL.update({'OK': 'okei', 'OKAY': 'okei'})
 # A verb written like a noun that has an accent ("eu publico" and "o público"): without the accent the engine says the
 # noun, which it has heard more. The accent on the syllable the verb stresses makes it say the verb.
 RESPELL.update({'PUBLICO': 'publíco', 'INICIO': 'inicío', 'TERMINO': 'termíno', 'CALCULO': 'calcúlo',
