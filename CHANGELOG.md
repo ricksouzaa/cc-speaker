@@ -7,6 +7,11 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.35.2] - 2026-11-16
+
+### Corrigido
+- **"Maven" é falado como em inglês, "mêivem".** Antes, a voz lia como palavra em português, "mávem".
+
 ## [0.35.1] - 2026-11-16
 
 ### Corrigido
@@ -539,7 +544,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.1...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.2...HEAD
+[0.35.2]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.1...v0.35.2
 [0.35.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.0...v0.35.1
 [0.35.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.34.1...v0.35.0
 [0.34.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.34.0...v0.34.1

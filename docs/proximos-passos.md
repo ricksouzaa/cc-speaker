@@ -143,6 +143,10 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 
 - Ele ouviu o "OK" errado. Com o transcritor, em 8 falas (Jane e Rafael, duas frases), o "Ok" de antes foi ouvido certo 4 vezes ("oco", "Stalk" nas outras); "okei", "oquêi" e "ôkêi" 8; "ôquei" 5. Ficou "okei", para OK e okay em qualquer caixa.
 
+## Decisões de 16/11/2026: o "Maven" (0.35.2)
+
+- Ele ouviu o "Maven" errado: o motor lia "mávem". Com o transcritor, em 8 falas (Jane e Rafael, duas frases), com e sem o glossário de TI: "Maven" 6 e 0; "mêivem" 8 e 6; "mêi-ven" 8 e 5; "méiven" 8 e 3; "mêiven" 7 (só com glossário); "mêivân" 4. Ficou "mêivem".
+
 ## Feito
 
 - Plugin `speak` no catálogo `cc-speaker`, com o comando `/speak`: um painel com listas nativas (ligar, leitura, tamanho, voz, alcance) que fica aberto até Esc, pedidos em palavras e o motor instalado sozinho na primeira sessão.
