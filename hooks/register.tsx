@@ -3,8 +3,8 @@
 // A primeira linha, "Mudar em", só diz onde as próximas trocas são gravadas (todas as sessões ou só esta); abre sempre
 // em "Todas as sessões" e trocá-la não roda nada. Responde sozinho, sem o modelo. Com a escolha escrita
 // (/speak voice rafael, /speak quiet), roda direto, sem menu, e responde uma linha.
-// Também mostra, na linha de status de todas as sessões (no terminal, logo embaixo do campo de texto), quem está falando
-// (lido de state/speech.json, sem abrir processo), e troca o rótulo do botão que deu o play por Pausar/Continuar
+// Também mostra, em todas as sessões, na faixa logo acima do campo de texto (no VS Code, que não a tem, na linha de
+// status), quem está falando (lido de state/speech.json, sem abrir processo), e troca o rótulo do botão que deu o play por Pausar/Continuar
 // (/speak pause, /speak resume).
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
@@ -116,26 +116,29 @@ let installShowing = false // a linha de status está com a instalação do moto
 // apaga nada: ali a linha fica muda. Conferido no começo da sessão e a cada mensagem nova, porque uma tela pode se ligar.
 let canDraw = true
 let startSurface = '' // a tela com que a sessão começou (terminal, VS Code); com ela, a linha nunca fica muda
-// O Claude Code escreve o nome do plugin na frente de toda linha de status ("speak: 🔊 Jane falando agora") e não dá
-// como tirar. Da 0.22.1 à 0.31.0, para sair sem o nome, o aviso de quem fala ia no terminal entre os rótulos de modo
-// do rodapé (SessionMode), no canto direito, onde quase não se via; voltou para a linha de status, que o terminal
-// desenha logo embaixo do campo de texto (pedido do Ricardo em 15/11/2026: o lugar vale mais que o nome a menos).
+// O Claude Code escreve o nome do plugin na frente de toda linha de status ("⚠ speak: 🔊 Jane falando agora") e não dá
+// como tirar. Por isso o aviso de quem fala vai na faixa logo acima do campo de texto (`AbovePrompt`), onde o plugin
+// desenha a própria linha, sem nada na frente (pedido do Ricardo em 16/11/2026). O VS Code não tem a faixa: numa
+// sessão em que ele desenha, o aviso segue também na linha de status. Antes: da 0.22.1 à 0.31.0 o aviso ia entre os
+// rótulos de modo do rodapé (SessionMode), no canto direito, onde quase não se via; da 0.32.0 à 0.33.2, na linha de
+// status, com o nome do plugin na frente.
+let viaStatus = false // uma tela sem a faixa (o VS Code) desenha a sessão: o aviso de fala vai na linha de status
 async function lookDraw($: Engine, surface?: string) {
   if (surface !== undefined) startSurface = surface
-  let any = !!startSurface
-  if (!any) {
+  let seen: readonly string[] = startSurface ? [startSurface] : []
+  if (!startSurface) {
     try {
-      any = (await $.session.surfaces()).length > 0
+      seen = await $.session.surfaces()
     } catch {
-      any = false
+      seen = []
     }
   }
+  const any = seen.length > 0
   const back = any && !canDraw
   canDraw = any
-  if (back) {
-    shownSpeech = undefined
-    paintSpeech($)
-  }
+  viaStatus = seen.includes('vscode')
+  if (back) shownSpeech = undefined
+  paintSpeech($)
 }
 const status = ($: Engine, line: string | undefined) => {
   if (canDraw) $.ui.status(line)
@@ -262,10 +265,11 @@ function speechLine(h: Heard): string | undefined {
   return ownPaused ? '⏸ fala pausada' : undefined
 }
 
-// Desenha a linha de aviso na linha de status, a menos que a instalação do motor a esteja usando.
+// Desenha o aviso na linha de status onde a sessão não tem a faixa (o VS Code), a menos que a instalação do motor
+// esteja usando a linha. Nas outras telas, o aviso sai só na faixa (`AbovePrompt`).
 function paintSpeech($: Engine) {
   if (installShowing) return
-  const line = speechLine(heard)
+  const line = viaStatus ? speechLine(heard) : undefined
   if (line === shownSpeech) return
   shownSpeech = line
   status($, line)
@@ -735,4 +739,17 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => menuTree($, e))
+
+  // A faixa logo acima do campo de texto (terminal, aplicativo de mesa, celular): o aviso de quem fala, sem o nome do
+  // plugin na frente. Cede a vez quando uma pesquisa do Claude Code ocupa a faixa.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    const line = e.props.hasSurvey ? undefined : speechLine(heard)
+    if (!line) return next(e)
+    const { Box, Text } = $.ui.resolve(e)
+    return (
+      <Box>
+        <Text>{line}</Text>
+      </Box>
+    )
+  })
 }

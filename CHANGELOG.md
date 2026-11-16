@@ -7,6 +7,11 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.34.0] - 2026-11-16
+
+### Alterado
+- **O aviso de quem fala perdeu o "speak:" da frente.** Ele agora aparece logo acima do campo de texto, só com o ícone e quem fala ("🔊 Jane falando em projeto"), e some quando a fala acaba. Antes ele ficava na linha de status, embaixo do campo, onde o Claude Code sempre escreve o nome do plugin na frente e não deixa tirar. O `[-]` no fim da linha é do Claude Code e serve para recolher a faixa. No VS Code, que não tem essa faixa, nada muda.
+
 ## [0.33.2] - 2026-11-16
 
 ### Corrigido
@@ -519,7 +524,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.33.2...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.34.0...HEAD
+[0.34.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.33.2...v0.34.0
 [0.33.2]: https://github.com/ricksouzaa/cc-speaker/compare/v0.33.1...v0.33.2
 [0.33.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.33.0...v0.33.1
 [0.33.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.32.0...v0.33.0

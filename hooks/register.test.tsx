@@ -92,7 +92,8 @@ async function setup($: any, on: any, opts: Opts = {}) {
   })
   // O rodapé do terminal, por baixo do plugin: desenha os rótulos de modo que recebe, juntos por " & ", como o Claude
   // Code. `modes()` é o que ele mostra: o plugin não mexe ali (da 0.22.1 à 0.31.0 o aviso de quem fala ia ali).
-  // `notice()` é o aviso de quem fala como a tela o mostra: o que está na linha de status.
+  // `notice()` é o aviso de quem fala como a tela o mostra: no terminal, no aplicativo de mesa e no celular, a linha
+  // do plugin na faixa logo acima do campo de texto (`band()`); no VS Code, que não tem a faixa, a linha de status.
   on('ui.render', { component: 'SessionMode' }, ($$: any, e: any) => {
     const { Text } = $$.ui.resolve(e)
     return <Text>{e.props.modes.join(' & ')}</Text>
@@ -103,12 +104,20 @@ async function setup($: any, on: any, opts: Opts = {}) {
     await ui.unmount()
     return text
   }
-  const notice = async (): Promise<string> => lines.at(-1) ?? ''
+  const band = async (surface = opts.surface ?? 'terminal', props: Record<string, unknown> = {}): Promise<string> => {
+    const ui = await $.ui.mount({ plugin: 'speak', component: 'AbovePrompt', surface, requestId: 'above-prompt', props: { ...BAND, ...props } })
+    const text = (await texts(ui, 'Text')).map((x: any) => x.text ?? '').join('')
+    await ui.unmount()
+    return text
+  }
+  const notice = async (): Promise<string> => (opts.surface === 'vscode' ? lines.at(-1) ?? '' : await band())
   await $.session.start(opts.headless ? { cwd: '/', isInteractive: false }
     : { cwd: '/', surface: opts.surface ?? 'terminal', isInteractive: true })
   await clock.advance(0) // deixa o autoinstall do começo (em segundo plano) terminar
-  return { ran, opened, st, lines, toasts, clock, logs, speech, gone, reads, drawn, notice, modes }
+  return { ran, opened, st, lines, toasts, clock, logs, speech, gone, reads, drawn, notice, modes, band }
 }
+
+const BAND = { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 10, bodyColumns: 80, scroll: { offset: 0, bodyRows: 9 }, view: {} }
 
 const PANE = {
   plugin: 'speak',
@@ -895,29 +904,54 @@ test('turno de subagente e turno interrompido não mexem nos botões', async ($,
 })
 
 
-// Quem fala: o aviso em todas as sessões e os botões Pausar/Continuar. O aviso vai na linha de status, que o terminal
-// desenha logo embaixo do campo de texto, onde se vê; o Claude Code põe o nome do plugin na frente ("speak: 🔊 ...").
+// Quem fala: o aviso em todas as sessões e os botões Pausar/Continuar. O aviso vai na faixa logo acima do campo de texto,
+// onde o plugin desenha a própria linha, sem o "speak:" que o Claude Code põe na frente de toda linha de status (pedido
+// do Ricardo em 16/11/2026). O VS Code não tem a faixa: ali o aviso segue na linha de status, com o nome na frente.
 // Da 0.22.1 à 0.31.0 o terminal o mostrava entre os rótulos de modo do rodapé, no canto direito, onde passava batido.
 const OWN = { pid: 10, session: 'S-1', dir: '/home/r/meu-projeto', how: 'summary' }
 const OTHER = { pid: 20, session: 'S-2', dir: '/home/r/outro-projeto', how: 'full' }
 
-for (const surface of ['terminal', 'vscode', 'desktop', 'mobile']) {
-  test(`o aviso de quem fala sai na linha de status (${surface}), e os rótulos do rodapé não são tocados`, async ($, on) => {
-    const { modes, lines, clock, speech } = await setup($, on, { surface })
+for (const surface of ['terminal', 'desktop', 'mobile']) {
+  test(`o aviso de quem fala sai na faixa acima do campo de texto (${surface}), nunca na linha de status`, async ($, on) => {
+    const { modes, lines, clock, speech, band } = await setup($, on, { surface })
     const footer = surface === 'terminal' ? 'terminal' : 'desktop'
+    expect(await band()).toBe('')
     speech.playing = { ...OWN, voice: 'jane' }
     await clock.advance(500)
-    expect(lines.at(-1)).toBe('🔊 Jane falando agora')
+    expect(await band()).toBe('🔊 Jane falando agora')
     expect(await modes([], footer)).toBe('')
     expect(await modes(['focus', 'memory paused'], footer)).toBe('focus & memory paused')
     speech.playing = { ...OTHER, voice: 'rafael' }
     await clock.advance(500)
-    expect(lines.at(-1)).toBe('🔊 Rafael falando em outro-projeto')
+    expect(await band()).toBe('🔊 Rafael falando em outro-projeto')
     speech.playing = null
     await clock.advance(500)
-    expect(lines.at(-1)).toBeUndefined()
+    expect(await band()).toBe('')
+    expect(lines.filter(l => l !== undefined)).toEqual([])
   })
 }
+
+test('no VS Code, que não tem a faixa, o aviso de quem fala segue na linha de status', async ($, on) => {
+  const { modes, lines, clock, speech } = await setup($, on, { surface: 'vscode' })
+  speech.playing = { ...OWN, voice: 'jane' }
+  await clock.advance(500)
+  expect(lines.at(-1)).toBe('🔊 Jane falando agora')
+  expect(await modes(['focus'], 'desktop')).toBe('focus')
+  speech.playing = { ...OTHER, voice: 'rafael' }
+  await clock.advance(500)
+  expect(lines.at(-1)).toBe('🔊 Rafael falando em outro-projeto')
+  speech.playing = null
+  await clock.advance(500)
+  expect(lines.at(-1)).toBeUndefined()
+})
+
+test('a faixa cede a vez a uma pesquisa do Claude Code', async ($, on) => {
+  const { clock, speech, band } = await setup($, on)
+  speech.playing = { ...OWN, voice: 'jane' }
+  await clock.advance(500)
+  expect(await band('terminal', { hasSurvey: true })).toBe('')
+  expect(await band()).toBe('🔊 Jane falando agora')
+})
 
 test('a fala desta sessão: "falando agora"; a de outra sessão: "falando: pasta"; sem pasta, aviso geral', async ($, on) => {
   const { notice, clock, speech } = await setup($, on)
@@ -974,7 +1008,7 @@ test('voz que o painel não conhece ou fala sem voz anotada: a linha fica sem no
 
 // Sem tela do Claude Code (o chat do Orca e outros clientes do SDK), cada aviso vira uma linha solta na conversa e o
 // de apagar não apaga nada: a linha de status fica muda até uma tela se ligar.
-test('sem tela que desenhe, nenhuma linha de status; com uma tela ligada depois, o aviso volta', async ($, on) => {
+test('sem tela que desenhe, nenhuma linha de status; com o VS Code ligado depois, o aviso volta', async ($, on) => {
   on('turn.start', (_: unknown, e: any) => ({ turnId: e.turnId }))
   const { lines, clock, speech, drawn } = await setup($, on, { headless: true })
   speech.playing = OWN
@@ -982,22 +1016,23 @@ test('sem tela que desenhe, nenhuma linha de status; com uma tela ligada depois,
   speech.playing = null
   await clock.advance(500)
   expect(lines).toEqual([])
-  drawn.push('desktop')
+  drawn.push('vscode')
   await $.turn.start({ text: 'oi', turnId: 't1' })
   speech.playing = OWN
   await clock.advance(500)
   expect(lines.at(-1)).toBe('🔊 falando agora')
 })
 
-test('sem tela no começo e com o terminal ligado depois, o aviso sai na linha de status', async ($, on) => {
+test('sem tela no começo e com o terminal ligado depois, o aviso sai na faixa, não na linha de status', async ($, on) => {
   on('turn.start', (_: unknown, e: any) => ({ turnId: e.turnId }))
-  const { modes, lines, clock, speech, drawn } = await setup($, on, { headless: true })
+  const { modes, lines, clock, speech, drawn, band } = await setup($, on, { headless: true })
   speech.playing = OWN
   await clock.advance(500)
   expect(lines).toEqual([]) // nenhuma tela desenha: a linha fica muda
   drawn.push('terminal')
   await $.turn.start({ text: 'oi', turnId: 't1' })
-  expect(lines.at(-1)).toBe('🔊 falando agora')
+  expect(await band('terminal')).toBe('🔊 falando agora')
+  expect(lines).toEqual([])
   expect(await modes()).toBe('')
 })
 
@@ -1045,7 +1080,7 @@ test('o relógio da fala lê o arquivo e não abre processo nenhum a cada volta'
 })
 
 test('a linha só é redesenhada quando o estado muda', async ($, on) => {
-  const { lines, clock, speech } = await setup($, on)
+  const { lines, clock, speech } = await setup($, on, { surface: 'vscode' })
   speech.playing = OTHER
   await clock.advance(500)
   const count = lines.length
@@ -1105,9 +1140,27 @@ test('sem ler o estado do speak, o relógio da fala desiste depois de algumas te
   expect(reads).toEqual([])
 })
 
-// A linha de status é uma só por plugin, e a instalação do motor fica com ela, em qualquer tela.
-test('a linha de status da instalação vence a do aviso de fala, que volta ao fim', async ($, on) => {
+// A linha de status é uma só por plugin, e a instalação do motor fica com ela. No VS Code o aviso de fala divide essa
+// linha com ela e espera; nas telas com a faixa, cada um fica no seu lugar.
+test('no terminal, a instalação vai na linha de status e o aviso de fala segue na faixa', async ($, on) => {
+  const { lines, clock, st, speech, band } = await setup($, on, {
+    init: { engine: false, installing: true, install: { fase: 'dependências' } },
+  })
+  speech.playing = OTHER
+  await clock.advance(2000)
+  expect(lines.at(-1)).toBe('🔊 Instalando a voz: dependências')
+  expect(await band()).toBe('🔊 falando: outro-projeto')
+  st.engine = true
+  st.installing = false
+  st.install = null
+  await clock.advance(2000)
+  expect(lines.at(-1)).toBeUndefined()
+  expect(lines).not.toContain('🔊 falando: outro-projeto')
+})
+
+test('no VS Code, a linha de status da instalação vence a do aviso de fala, que volta ao fim', async ($, on) => {
   const { lines, clock, st, speech } = await setup($, on, {
+    surface: 'vscode',
     init: { engine: false, installing: true, install: { fase: 'dependências' } },
   })
   speech.playing = OTHER
@@ -1121,8 +1174,8 @@ test('a linha de status da instalação vence a do aviso de fala, que volta ao f
   expect(lines.at(-1)).toBe('🔊 falando: outro-projeto')
 })
 
-test('o aviso fixo (sem uv) também vence a do aviso de fala', async ($, on) => {
-  const { lines, clock, speech } = await setup($, on, { autoinstall: 'no-uv', init: { engine: false } })
+test('o aviso fixo (sem uv) também vence a do aviso de fala no VS Code', async ($, on) => {
+  const { lines, clock, speech } = await setup($, on, { surface: 'vscode', autoinstall: 'no-uv', init: { engine: false } })
   speech.playing = OTHER
   await clock.advance(10000)
   expect(lines).not.toContain('🔊 falando: outro-projeto')
