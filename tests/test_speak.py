@@ -2514,6 +2514,51 @@ class Pause(unittest.TestCase):
         self.assertEqual(calls[0]['env']['CLAUDE_SPEAK_HOW'], 'full')
         self.assertEqual(speak.read_session(self.me).get('dir'), '/x/projeto')
 
+    # Pedido do Ricardo em 16/11/2026: o aviso dizia "Jane falando em sobras-teste-bateria", o nome da cópia de
+    # trabalho (worktree), em vez do projeto. A pasta anotada é a do repositório principal.
+    def test_the_folder_told_is_the_project_not_the_worktree_or_a_subfolder(self):
+        import subprocess
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as tmp:
+            main = os.path.join(tmp, 'smart-platform')
+            git = ['git', '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main']
+            subprocess.run(git + ['init', '-q', main], check=True)
+            os.makedirs(os.path.join(main, 'src', 'app'))
+            subprocess.run(git + ['-C', main, 'commit', '-q', '--allow-empty', '-m', 'x'], check=True)
+            work = os.path.join(tmp, 'worktrees', 'sobras-teste-bateria')
+            subprocess.run(git + ['-C', main, 'worktree', 'add', '-q', '-b', 'sobras', work], check=True)
+            os.makedirs(os.path.join(work, 'docs'))
+            loose = os.path.join(tmp, 'solta')
+            os.makedirs(loose)
+            real = os.path.realpath(main)
+            self.assertEqual(speak.project_folder(main), real)
+            self.assertEqual(speak.project_folder(os.path.join(main, 'src', 'app')), real)
+            self.assertEqual(speak.project_folder(work), real)
+            self.assertEqual(speak.project_folder(os.path.join(work, 'docs')), real)
+            self.assertEqual(speak.project_folder(loose), loose)
+            self.assertEqual(speak.project_folder('/x/nao-existe'), '/x/nao-existe')
+            calls = []
+            with mock.patch.object(speak.subprocess, 'Popen', lambda cmd, **k: calls.append(k)), \
+                    mock.patch.object(speak, 'engine_ready', lambda: True), \
+                    mock.patch.dict(os.environ, {'CLAUDE_SPEAK_CWD': work}):
+                speak.speak_background('oi', self.me)
+            self.assertEqual(calls[0]['env']['CLAUDE_SPEAK_DIR'], real)
+            self.assertEqual(speak.read_session(self.me).get('dir'), real)
+
+    def test_a_submodule_is_a_project_and_a_broken_git_file_leaves_the_folder_as_given(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sub = os.path.join(tmp, 'super', 'libs', 'motor')
+            os.makedirs(os.path.join(tmp, 'super', '.git', 'modules', 'motor'))
+            os.makedirs(os.path.join(sub, 'src'))
+            with open(os.path.join(sub, '.git'), 'w') as fh:
+                fh.write('gitdir: ../../.git/modules/motor\n')
+            self.assertEqual(speak.project_folder(os.path.join(sub, 'src')), os.path.realpath(sub))
+            odd = os.path.join(tmp, 'estranha')
+            os.makedirs(odd)
+            with open(os.path.join(odd, '.git'), 'w') as fh:
+                fh.write('lixo\n')
+            self.assertEqual(speak.project_folder(odd), odd)
+
     def test_the_stop_hook_hands_over_its_folder(self):
         from unittest import mock
         calls = []
@@ -4650,7 +4695,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.34.0')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.34.1')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

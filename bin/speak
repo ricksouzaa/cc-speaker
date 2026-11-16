@@ -1331,13 +1331,44 @@ def resume_wait(pid):
         clear_speech(os.getpid())  # still holding the turn only when something went wrong above
 
 
+def project_folder(path):
+    """The folder the other sessions are told this one speaks from: the main checkout of the git repository `path` is
+    in, so that a worktree (named after its branch) or a subfolder still shows the project's name; `path` itself out
+    of a repository. Read from the `.git` entries, without running git (on a Mac without the developer tools, `git`
+    opens a window asking to install them)."""
+    here = os.path.realpath(path)
+    while True:
+        mark = os.path.join(here, '.git')
+        if os.path.isdir(mark):
+            return here
+        if os.path.isfile(mark):  # a worktree or a submodule: "gitdir: <its folder inside the main .git>"
+            try:
+                with open(mark) as fh:
+                    line = fh.read().strip()
+                if not line.startswith('gitdir:'):
+                    return path
+                gitdir = os.path.join(here, line[len('gitdir:'):].strip())
+                with open(os.path.join(gitdir, 'commondir')) as fh:
+                    common = os.path.normpath(os.path.join(gitdir, fh.read().strip()))
+            except OSError:
+                return here  # a submodule has no commondir: it is a project of its own
+            name = os.path.basename(common)
+            if name == '.git':
+                return os.path.dirname(common)
+            return os.path.join(os.path.dirname(common), name[:-4]) if name.endswith('.git') and len(name) > 4 else here
+        up = os.path.dirname(here)
+        if up == here:
+            return path
+        here = up
+
+
 def speak_background(text, session, force=False, how=None):
     """Speaks `text` for `session`, in order of arrival: the speech process joins the queue and waits its turn
     (it never cuts the speech playing). A muted session does not speak, unless `force` (an explicit request)."""
     if not text.strip() or not (force or is_on(session)) or not engine_ready():
         return 0
     os.makedirs(STATE, exist_ok=True)
-    folder = os.environ.get('CLAUDE_SPEAK_CWD') or os.getcwd()
+    folder = project_folder(os.environ.get('CLAUDE_SPEAK_CWD') or os.getcwd())
     try:
         if session and read_session(session).get('dir') != folder:
             set_session(session, dir=folder)  # the other sessions are told where this one works

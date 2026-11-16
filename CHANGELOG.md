@@ -7,6 +7,11 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.34.1] - 2026-11-16
+
+### Corrigido
+- **O aviso de quem fala mostrava o nome do ramo em vez do projeto.** Numa sessão que trabalha numa cópia de trabalho do git (worktree), cuja pasta costuma ter o nome do ramo, o aviso dizia "🔊 Jane falando em sobras-teste-bateria". Agora diz o nome do repositório ("🔊 Jane falando em smart-platform"), também quando a sessão está numa subpasta do projeto.
+
 ## [0.34.0] - 2026-11-16
 
 ### Alterado
@@ -524,7 +529,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.34.0...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.34.1...HEAD
+[0.34.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.34.0...v0.34.1
 [0.34.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.33.2...v0.34.0
 [0.33.2]: https://github.com/ricksouzaa/cc-speaker/compare/v0.33.1...v0.33.2
 [0.33.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.33.0...v0.33.1
