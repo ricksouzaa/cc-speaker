@@ -7,6 +7,11 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.33.1] - 2026-11-16
+
+### Corrigido
+- Nada muda para quem usa a 0.33.0. Esta versão só corrige dois testes do projeto que, desde a 0.33.0, precisavam do `numpy` e falhavam nas máquinas de teste do GitHub, onde ele não está instalado.
+
 ## [0.33.0] - 2026-11-16
 
 ### Alterado
@@ -507,7 +512,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.33.0...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.33.1...HEAD
+[0.33.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.33.0...v0.33.1
 [0.33.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.32.0...v0.33.0
 [0.32.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.31.0...v0.32.0
 [0.31.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.30.0...v0.31.0

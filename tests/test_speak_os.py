@@ -455,6 +455,8 @@ class MacTest(unittest.TestCase):
             mock.patch.dict(sys.modules, {'sounddevice': sounddevice}),
             mock.patch.object(speak.speak_pocket, 'Server', Engine),
             mock.patch.object(speak, 'heard', lambda pcm, speed: FakeSamples(pcm)),
+            mock.patch.object(speak, 'as_float', FakeSamples),  # Linux: the parts as they come, without numpy
+            mock.patch.object(speak, 'Stretcher', FakeStretcher),
             mock.patch.object(speak, 'write_wav', write),
             mock.patch.object(speak, 'ENGINE_LOG', os.path.join(state, 'engine.log')),
             mock.patch.dict(os.environ, {'CLAUDE_SPEAK_TEST': '1', 'CLAUDE_SPEAK_SESSION': '-'}),
@@ -695,6 +697,19 @@ class MacTest(unittest.TestCase):
         self.assertNotIn('afplay', out)
         code, calls, out = self.install_run('linux', True)
         self.assertEqual((code, [c[-1] for c in calls]), (0, ['numpy']))
+
+
+class FakeStretcher:
+    """In the place of speak.Stretcher at the normal speed: each part as it came, nothing at the end."""
+
+    def __init__(self, speed):
+        pass
+
+    def feed(self, samples):
+        return samples
+
+    def finish(self):
+        return ()
 
 
 class FakeSamples:
