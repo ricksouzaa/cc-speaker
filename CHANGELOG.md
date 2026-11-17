@@ -7,6 +7,11 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.35.4] - 2026-11-17
+
+### Corrigido
+- **CI e CD são falados em inglês quando o assunto é software.** CI sai como "si ai" (antes, "ceí"). CD sai como "si-dí" quando a mesma linha fala de CI ou de entrega de software (pipeline, deploy, build, esteira); fora disso continua "cedê", como no CD de música. E "CI/CD" escrito com barra não some mais da fala: antes era tomado por um caminho de arquivo.
+
 ## [0.35.3] - 2026-11-17
 
 ### Corrigido
@@ -549,7 +554,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.3...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.4...HEAD
+[0.35.4]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.3...v0.35.4
 [0.35.3]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.2...v0.35.3
 [0.35.2]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.1...v0.35.2
 [0.35.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.0...v0.35.1

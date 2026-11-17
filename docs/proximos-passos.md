@@ -153,6 +153,11 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 - O motor para 3 passos (0,24 s) depois de achar o fim de uma parte de mais de quatro palavras. A configuração aceita `model_recommended_frames_after_eos`, que vale para todas as partes. Medido com o transcritor, Jane e Rafael: "repositório" no fim da frase, com 3 passos, 9 de 16 certas; com 5, 4 de 8; com 6, 6 de 8; com 8, 16 de 16. "Documentação", "responsabilidade" e "velocidade" no fim da frase já saíam certas e seguiram certas. Ficou 8: cada parte fica 0,2 a 0,45 s mais longa (o primeiro som não muda).
 - A configuração agora é reescrita sempre que não é a que o plugin escreve (antes, só quando a pasta de dados mudava de lugar), para que um ajuste novo chegue a quem já tem o motor sem reinstalar.
 
+## Decisões de 17/11/2026: CI e CD em inglês (0.35.4)
+
+- Ele pediu CI e CD em inglês conforme o contexto. CI é sempre a integração contínua: "si ai". CD vira "si-dí" quando a mesma linha fala de CI ou de entrega de software (pipeline, deploy, build, esteira, GitHub Actions, entrega contínua); fora disso fica "cedê" (CD de música, centro de distribuição). "CI/CD" com barra sumia da fala, tomado por caminho.
+- Com o transcritor, em 8 falas (Jane e Rafael, duas frases), com e sem o glossário de TI: CI como "si ai" 8 e 5, "si-ái" 8 e 4, "siái" 7 e 3, o "ceí" de antes 7 e 3 (sem glossário, ouvido como "sei"); CD como "si-dí" 8 e 3, "sidí" 8 e 2, "si di" 4 e 0 (sem glossário, depois de "de", o transcritor ouve "decidir"). Quem aprova é o ouvido dele.
+
 ## Feito
 
 - Plugin `speak` no catálogo `cc-speaker`, com o comando `/speak`: um painel com listas nativas (ligar, leitura, tamanho, voz, alcance) que fica aberto até Esc, pedidos em palavras e o motor instalado sozinho na primeira sessão.

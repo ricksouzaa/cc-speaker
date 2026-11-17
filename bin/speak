@@ -763,6 +763,26 @@ RESPELL.update({'PUBLICO': 'publíco', 'INICIO': 'inicío', 'TERMINO': 'termíno
                 'CRITICO': 'critíco', 'PRATICO': 'pratíco', 'DEPOSITO': 'deposíto', 'NUMERO': 'numéro',
                 'PUBLICA': 'publíca', 'PRATICA': 'pratíca', 'CRITICA': 'critíca', 'DUVIDA': 'duvída',
                 'INFLUENCIA': 'influencía', 'EVIDENCIA': 'evidencía', 'REFERENCIA': 'referencía'})
+# CI and CD, which Ricardo asked on 17/11/2026 to hear in English when the context is software. CI is always the
+# continuous integration; CD only when the same line speaks of CI or of delivering software (pipeline, deploy), else it
+# stays "cedê" (the music CD, a distribution centre). CI/CD written with a slash was dropped as a path before. Out of 8
+# (Jane and Rafael), heard as the acronym by the transcriber with the IT words as context and without them: CI 8 and 5
+# as "si ai" (the Portuguese "ceí" 7 and 3, heard as "sei"); CD 8 and 3 as "si-dí" ("cedê" 8 and 7, but Portuguese).
+CI_SPOKEN, CD_SPOKEN = 'si ai', 'si-dí'
+CD_CONTEXT = re.compile(r'(?<![\w-])CIs?(?![\w-])|(?i:\b(?:pipelines?|deploys?|builds?|esteiras?|devops|github actions|'
+                        r'gitlab|jenkins|integra[çc][ãa]o cont[íi]nua|entrega cont[íi]nua|implanta[çc][ãa]o cont[íi]nua|'
+                        r'continuous|workflows?)\b)')
+
+
+def english_ci_cd(text):
+    """CI -> "si ai" and, in a line about software, CD -> "si-dí" (CI/CD, CI-CD, CI & CD: both). Before the
+    acronyms are spelled, and before the path rule takes CI/CD."""
+    text = re.sub(r'(?<![\w-])CI\s*[/&+-]\s*CD(?![\w-])', CI_SPOKEN + ' ' + CD_SPOKEN, text)
+    if CD_CONTEXT.search(text):
+        text = re.sub(r'(?<![\w-])CD(s?)(?![\w-])', CD_SPOKEN + r'\1', text)
+    return re.sub(r'(?<![\w-])CI(s?)(?![\w-])', CI_SPOKEN + r'\1', text)
+
+
 SUFFIXES = {'rc': 'érre cê', 'beta': 'beta', 'alpha': 'alfa'}  # 0.25.0-rc1
 
 
@@ -779,6 +799,7 @@ def clean(text):
     text = speak_numbers.forms(text)  # money, hours, dates, percentages: before a rule below takes their pieces
     text = re.sub(r'(?<![\w.-])' + VERSION + r'(?![\w-]|\.\d)', _version_spoken, text)  # 0.9.1, v2.1.312
     text = re.sub(r'\bHEAD\b', '', text)
+    text = english_ci_cd(text)
     text = spelled_acronyms(text)
     text = text.replace('·', ', ')
     text = re.sub(r'(?i)\b(ramos?|branch|worktree)\s+(?=[\w./-]*[-_\d/])[\w/-]+(?:\.[\w/-]+)*', r'\1', text)  # branch name
