@@ -757,6 +757,10 @@ RESPELL.update({'OK': 'okei', 'OKAY': 'okei'})
 # Maven, heard wrong by Ricardo on 16/11/2026 (said as Portuguese, "mávem"): out of 8, heard as the word as written 6
 # with the IT words given to the transcriber and 0 without them; "mêivem" 8 and 6 ("méiven" 8 and 3, "mêi-ven" 8 and 5).
 RESPELL.update({'MAVEN': 'mêivem'})
+# Pipeline, heard as written by Ricardo on 17/11/2026 (said as Portuguese, "pipelíni"): out of 8, heard as the word as
+# written 5 without the IT words given to the transcriber and 7 with them ("Piperine", "Pipilini"); "páiplaine",
+# "páipláin", "páip-láin" and "paipláine" 8 and 8. Kept the one with the stress where English puts it.
+RESPELL.update({'PIPELINE': 'páiplaine', 'PIPELINES': 'páiplaines'})
 # A verb written like a noun that has an accent ("eu publico" and "o público"): without the accent the engine says the
 # noun, which it has heard more. The accent on the syllable the verb stresses makes it say the verb.
 RESPELL.update({'PUBLICO': 'publíco', 'INICIO': 'inicío', 'TERMINO': 'termíno', 'CALCULO': 'calcúlo',

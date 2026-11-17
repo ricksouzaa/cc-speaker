@@ -158,6 +158,10 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 - Ele pediu CI e CD em inglês conforme o contexto. CI é sempre a integração contínua: "si ai". CD vira "si-dí" quando a mesma linha fala de CI ou de entrega de software (pipeline, deploy, build, esteira, GitHub Actions, entrega contínua); fora disso fica "cedê" (CD de música, centro de distribuição). "CI/CD" com barra sumia da fala, tomado por caminho.
 - Com o transcritor, em 8 falas (Jane e Rafael, duas frases), com e sem o glossário de TI: CI como "si ai" 8 e 5, "si-ái" 8 e 4, "siái" 7 e 3, o "ceí" de antes 7 e 3 (sem glossário, ouvido como "sei"); CD como "si-dí" 8 e 3, "sidí" 8 e 2, "si di" 4 e 0 (sem glossário, depois de "de", o transcritor ouve "decidir"). Quem aprova é o ouvido dele.
 
+## Decisões de 17/11/2026: o "pipeline" (0.35.5)
+
+- Ele ouviu "pipeline" como se escreve, não como em inglês. Com o transcritor, em 8 falas (Jane e Rafael, duas frases), sem e com o glossário de TI: "pipeline" 5 e 7 ("Piperine", "Pipilini"); "páiplaine", "páipláin", "páip-láin" e "paipláine" 8 e 8. Ficou "páiplaine", com a tônica onde o inglês a põe.
+
 ## Feito
 
 - Plugin `speak` no catálogo `cc-speaker`, com o comando `/speak`: um painel com listas nativas (ligar, leitura, tamanho, voz, alcance) que fica aberto até Esc, pedidos em palavras e o motor instalado sozinho na primeira sessão.

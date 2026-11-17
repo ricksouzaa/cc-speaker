@@ -258,8 +258,9 @@ class Filter(unittest.TestCase):
         # OK, in any case, heard wrong by Ricardo on 16/11/2026
         self.assertEqual(speak.clean('OK, ficou ok. Tudo Ok? Okay.'), 'okei, ficou okei. Tudo okei? okei.')
         self.assertEqual(speak.clean('O Maven e o maven.'), 'O mêivem e o mêivem.')  # heard as "mávem"
+        self.assertEqual(speak.clean('O Pipeline e os pipelines.'), 'O páiplaine e os páiplaines.')  # "pipelíni"
         # CI and CD in English when the line is about software; the music CD stays "cedê"; CI/CD is not a path
-        self.assertEqual(speak.clean('O pipeline de CI/CD quebrou.'), 'O pipeline de si ai si-dí quebrou.')
+        self.assertEqual(speak.clean('O pipeline de CI/CD quebrou.'), 'O páiplaine de si ai si-dí quebrou.')
         self.assertEqual(speak.clean('Rodei o CI e o CD. Os CIs passaram.'), 'Rodei o si ai e o si-dí. Os si ais passaram.')
         self.assertEqual(speak.clean('CI-CD no GitHub Actions'), 'si ai si-dí no guitirrâbe Actions')
         self.assertEqual(speak.clean('O CD faz o deploy sozinho.'), 'O si-dí faz o deploy sozinho.')
@@ -4850,7 +4851,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.35.4')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.35.5')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):
