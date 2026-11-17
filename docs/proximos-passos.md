@@ -147,6 +147,12 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 
 - Ele ouviu o "Maven" errado: o motor lia "mávem". Com o transcritor, em 8 falas (Jane e Rafael, duas frases), com e sem o glossário de TI: "Maven" 6 e 0; "mêivem" 8 e 6; "mêi-ven" 8 e 5; "méiven" 8 e 3; "mêiven" 7 (só com glossário); "mêivân" 4. Ficou "mêivem".
 
+## Decisões de 17/11/2026: a última palavra da frase (0.35.3)
+
+- Ele ouviu "repositório" errado. A palavra sozinha, no meio da frase, saiu certa em 48 de 48 falas; o erro era a posição: no fim de uma parte, o motor corta o final da última palavra longa ("reposito", "repos", ou nada). Na frase que ele ouviu ("…no primeiro commit do repositório."), 3 de 8 certas.
+- O motor para 3 passos (0,24 s) depois de achar o fim de uma parte de mais de quatro palavras. A configuração aceita `model_recommended_frames_after_eos`, que vale para todas as partes. Medido com o transcritor, Jane e Rafael: "repositório" no fim da frase, com 3 passos, 9 de 16 certas; com 5, 4 de 8; com 6, 6 de 8; com 8, 16 de 16. "Documentação", "responsabilidade" e "velocidade" no fim da frase já saíam certas e seguiram certas. Ficou 8: cada parte fica 0,2 a 0,45 s mais longa (o primeiro som não muda).
+- A configuração agora é reescrita sempre que não é a que o plugin escreve (antes, só quando a pasta de dados mudava de lugar), para que um ajuste novo chegue a quem já tem o motor sem reinstalar.
+
 ## Feito
 
 - Plugin `speak` no catálogo `cc-speaker`, com o comando `/speak`: um painel com listas nativas (ligar, leitura, tamanho, voz, alcance) que fica aberto até Esc, pedidos em palavras e o motor instalado sozinho na primeira sessão.

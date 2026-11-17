@@ -47,6 +47,11 @@ VOICES_REVISION = 'a3055dcb533cf2ec90458008a01e7cef550bae2a'  # of the voices
 # came out "valida" in 4 of 52 speeches of the voice Jane, larger model); with -1.0, in none of 52. The speech is
 # as long as before.
 EOS_THRESHOLD = -1.0
+# How many steps (0.08 s each) the model goes on after it found the end of a part, before the program stops it (the
+# program's own is 3 for a part of more than four words, 5 for a shorter one). With 3 the end of a long last word was
+# still cut now and then: "repositório" at the end of a sentence came out "reposito" (or not at all) in 7 of 16
+# speeches of Jane and Rafael; with 6 in 2 of 8; with 8 in none of 16. It lengthens each part by about 0.3 s.
+FRAMES_AFTER_EOS = 8
 RATE = 24000  # what the server gives: mono, 16 bits
 START_WAIT = 60.0  # seconds for the server to load the model and answer
 PIECE_WAIT = 300.0  # seconds for the audio of one piece
@@ -171,7 +176,7 @@ def check_config(text, model):
 def local_config(text, folder):
     """The project's configuration of a model with the places of its files written as paths in `folder` (the lines
     that named Hugging Face are the ones that made the program ask the network at each start) and with
-    EOS_THRESHOLD as the last line."""
+    EOS_THRESHOLD and FRAMES_AFTER_EOS as the last lines."""
     weights = os.path.join(folder, 'model.safetensors')
     text, found = re.subn(r'(?m)^(weights_path(?:_without_voice_cloning)?:)[ \t]*\S.*$',
                           lambda m: '%s %s' % (m.group(1), weights), text)
@@ -179,8 +184,9 @@ def local_config(text, folder):
                               lambda m: '%s %s' % (m.group(1), os.path.join(folder, 'tokenizer.json')), text)
     if not found or not tokenizer or re.search(r'\b(?:hf|https?)://', text):
         raise ValueError('a configuração do modelo veio num formato que o plugin não conhece')
-    text = re.sub(r'(?m)^default_eos_threshold:.*\n?', '', text)
-    return '%s\ndefault_eos_threshold: %s\n' % (text.rstrip('\n'), EOS_THRESHOLD)
+    text = re.sub(r'(?m)^(?:default_eos_threshold|model_recommended_frames_after_eos):.*\n?', '', text)
+    return '%s\ndefault_eos_threshold: %s\nmodel_recommended_frames_after_eos: %d\n' % (
+        text.rstrip('\n'), EOS_THRESHOLD, FRAMES_AFTER_EOS)
 
 
 def write_config(folder):
@@ -198,11 +204,14 @@ def write_config(folder):
 
 
 def settle_config(folder):
-    """The configuration holds whole paths: when the data folder moved (another home, another CLAUDE_CONFIG_DIR) it
-    is written again for where the files are now. Without the files to do it, it stays as it is."""
+    """The configuration is written again when it is not the one this plugin writes: the data folder moved (another
+    home, another CLAUDE_CONFIG_DIR: it holds whole paths), or a new version of the plugin changed a setting. Without
+    the files to do it, it stays as it is."""
     try:
+        with open(os.path.join(folder, 'original.yaml'), encoding='utf-8') as fh:
+            wanted = local_config(fh.read(), folder)
         with open(config(folder), encoding='utf-8') as fh:
-            if os.path.join(folder, 'model.safetensors') in fh.read():
+            if fh.read() == wanted:
                 return
         write_config(folder)
     except (OSError, ValueError):

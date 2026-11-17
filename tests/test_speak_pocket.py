@@ -212,16 +212,24 @@ class Config(unittest.TestCase):
         self.assertNotIn('hf://', text)
         self.assertIn('  #weights_path: partial.safetensors\n', text)  # a comment stays as it was
         self.assertIn('mimi:\n  sample_rate: 24000\n', text)  # and so does everything else
-        self.assertEqual(len(text.splitlines()), len(CONFIG.splitlines()) + 1)  # one line more: the next test
+        self.assertEqual(len(text.splitlines()), len(CONFIG.splitlines()) + 2)  # two lines more: the next tests
 
     def test_the_end_of_a_sentence_is_asked_with_more_certainty(self):
         # with the program's own -4.0 the last syllable of a sentence was swallowed now and then ("valida...")
         text = speak_pocket.local_config(CONFIG, '/dados/engine')
-        self.assertTrue(text.endswith('\ndefault_eos_threshold: -1.0\n'))
-        self.assertEqual(len(text.splitlines()), len(CONFIG.splitlines()) + 1)
+        self.assertIn('\ndefault_eos_threshold: -1.0\n', text)
         again = speak_pocket.local_config(CONFIG.rstrip('\n') + '\ndefault_eos_threshold: -4.0\n', '/dados/engine')
         self.assertEqual(again.count('default_eos_threshold'), 1)  # the project's own, if it ever comes, is replaced
-        self.assertTrue(again.endswith('\ndefault_eos_threshold: -1.0\n'))
+        self.assertIn('\ndefault_eos_threshold: -1.0\n', again)
+
+    def test_the_model_goes_on_a_little_after_the_end_of_a_part(self):
+        # with the program's own 3 steps the end of a long last word was cut now and then ("reposito...")
+        text = speak_pocket.local_config(CONFIG, '/dados/engine')
+        self.assertTrue(text.endswith('\nmodel_recommended_frames_after_eos: 8\n'))
+        again = speak_pocket.local_config(CONFIG.rstrip('\n') + '\nmodel_recommended_frames_after_eos: 2\n',
+                                          '/dados/engine')
+        self.assertEqual(again.count('model_recommended_frames_after_eos'), 1)
+        self.assertTrue(again.endswith('\nmodel_recommended_frames_after_eos: 8\n'))
 
     def test_a_configuration_in_a_shape_the_plugin_does_not_know_is_refused(self):
         for broken in (CONFIG.replace('weights_path', 'pesos'),
@@ -536,6 +544,16 @@ class Server(Base):
             text = fh.read()
         self.assertIn('weights_path: %s\n' % os.path.join(moved, 'model.safetensors'), text)
         self.assertNotIn(os.path.join(self.tmp.name, 'engine'), text)
+        self.assertEqual(len(server.speak('oi')), 4)
+
+    def test_a_configuration_written_by_an_older_version_is_written_again(self):
+        with open(speak_pocket.config(self.folder)) as fh:
+            old = fh.read().replace('model_recommended_frames_after_eos: 8\n', '')
+        with open(speak_pocket.config(self.folder), 'w') as fh:
+            fh.write(old)
+        server = self.start()
+        with open(speak_pocket.config(self.folder)) as fh:
+            self.assertTrue(fh.read().endswith('\nmodel_recommended_frames_after_eos: 8\n'))
         self.assertEqual(len(server.speak('oi')), 4)
 
     def test_kill_ends_the_program_at_once_and_close_still_works(self):

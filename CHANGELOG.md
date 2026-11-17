@@ -7,6 +7,11 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.35.3] - 2026-11-17
+
+### Corrigido
+- **A última palavra da frase não sai mais cortada.** Uma palavra longa no fim da frase às vezes perdia o final: "repositório" saía "reposito", ou nem saía. Agora a voz continua um instante a mais depois do fim de cada frase. A pausa entre as frases fica cerca de 0,3 segundo maior. Quem já tem o motor instalado recebe o ajuste sozinho, na próxima fala.
+
 ## [0.35.2] - 2026-11-16
 
 ### Corrigido
@@ -544,7 +549,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.2...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.3...HEAD
+[0.35.3]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.2...v0.35.3
 [0.35.2]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.1...v0.35.2
 [0.35.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.0...v0.35.1
 [0.35.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.34.1...v0.35.0
