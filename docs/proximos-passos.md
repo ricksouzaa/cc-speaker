@@ -161,6 +161,7 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 ## Decisões de 17/11/2026: o "pipeline" (0.35.5)
 
 - Ele ouviu "pipeline" como se escreve, não como em inglês. Com o transcritor, em 8 falas (Jane e Rafael, duas frases), sem e com o glossário de TI: "pipeline" 5 e 7 ("Piperine", "Pipilini"); "páiplaine", "páipláin", "páip-láin" e "paipláine" 8 e 8. Ficou "páiplaine", com a tônica onde o inglês a põe.
+- Na 0.35.6, de ouvido: o "páiplaine" ainda soou estranho, e nenhuma escrita soou exatamente como o inglês (o motor só fala português e anasala o "láin"). Ele ouviu oito: "páip-láin", "páipláin", "paip láin", "páiplain", "páipi-láini", "páiplaini", "páipe-láine" e "páip-laini". A melhor foi "páipi-láini", como o brasileiro fala; depois, "páipe-láine". Ficou "páipi-láini".
 
 ## Feito
 

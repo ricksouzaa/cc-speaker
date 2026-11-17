@@ -7,6 +7,11 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.35.6] - 2026-11-17
+
+### Corrigido
+- **"Pipeline" soa mais natural: "páipi-láini", como se fala no Brasil.** O "páiplaine" da 0.35.5 ainda soava estranho. Vale também para "pipelines".
+
 ## [0.35.5] - 2026-11-17
 
 ### Corrigido
@@ -559,7 +564,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.5...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.6...HEAD
+[0.35.6]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.5...v0.35.6
 [0.35.5]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.4...v0.35.5
 [0.35.4]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.3...v0.35.4
 [0.35.3]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.2...v0.35.3
