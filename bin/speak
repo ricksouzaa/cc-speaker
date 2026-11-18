@@ -2089,6 +2089,22 @@ def progress_report(steps, model=None):
     return report
 
 
+def venv_on_system_python(uv):
+    """True when the engine's environment was made from a Python outside uv's own folder: one the system's packages
+    own and may remove (an `apt autoremove` after an Ubuntu upgrade took Python 3.12 on 18/11/2026, and the engine
+    stopped starting). False when there is no environment or it cannot be told."""
+    try:
+        with open(os.path.join(DATA, '.venv', 'pyvenv.cfg')) as fh:
+            home = next((line.split('=', 1)[1].strip() for line in fh
+                         if '=' in line and line.split('=', 1)[0].strip() == 'home'), '')
+        managed = subprocess.run([uv, 'python', 'dir'], capture_output=True, text=True, timeout=30).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if not home or not managed:
+        return False
+    return not os.path.realpath(home).startswith(os.path.realpath(managed) + os.sep)
+
+
 def former_engine():
     """What Kokoro, the engine until 0.23.0, left in the data folder: its model, its voices and, in the Python
     environment, its package (with what it brought, hundreds of MB)."""
@@ -2118,15 +2134,16 @@ def install_steps(uv):
     steps = 1 + len(speak_pocket.wanted(DATA, speak_os.SYSTEM, model, READING_VOICES))  # the dependencies, then each file
     write_progress(fase='dependências', modelo=model, passo=1, passos=steps)
     former = former_engine()
-    if former or not venv_works():
+    if former or not venv_works() or venv_on_system_python(uv):
         # rebuilt alone: the model and voices beside it are not downloaded again. With the former engine there, the
-        # environment goes too, so nothing of it is left taking room.
+        # environment goes too, so nothing of it is left taking room. Always from uv's own Python (downloaded once
+        # into the home folder), never the system's, which the system's packages may remove.
         venv = os.path.join(DATA, '.venv')
         if os.path.islink(venv):
             os.remove(venv)
         elif os.path.isdir(venv):
             shutil.rmtree(venv)
-        subprocess.check_call([uv, 'venv', '--python', '3.12', '-q', venv])
+        subprocess.check_call([uv, 'venv', '--python', '3.12', '--managed-python', '-q', venv])
     subprocess.check_call([uv, 'pip', 'install', '-q', '--python', VENV_PY] + PACKAGES)
     if speak_os.SYSTEM == 'mac':  # a separate step: without it the Mac plays through afplay
         try:

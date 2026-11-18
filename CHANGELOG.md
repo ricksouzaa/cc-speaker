@@ -7,6 +7,11 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.35.7] - 2026-11-18
+
+### Corrigido
+- **O motor de voz não para mais quando uma limpeza do sistema remove o Python dele.** O ambiente do motor podia ficar sobre o Python do sistema, e um `apt autoremove`, depois de atualizar o Ubuntu, removia esse Python. A partir daí o plugin dizia que o motor não estava instalado. Agora o `speak install` usa sempre o Python que o uv guarda na sua pasta pessoal. Se o ambiente ainda estiver sobre o Python do sistema, mesmo funcionando, ele é refeito. O modelo e as vozes não são baixados de novo.
+
 ## [0.35.6] - 2026-11-17
 
 ### Corrigido
@@ -564,7 +569,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.6...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.7...HEAD
+[0.35.7]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.6...v0.35.7
 [0.35.6]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.5...v0.35.6
 [0.35.5]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.4...v0.35.5
 [0.35.4]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.3...v0.35.4

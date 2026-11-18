@@ -4324,7 +4324,7 @@ class InstallLock(unittest.TestCase):
         self.assertIn('segundo plano', err.getvalue())
         self.assertNotIn('rode: speak install', err.getvalue())
 
-    def install(self, venv_works=True, engine=None, program=True, uv_run=None):
+    def install(self, venv_works=True, engine=None, program=True, uv_run=None, on_system=False):
         """speak.install_marked() with a fake uv; returns (code, the uv commands run, what the engine's own install
         was called with, what was printed)."""
         uv = os.path.join(self.tmp.name, 'uv')
@@ -4332,6 +4332,7 @@ class InstallLock(unittest.TestCase):
         calls, handed, out, err = [], [], io.StringIO(), io.StringIO()
         patches = [self.mock.patch.object(speak.shutil, 'which', return_value=uv),
                    self.mock.patch.object(speak, 'venv_works', return_value=venv_works),
+                   self.mock.patch.object(speak, 'venv_on_system_python', return_value=on_system),
                    self.mock.patch.object(speak.subprocess, 'check_call',
                                           side_effect=lambda cmd: calls.append(cmd[1:]) or (uv_run and uv_run(cmd))),
                    self.mock.patch.object(speak.speak_pocket, 'install',
@@ -4370,7 +4371,7 @@ class InstallLock(unittest.TestCase):
         self.assertEqual(code, 0, said)
         self.assertEqual(seen, [[False, False, False]])  # all gone before the new engine is downloaded
         venv = os.path.join(speak.DATA, '.venv')
-        self.assertEqual(calls, [['venv', '--python', '3.12', '-q', venv],
+        self.assertEqual(calls, [['venv', '--python', '3.12', '--managed-python', '-q', venv],
                                  ['pip', 'install', '-q', '--python', speak.VENV_PY, 'numpy']])
         self.assertIn('voz: o motor antigo (Kokoro) foi removido\n', said)
         self.assertEqual(speak.former_engine(), [])
@@ -4379,6 +4380,40 @@ class InstallLock(unittest.TestCase):
         code, calls, handed, said = self.install(venv_works=False)
         self.assertEqual((code, calls[0][0], len(handed)), (0, 'venv', 1), said)
         self.assertNotIn('Kokoro', said)
+
+    def test_the_environment_is_made_from_the_python_uv_manages(self):
+        """Made from the system's Python, the environment breaks when the system's packages remove that Python (an
+        `apt autoremove` after an Ubuntu upgrade did it on 18/11/2026); uv's own Python lives in the home folder."""
+        code, calls, handed, said = self.install(venv_works=False)
+        self.assertEqual(code, 0, said)
+        self.assertIn('--managed-python', calls[0])
+
+    def test_an_environment_on_the_system_python_is_rebuilt_even_while_it_works(self):
+        code, calls, handed, said = self.install(on_system=True)
+        self.assertEqual(code, 0, said)
+        self.assertEqual(calls[0], ['venv', '--python', '3.12', '--managed-python', '-q',
+                                    os.path.join(speak.DATA, '.venv')])
+
+    def venv_home(self, home, managed):
+        os.makedirs(os.path.join(speak.DATA, '.venv'), exist_ok=True)
+        with open(os.path.join(speak.DATA, '.venv', 'pyvenv.cfg'), 'w') as fh:
+            fh.write('home = %s\nimplementation = CPython\nversion_info = 3.12.3\n' % home)
+        answer = self.mock.Mock(stdout=managed + '\n')
+        with self.mock.patch.object(speak.subprocess, 'run', return_value=answer) as run:
+            on_system = speak.venv_on_system_python('/bin/uv')
+        self.assertEqual(run.call_args[0][0], ['/bin/uv', 'python', 'dir'])
+        return on_system
+
+    def test_an_environment_on_usr_bin_is_on_the_system_python(self):
+        managed = os.path.join(self.tmp.name, 'uv-python')
+        self.assertTrue(self.venv_home('/usr/bin', managed))
+
+    def test_an_environment_on_the_uv_python_is_not_on_the_system_python(self):
+        managed = os.path.join(self.tmp.name, 'uv-python')
+        self.assertFalse(self.venv_home(os.path.join(managed, 'cpython-3.12-linux-x86_64-gnu', 'bin'), managed))
+
+    def test_without_an_environment_nothing_is_said_about_its_python(self):
+        self.assertFalse(speak.venv_on_system_python(os.path.join(self.tmp.name, 'no-uv')))
 
     def test_an_install_that_fails_at_the_environment_leaves_no_engine_that_looks_ready(self):
         """With the engine already there and its Python gone, the environment is rebuilt; if its package then fails
@@ -4851,7 +4886,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.35.6')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.35.7')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):
