@@ -7,6 +7,12 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.35.8] - 2026-11-18
+
+### Corrigido
+- **Palavras escritas em maiúsculas não são mais soletradas.** COMMON, SYSTEM, DEBUG, USER ou FALHA eram lidas letra por letra, como sigla. Agora, uma palavra de quatro a seis letras que está no dicionário do sistema (inglês ou português) é falada como palavra. Siglas de verdade, como IBGE, HTML e CNPJ, continuam soletradas, e as de duas ou três letras também (LOG, CPU). Sem dicionário no sistema, nada muda; o Linux costuma trazer um, e o Mac traz o de inglês.
+- **Uma letra colada a um número sai com o nome da letra.** Em listas de requisitos, R1 a R19 saem como "érre um" a "érre dezenove"; antes a letra sozinha saía errada em alguns. Vale para qualquer maiúscula sozinha antes de um número, com ou sem hífen: H2, A4, S3, R-7.
+
 ## [0.35.7] - 2026-11-18
 
 ### Corrigido
@@ -569,7 +575,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.7...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.8...HEAD
+[0.35.8]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.7...v0.35.8
 [0.35.7]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.6...v0.35.7
 [0.35.6]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.5...v0.35.6
 [0.35.5]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.4...v0.35.5

@@ -163,6 +163,11 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 - Ele ouviu "pipeline" como se escreve, não como em inglês. Com o transcritor, em 8 falas (Jane e Rafael, duas frases), sem e com o glossário de TI: "pipeline" 5 e 7 ("Piperine", "Pipilini"); "páiplaine", "páipláin", "páip-láin" e "paipláine" 8 e 8. Ficou "páiplaine", com a tônica onde o inglês a põe.
 - Na 0.35.6, de ouvido: o "páiplaine" ainda soou estranho, e nenhuma escrita soou exatamente como o inglês (o motor só fala português e anasala o "láin"). Ele ouviu oito: "páip-láin", "páipláin", "paip láin", "páiplain", "páipi-láini", "páiplaini", "páipe-láine" e "páip-laini". A melhor foi "páipi-láini", como o brasileiro fala; depois, "páipe-láine". Ficou "páipi-láini".
 
+## Decisões de 18/11/2026: palavras em maiúsculas e letra colada a número (0.35.8)
+
+- Ele pediu que COMMON, SECURITY e SYSTEM fossem faladas como palavras: as de até seis letras eram soletradas como sigla. Agora uma palavra de quatro a seis letras que está no dicionário do sistema (`/usr/share/dict`: inglês e, se houver, português), só em minúsculas (nome próprio não conta), é lida como palavra. Medido no dicionário desta máquina: nenhuma das siglas conferidas (IBGE, HTML, JSON, YAML, CNPJ, INSS, UUID, LGPD, HTTP, CORS) está nele; as que estão (CRUD, REST, SOAP, RAID, KISS, SOLID, ACID) também se falam como palavra. Ficaram de fora as de três letras (LOG, DEV, RUN), porque muitas siglas de três letras são palavras do dicionário (IDE, SAP, ETA). O dicionário não vai no plugin (o de português é GPL); sem ele, nada muda.
+- Lendo requisitos numerados (R1 a R19), a letra sozinha saía errada em alguns. Uma maiúscula sozinha colada a um número, com ou sem hífen, sai com o nome da letra, tônico: "érre um", "agá dois", "á quatro". Tocado para ele de ouvido.
+
 ## Feito
 
 - Plugin `speak` no catálogo `cc-speaker`, com o comando `/speak`: um painel com listas nativas (ligar, leitura, tamanho, voz, alcance) que fica aberto até Esc, pedidos em palavras e o motor instalado sozinho na primeira sessão.

@@ -681,6 +681,28 @@ WORD_ACRONYMS = frozenset((
 # Words often written all in capitals, which are neither acronyms to spell nor Roman numerals (MIX, MIL).
 CAPITAL_WORDS = frozenset(('NOTA AVISO NUNCA SEMPRE TODO TODOS TODAS ERRO DICA NADA TUDO AGORA ANTES DEPOIS README '
                            'MIX MIL').split())
+# English or Portuguese words written all in capitals (COMMON, SYSTEM, FALHA): one of four to six letters found in
+# the system's dictionary, in lower case (a name such as NASA does not count), is said as a word. Shorter ones stay
+# acronyms (LOG, CPU), since many acronyms of three letters are also words. Without a dictionary nothing changes.
+DICTIONARIES = ('/usr/share/dict/words', '/usr/share/dict/american-english', '/usr/share/dict/british-english',
+                '/usr/share/dict/brazilian', '/usr/share/dict/portuguese')
+_dictionary = None
+
+
+def dictionary_word(word):
+    """True if `word` (in capitals, four to six letters) is a common word in the system's dictionary."""
+    global _dictionary
+    if _dictionary is None:
+        _dictionary = set()
+        for path in DICTIONARIES:
+            try:
+                with open(path, encoding='utf-8', errors='replace') as fh:
+                    _dictionary.update(w for w in (line.strip() for line in fh) if re.fullmatch('[a-z]{4,6}', w))
+            except OSError:
+                pass
+    return len(word) >= 4 and word.lower() in _dictionary
+
+
 ROMAN = re.compile(r'(?=[IVXLCDM])M{0,3}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3})')
 ROMAN_VALUES = {'I': 1, 'V': 5, 'X': 10, 'L': 50, 'C': 100, 'D': 500, 'M': 1000}
 
@@ -696,7 +718,7 @@ def roman_number(word):
 
 def spelled_acronyms(text):
     """IBGE -> "ibegeé": capitals of two to six letters are spelled out, unless said as a word (WORD_ACRONYMS,
-    CAPITAL_WORDS or CONF/words: "Sus") or a Roman numeral (XIV -> "catorze", XLII -> "quarenta e dois"; one with C, D
+    CAPITAL_WORDS, CONF/words or a word of the system's dictionary: "Sus", "System") or a Roman numeral (XIV -> "catorze", XLII -> "quarenta e dois"; one with C, D
     or M is a numeral only from four letters on, so that CLI, MDX and MMC stay acronyms, and XL stays the size). The
     plural keeps its s (APIs -> "apeís") and a hyphen before a digit or another acronym becomes a space (UTF-8,
     PT-BR). A name with underscores (CLAUDE_SPEAK_SPEED) is said word by word. Any other word all in capitals
@@ -710,11 +732,13 @@ def spelled_acronyms(text):
     def spell(match):
         word, plural = match.group(1), match.group(2)
         tail = plural + (' ' if match.group(3) else '')
-        if word in WORD_ACRONYMS or word in CAPITAL_WORDS or word in own:
+        if word in WORD_ACRONYMS or word in CAPITAL_WORDS or word in own or dictionary_word(word):
             return word.capitalize() + tail
         if not plural and ROMAN.fullmatch(word) and re.fullmatch('[IVX]+|[IVXL]{3,}|[IVXLCDM]{4,}', word):
             return speak_numbers.cardinal(roman_number(word)) + tail
         return ''.join(LETTER_NAMES[c] for c in word[:-1]) + LAST_LETTER_NAMES[word[-1]] + tail
+    # R1 to R19 (requirements), H2, A4: a capital alone glued to a number is said by its name ("érre um").
+    text = re.sub(r'(?<![\w-])([A-Z])-?(?=\d)', lambda m: LAST_LETTER_NAMES[m.group(1)] + ' ', text)
     text = re.sub(r'(?<![\w-])[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+(?![\w-])', lambda m: m.group(0).replace('_', ' ').title(), text)
     text = re.sub(r'(?<![^\W\d])([A-Z]{2,6})(s?)(?![^\W\d])(-(?=[\dA-Z]))?', spell, text)
     return re.sub(r'(?<![^\W\d])[^\W\d_a-zà-ÿ]{2,}(?![^\W\d])', lambda m: m.group(0).capitalize(), text)

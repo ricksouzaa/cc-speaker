@@ -223,6 +223,31 @@ class Filter(unittest.TestCase):
             fh.write('# lidas como palavra\ncvm\nAnbima\n')
         self.assertEqual(speak.clean('A CVM e a ANBIMA.'), 'A Cvm e a Anbima.')
 
+    def test_a_dictionary_word_in_capitals_is_said_as_a_word(self):
+        # COMMON, SYSTEM: a word of four to six letters found in the system's dictionary (lower case, not a name)
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        words = os.path.join(tmp.name, 'words')
+        with open(words, 'w') as fh:
+            fh.write('common\nsystem\ndebug\nuser\nusers\nlog\nIBGE\nfalha\n')
+        with mock.patch.object(speak, 'DICTIONARIES', (words, os.path.join(tmp.name, 'none'))), \
+                mock.patch.object(speak, '_dictionary', None):
+            self.assertEqual(speak.clean('O COMMON SECURITY SYSTEM e o modo DEBUG.'),
+                             'O Common Security System e o modo Debug.')
+            self.assertEqual(speak.clean('Os USERs e a FALHA.'), 'Os Users e a Falha.')
+            # three letters stay an acronym, and so does one the dictionary has only as a name
+            self.assertEqual(speak.clean('O LOG, o IBGE e o CNPJ.'), 'O eleogê, o ibegeé e o ceenepejóta.')
+        with mock.patch.object(speak, 'DICTIONARIES', (os.path.join(tmp.name, 'none'),)), \
+                mock.patch.object(speak, '_dictionary', None):
+            self.assertEqual(speak.clean('O SYSTEM.'), 'O esseipsilonesseteeême.')
+
+    def test_a_capital_letter_glued_to_a_number_is_said_by_its_name(self):
+        # R1 to R19 in a list of requirements: the letter alone is said wrong, its name is said right
+        self.assertEqual(speak.clean('Os requisitos R1 a R19.'), 'Os requisitos érre um a érre dezenove.')
+        self.assertEqual(speak.clean('O H2, o A4, o S3 e o R-7.'), 'O agá dois, o á quatro, o ésse três e o érre sete.')
+        # a letter alone, after a digit or inside a word stays as it is
+        self.assertEqual(speak.clean('A e B, o 4K e o MP3.'), 'A e B, o quatro K e o emepê três.')
+
     def test_enem_is_respelt_and_the_letter_e_is_stressed(self):
         self.assertEqual(speak.clean('O Enem e o IBGE.'), 'O ênêi e o ibegeé.')
         self.assertEqual(speak.clean('O ENEM.'), 'O ênêi.')
@@ -4886,7 +4911,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.35.7')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.35.8')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):
