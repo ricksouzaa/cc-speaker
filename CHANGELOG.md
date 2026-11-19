@@ -7,6 +7,11 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.35.9] - 2026-11-19
+
+### Corrigido
+- **Listas marcadas com letras são lidas direito.** Em "a. item; b. item", a letra sozinha quase não saía na voz. Agora ela sai pelo nome, seguida de uma pausa curta: "á, item; bê, item". Vale para "a.", "b)" e "(c)" no começo da linha ou depois de dois-pontos e ponto e vírgula. Uma letra sozinha antes de ponto também sai pelo nome ("a opção b." vira "a opção bê."). Abreviações como "e.g." e "i.e." ficam como estão.
+
 ## [0.35.8] - 2026-11-18
 
 ### Corrigido
@@ -575,7 +580,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.8...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.9...HEAD
+[0.35.9]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.8...v0.35.9
 [0.35.8]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.7...v0.35.8
 [0.35.7]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.6...v0.35.7
 [0.35.6]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.5...v0.35.6

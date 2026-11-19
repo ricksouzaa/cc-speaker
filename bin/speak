@@ -816,6 +816,19 @@ def english_ci_cd(text):
 SUFFIXES = {'rc': 'érre cê', 'beta': 'beta', 'alpha': 'alfa'}  # 0.25.0-rc1
 
 
+def _letter_mark(match):
+    """A letter alone, which the engine hardly says, goes by its name. Marking an item at the start of the line or
+    after ; or : ("a. item", "b) item", "(c) item"), with a comma after it: "á, item"; elsewhere between
+    parentheses, without them: "ou (c)" -> "ou cê"; before a period elsewhere, with the period: "o plano C." -> "o plano cê."."""
+    name = LAST_LETTER_NAMES[match.group(2).upper()]
+    before = match.string[:match.start()].rstrip()
+    if not before or before[-1] in ';:':
+        return name + ','
+    if match.group(1):
+        return name
+    return name + '.' if match.group(0).endswith('.') else match.group(0)
+
+
 def clean(text):
     """One line of markdown made fit to be heard. A slash command (`/speak stop`, `/reload-plugins`) is read as
     "barra speak stop"; paths are dropped."""
@@ -841,6 +854,7 @@ def clean(text):
     text = re.sub(r'\b[\w-]+\.(?:py|sh|json|jsonl|md|js|ts|tsx|txt|log|wav|onnx|bin|yml|yaml|toml|html|css)\b', '', text)
     text = text.replace('→', ', ').replace('->', ', ')
     text = re.sub(r'[*_`#|~<>]', '', text)
+    text = re.sub(r'(?<![^\s;:])(\()?([A-Za-z])(?(1)\)|[.)])(?=\s|$)', _letter_mark, text)  # a. item, (b), plano C.
     text = re.sub(r'\(\s*[,;:]?\s*\)', '', text)
     text = re.sub(r'\s+([,;:.!?])', r'\1', text)
     text = re.sub(r'([,;:])(?:\s*[,;:])+', r'\1', text)

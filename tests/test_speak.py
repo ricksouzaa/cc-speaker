@@ -209,7 +209,7 @@ class Filter(unittest.TestCase):
         self.assertEqual(speak.clean('A API, o RH, o QA e a TI.'), 'A apeí, o erreagá, o queá e a teí.')
         self.assertEqual(speak.clean('Tarefa XII, capítulo IV.'), 'Tarefa doze, capítulo quatro.')
         self.assertEqual(speak.clean('O século XIX, o CL, o MD e o MIX.'), 'O século dezenove, o ceéle, o emedê e o Mix.')
-        self.assertEqual(speak.clean('ATENÇÃO: NÃO mexa, A e B.'), 'Atenção: Não mexa, A e B.')
+        self.assertEqual(speak.clean('ATENÇÃO: NÃO mexa, A e B.'), 'Atenção: Não mexa, A e bê.')
         self.assertEqual(speak.clean('IMPORTANTE: leia.'), 'Importante: leia.')
         self.assertEqual(speak.clean('Um CD novo, API-REST e INSS.'), 'Um cedê novo, apeí Rest e ieneesseésse.')
 
@@ -247,6 +247,16 @@ class Filter(unittest.TestCase):
         self.assertEqual(speak.clean('O H2, o A4, o S3 e o R-7.'), 'O agá dois, o á quatro, o ésse três e o érre sete.')
         # a letter alone, after a digit or inside a word stays as it is
         self.assertEqual(speak.clean('A e B, o 4K e o MP3.'), 'A e B, o quatro K e o emepê três.')
+
+    def test_a_list_marked_with_letters_says_the_name_of_the_letter(self):
+        # "a." alone was hardly said: a letter that marks a list item goes by its name
+        self.assertEqual(speak.full_text('Os itens:\n\ta. item um;\n   b. item dois;\n- c) item três\n(d) item quatro\nE. fim'),
+                         'Os itens. á, item um. bê, item dois. cê, item três. dê, item quatro. é, fim.')
+        self.assertEqual(speak.clean('Escolha: a) subir; b) descer; ou (c) ficar.'),
+                         'Escolha: á, subir; bê, descer; ou cê ficar.')
+        self.assertEqual(speak.clean('Fico com a opção b. Depois, o plano C.'), 'Fico com a opção bê. Depois, o plano cê.')
+        # a letter inside an abbreviation, a word or a closing parenthesis stays
+        self.assertEqual(speak.clean('Use e.g. isto (como a) e o x.'), 'Use e.g. isto (como a) e o xis.')
 
     def test_enem_is_respelt_and_the_letter_e_is_stressed(self):
         self.assertEqual(speak.clean('O Enem e o IBGE.'), 'O ênêi e o ibegeé.')
@@ -4911,7 +4921,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.35.8')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.35.9')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):
