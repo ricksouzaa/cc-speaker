@@ -7,6 +7,11 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.36.1] - 2026-11-19
+
+### Corrigido
+- **"Token" soa como entre programadores.** A voz lia como português; agora sai "tôuquen" (e "tôuquens" no plural), escolhido de ouvido.
+
 ## [0.36.0] - 2026-11-19
 
 ### Alterado
@@ -596,7 +601,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.36.0...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.36.1...HEAD
+[0.36.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.36.0...v0.36.1
 [0.36.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.11...v0.36.0
 [0.35.11]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.10...v0.35.11
 [0.35.10]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.9...v0.35.10

@@ -799,6 +799,8 @@ RESPELL.update({'CAFFEINE': 'cafín', 'DRIVER': 'dráiver', 'DRIVERS': 'dráiver
 RESPELL.update({'FAIL-OPEN': 'fêil-ôupen', 'FAIL OPEN': 'fêil ôupen'})
 # PgBouncer, heard wrong by Ricardo the same day: "pê-gê báuncer", chosen by ear over "pi-dji báuncer" and "pegê báunsser".
 RESPELL.update({'PGBOUNCER': 'pê-gê báuncer'})
+# Token, heard wrong by Ricardo the same day: "tôuquen", chosen by ear over "tôquen" and "tôkem".
+RESPELL.update({'TOKEN': 'tôuquen', 'TOKENS': 'tôuquens'})
 # A verb written like a noun that has an accent ("eu publico" and "o público"): without the accent the engine says the
 # noun, which it has heard more. The accent on the syllable the verb stresses makes it say the verb.
 RESPELL.update({'PUBLICO': 'publíco', 'INICIO': 'inicío', 'TERMINO': 'termíno', 'CALCULO': 'calcúlo',

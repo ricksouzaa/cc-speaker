@@ -173,6 +173,7 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 - Ele notou que, numa lista "1. item; 2. item" com tabulação antes, o número não saía. Não era a tabulação: o marcador numerado era apagado em toda linha. Agora sai o número, com vírgula depois ("um, Data"), como as letras da 0.35.9; vale para "1." e "1)" de até três algarismos, também depois de citação (">") e de título ("##").
 - "fail-open" saía como português. De ouvido, na velocidade normal (devagar não ajudou a decidir), contra "fêiu-ôupen" e "fêiu-ópen", ficou "fêil-ôupen"; com espaço, "fêil ôupen".
 - PgBouncer também saía como português. De ouvido, contra "pi-dji báuncer" e "pegê báunsser", ficou "pê-gê báuncer".
+- Na 0.36.1, "token": de ouvido, contra "tôquen" e "tôkem", ficou "tôuquen" (plural "tôuquens").
 
 ## Decisões de 19/11/2026: nomes de bibliotecas (0.35.10)
 
