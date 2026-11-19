@@ -7,6 +7,12 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.35.11] - 2026-11-19
+
+### Corrigido
+- **Listas numeradas dizem o número de cada item.** Em "1. Data; 2. Horário", o número sumia da voz, com tabulação antes ou sem ela. Agora ele sai seguido de uma pausa curta: "um, Data; dois, Horário", como já acontecia com as listas marcadas com letras. Vale para "1." e "1)", também dentro de citações e títulos.
+- **"Fail-open" e PgBouncer soam como entre programadores.** A voz lia os dois como português; agora saem "fêil-ôupen" e "pê-gê báuncer", escolhidos de ouvido.
+
 ## [0.35.10] - 2026-11-19
 
 ### Corrigido
@@ -585,7 +591,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.10...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.11...HEAD
+[0.35.11]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.10...v0.35.11
 [0.35.10]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.9...v0.35.10
 [0.35.9]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.8...v0.35.9
 [0.35.8]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.7...v0.35.8

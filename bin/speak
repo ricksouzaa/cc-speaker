@@ -792,6 +792,11 @@ RESPELL.update({'PIPELINE': 'páipi-láini', 'PIPELINES': 'páipi-láinis'})
 # Flyway sounded right as written. Commons-lang and commons-lang3 ("cómons léng três") are respelt in `clean`.
 RESPELL.update({'CAFFEINE': 'cafín', 'DRIVER': 'dráiver', 'DRIVERS': 'dráivers', 'POSTGRES': 'póst-grés',
                 'COMMONS': 'cómons'})
+# Fail-open, heard wrong by Ricardo on 19/11/2026 (read as Portuguese): chosen by ear out of "fêiu-ôupen", "fêiu-ópen"
+# and "fêil-ôupen".
+RESPELL.update({'FAIL-OPEN': 'fêil-ôupen', 'FAIL OPEN': 'fêil ôupen'})
+# PgBouncer, heard wrong by Ricardo the same day: "pê-gê báuncer", chosen by ear over "pi-dji báuncer" and "pegê báunsser".
+RESPELL.update({'PGBOUNCER': 'pê-gê báuncer'})
 # A verb written like a noun that has an accent ("eu publico" and "o público"): without the accent the engine says the
 # noun, which it has heard more. The accent on the syllable the verb stresses makes it say the verb.
 RESPELL.update({'PUBLICO': 'publíco', 'INICIO': 'inicío', 'TERMINO': 'termíno', 'CALCULO': 'calcúlo',
@@ -837,7 +842,8 @@ def _letter_mark(match):
 def clean(text):
     """One line of markdown made fit to be heard. A slash command (`/speak stop`, `/reload-plugins`) is read as
     "barra speak stop"; paths are dropped."""
-    text = re.sub(r'^\s*(?:>\s*)*(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+)?', '', text)
+    text = re.sub(r'^\s*(?:>\s*)*(?:#{1,6}\s+|[-*+]\s+)?', '', text)
+    text = re.sub(r'^(\d{1,3})[.)]\s+', r'\1, ', text)  # a numbered item says its number: "1. Data" -> "um, Data"
     text = re.sub(r'!?\[([^\]]*)\]\([^)]*\)', r'\1', text)  # [label](url) -> label
     text = re.sub(r'(?i)(?<![\w-])commons-lang(3)?(?![\w-])', lambda m: 'cómons léng' + (' três' if m.group(1) else ''),
                   text)  # commons-lang3 even between backticks: not taken for a code name, which is dropped

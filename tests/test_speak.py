@@ -258,6 +258,21 @@ class Filter(unittest.TestCase):
         # a letter inside an abbreviation, a word or a closing parenthesis stays
         self.assertEqual(speak.clean('Use e.g. isto (como a) e o x.'), 'Use e.g. isto (como a) e o xis.')
 
+    def test_a_numbered_list_says_the_number_of_each_item(self):
+        # the number that marks an item was dropped: indented with a tab, with spaces or not, it is said, as a letter is
+        self.assertEqual(speak.full_text('Decida:\n\t1. Data: segunda.\n   2) Horário.\n3. Flag ou não.\n12. Fim'),
+                         'Decida. um, Data: segunda. dois, Horário. três, Flag ou não. doze, Fim.')
+        self.assertEqual(speak.full_text('> 1. citado\n## 2. Título\n- 3. dentro de um marcador'),
+                         'um, citado. dois, Título. três, dentro de um marcador.')
+        # a number that does not mark an item stays as it was
+        self.assertEqual(speak.clean('2026 foi bom. 3.5 é a versão.'), 'dois mil e vinte e seis foi bom. três ponto cinco é a versão.')
+
+    def test_fail_open_is_respelt(self):
+        # chosen by ear by Ricardo on 19/11/2026
+        self.assertEqual(speak.clean('Aceitar os 30 s com o fail-open, ou Fail Open.'),
+                         'Aceitar os trinta segundos com o fêil-ôupen, ou fêil ôupen.')
+        self.assertEqual(speak.clean('O PgBouncer e o pgbouncer caíram.'), 'O pê-gê báuncer e o pê-gê báuncer caíram.')
+
     def test_library_names_heard_and_chosen_are_respelt(self):
         # chosen by ear by Ricardo on 19/11/2026; Flyway sounded right as written
         self.assertEqual(speak.clean('Adicionei o Caffeine, o driver do Postgres, o Flyway e o commons-lang.'),
@@ -379,7 +394,7 @@ class Filter(unittest.TestCase):
         self.assertEqual(speak.clean('Na sexta, 14/11/2026, saiu a 2.4.1 (cerca de 280 MB).'),
                          'Na sexta, catorze de novembro de dois mil e vinte e seis, saiu a dois ponto quatro ponto um '
                          '(cerca de duzentos e oitenta megabaites).')
-        self.assertEqual(speak.clean('1. O 1º passo leva 2 horas.'), 'O primeiro passo leva duas horas.')
+        self.assertEqual(speak.clean('1. O 1º passo leva 2 horas.'), 'um, O primeiro passo leva duas horas.')
         self.assertNotRegex(speak.full_text('| Motor | Memória |\n|---|---|\n| Pocket | 0,9 GB |\n\nSão 3/5 em 16:9.'), r'\d')
 
     def test_paths_still_go(self):
@@ -4928,7 +4943,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.35.10')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.35.11')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

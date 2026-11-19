@@ -163,6 +163,12 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 - Ele ouviu "pipeline" como se escreve, não como em inglês. Com o transcritor, em 8 falas (Jane e Rafael, duas frases), sem e com o glossário de TI: "pipeline" 5 e 7 ("Piperine", "Pipilini"); "páiplaine", "páipláin", "páip-láin" e "paipláine" 8 e 8. Ficou "páiplaine", com a tônica onde o inglês a põe.
 - Na 0.35.6, de ouvido: o "páiplaine" ainda soou estranho, e nenhuma escrita soou exatamente como o inglês (o motor só fala português e anasala o "láin"). Ele ouviu oito: "páip-láin", "páipláin", "paip láin", "páiplain", "páipi-láini", "páiplaini", "páipe-láine" e "páip-laini". A melhor foi "páipi-láini", como o brasileiro fala; depois, "páipe-láine". Ficou "páipi-láini".
 
+## Decisões de 19/11/2026: listas numeradas, "fail-open" e PgBouncer (0.35.11)
+
+- Ele notou que, numa lista "1. item; 2. item" com tabulação antes, o número não saía. Não era a tabulação: o marcador numerado era apagado em toda linha. Agora sai o número, com vírgula depois ("um, Data"), como as letras da 0.35.9; vale para "1." e "1)" de até três algarismos, também depois de citação (">") e de título ("##").
+- "fail-open" saía como português. De ouvido, na velocidade normal (devagar não ajudou a decidir), contra "fêiu-ôupen" e "fêiu-ópen", ficou "fêil-ôupen"; com espaço, "fêil ôupen".
+- PgBouncer também saía como português. De ouvido, contra "pi-dji báuncer" e "pegê báunsser", ficou "pê-gê báuncer".
+
 ## Decisões de 19/11/2026: nomes de bibliotecas (0.35.10)
 
 - Ele notou Caffeine, driver, Postgres, Flyway e commons-lang lidos como português. Na primeira rodada, as opções de todas as palavras numa fala só não deram para comparar; ele pediu uma palavra por vez, e devagar (0,75x) para as primeiras. Escolhas: Caffeine "cafín" (contra "cafíni" e "quéfin"), driver "dráiver" (contra "dráive"), Postgres "póst-grés" (contra "póstgres" e "póstigrés"), commons-lang "cómons léng" (contra "lén-gui" e "lângui"). Flyway, ouvido na velocidade normal, ficou como se escreve.
