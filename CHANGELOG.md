@@ -7,6 +7,11 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.36.0] - 2026-11-19
+
+### Alterado
+- **Resposta curta não ganha resumo: a voz lê a própria resposta.** Quando a resposta inteira cabe no tamanho do resumo (uma frase curta no tamanho pequeno, duas ou três no médio, um parágrafo no grande), o Claude não escreve mais a linha 🔊, que ficaria do tamanho da resposta, ou maior. O plugin lê a resposta inteira no lugar, e o aviso de "faltou a linha 🔊" não aparece por ela. O "Ouvir de novo" e o botão de pausar seguem a resposta inteira. Respostas maiores continuam com o resumo como antes.
+
 ## [0.35.11] - 2026-11-19
 
 ### Corrigido
@@ -591,7 +596,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.11...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.36.0...HEAD
+[0.36.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.11...v0.36.0
 [0.35.11]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.10...v0.35.11
 [0.35.10]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.9...v0.35.10
 [0.35.9]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.8...v0.35.9

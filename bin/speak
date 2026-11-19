@@ -121,7 +121,9 @@ MIC_TEXT = {'wait': 'espera', 'play': 'toca', 'auto': 'toca nesta reunião'}
 MIC_SEEN = os.path.join(STATE, 'mic-seen')  # `auto` in the general setting: a busy microphone was seen under it
 RULE_LINE = {  # the first bullet of rules/speak.md, by the mode in force
     'summary': 'While the voice is on or quiet (`speak quiet`: silent, the line kept), every reply to the human '
-               'ends with that `\U0001f50a` line, in plain Brazilian Portuguese: {size}. The full reading skips it. Only in replies to the human: never in the recap '
+               'ends with that `\U0001f50a` line, in plain Brazilian Portuguese: {size}. The full reading skips it. A reply that '
+               'is itself no longer than that line would be (a short answer, a confirmation) goes without it: the plugin '
+               'reads such a reply whole, so nothing is written or said twice. Only in replies to the human: never in the recap '
                '(away summary, "while you were away") nor in titles or other text Claude Code writes on its own.',
     'full': 'The voice reads the whole reply (`speak mode full`) and skips the `\U0001f50a` line, so in this mode '
             'do not write it: the new-message hook says so in a `speak:` note.'}
@@ -920,6 +922,12 @@ def full_text(message):
         if re.search(r'\w', said):
             out.append(said if said[-1] in '.!?:;,' else said + '.')
     return ' '.join(out)
+
+
+def short_reply(message, size):
+    """True when the reply has no 🔊 line and, as heard, fits in the summary of `size`: a summary would say it again,
+    so it is read whole and no line is asked for."""
+    return not spoken_line(message) and len(full_text(message)) <= SUMMARY_LIMIT[size]
 
 
 def to_speak(message, how=None, size=None):
@@ -2453,7 +2461,9 @@ def again(which):
     how = which or played
     if how == 'summary' and not spoken_line(message):
         how = 'full'
-        print('Essa resposta não tinha resumo; vou ler a resposta inteira.')
+        print('Essa resposta era curta e não tinha resumo; vou ler a resposta inteira.'
+              if short_reply(message, summary_size(session)) else
+              'Essa resposta não tinha resumo; vou ler a resposta inteira.')
     said = to_speak(message, how, summary_size(session))
     if not said.strip():
         print('voz: não há nada para ler nessa resposta', file=sys.stderr)
@@ -2814,9 +2824,10 @@ def main(argv):
         busy = speak_os.mic_busy()  # for whoever tests on a Mac: "em uso" with nobody recording is the Siri case
         print('microfone: %s' % {True: 'em uso', False: 'livre'}.get(busy, 'não deu para saber'), file=sys.stderr)
         return 1 if gone else 0
-    if cmd == 'forgot':  # the last reply of this session (kept by `say -`) has no 🔊 line
-        last = read_last(current_session())
-        return 0 if last and not spoken_line(last[0]) else 1
+    if cmd == 'forgot':  # the last reply of this session (kept by `say -`) has no 🔊 line and is not a short one
+        session = current_session()
+        last = read_last(session)
+        return 0 if last and not spoken_line(last[0]) and not short_reply(last[0], summary_size(session)) else 1
     if cmd == 'silent':
         why = silent_reason()
         if why:
@@ -2836,6 +2847,8 @@ def main(argv):
         session = current_session()
         if text == '-':
             message, how = sys.stdin.read(), mode(session)
+            if how == 'summary' and short_reply(message, summary_size(session)):
+                how = 'full'  # a short reply without the line is read whole
             save_last(session, message, how)  # kept also with the voice off or without the engine
             return speak_background(to_speak(message, how, summary_size(session)), session, how=how)
         return speak_background(clean(text), session)  # a text typed by hand also has digits and capitals

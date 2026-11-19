@@ -163,6 +163,11 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 - Ele ouviu "pipeline" como se escreve, não como em inglês. Com o transcritor, em 8 falas (Jane e Rafael, duas frases), sem e com o glossário de TI: "pipeline" 5 e 7 ("Piperine", "Pipilini"); "páiplaine", "páipláin", "páip-láin" e "paipláine" 8 e 8. Ficou "páiplaine", com a tônica onde o inglês a põe.
 - Na 0.35.6, de ouvido: o "páiplaine" ainda soou estranho, e nenhuma escrita soou exatamente como o inglês (o motor só fala português e anasala o "láin"). Ele ouviu oito: "páip-láin", "páipláin", "paip láin", "páiplain", "páipi-láini", "páiplaini", "páipe-láine" e "páip-laini". A melhor foi "páipi-láini", como o brasileiro fala; depois, "páipe-láine". Ficou "páipi-láini".
 
+## Decisões de 19/11/2026: resposta curta sem resumo (0.36.0)
+
+- Ele observou que, numa resposta bem curta, o resumo 🔊 ficava do tamanho da resposta, ou maior. Agora a regra diz ao Claude que uma resposta que não passa do tamanho da linha (o tamanho em vigor) vai sem ela, e o plugin a lê inteira: no modo resumo, uma resposta sem a linha cujo texto ouvido (`full_text`) cabe no limite do tamanho (`SUMMARY_LIMIT`: 300, 600 ou 1200 caracteres) é lida inteira e guardada como lida inteira (`short_reply`). O lembrete de "faltou a linha" (`speak forgot`) não conta essas respostas. Uma resposta maior sem a linha continua calada e com o lembrete.
+- A medida é sobre o texto como se ouve (números já por extenso, sem blocos de código), não como foi escrito: um bloco de código grande ao lado de uma frase curta não impede a leitura da frase.
+
 ## Decisões de 19/11/2026: listas numeradas, "fail-open" e PgBouncer (0.35.11)
 
 - Ele notou que, numa lista "1. item; 2. item" com tabulação antes, o número não saía. Não era a tabulação: o marcador numerado era apagado em toda linha. Agora sai o número, com vírgula depois ("um, Data"), como as letras da 0.35.9; vale para "1." e "1)" de até três algarismos, também depois de citação (">") e de título ("##").

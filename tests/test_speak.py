@@ -130,6 +130,14 @@ class Summary(unittest.TestCase):
         self.assertEqual(speak.to_speak('Saída:\n```\nok\n```', 'summary'), '')
         self.assertEqual(speak.spoken_line(None), '')
 
+    def test_a_short_reply_fits_in_the_summary_and_needs_no_line(self):
+        # a summary of a short reply would be as long as it, or longer: the reply is read whole instead
+        self.assertTrue(speak.short_reply('Pronto, a versão está publicada.', 'medium'))
+        self.assertTrue(speak.short_reply('Feito.\n```\n' + 'x = 1\n' * 200 + '```', 'small'))  # the code is not heard
+        self.assertFalse(speak.short_reply('Pronto.\n🔊 Pronto.', 'medium'))  # it has the line: the line is read
+        self.assertFalse(speak.short_reply('Uma frase de tamanho médio, com umas vinte palavras. ' * 8, 'small'))
+        self.assertTrue(speak.short_reply('Uma frase de tamanho médio, com umas vinte palavras. ' * 8, 'large'))
+
     def test_last_marked_line_wins_and_markdown_goes(self):
         msg = '🔊 antiga\ntexto\n> **🔊 Veja o [painel](https://x.y/z) e o `arquivo`.**'
         self.assertEqual(speak.to_speak(msg, 'summary'), 'Veja o painel e o arquivo.')
@@ -2883,6 +2891,10 @@ class Hook(unittest.TestCase):
         self.assertEqual((r.returncode, r.stdout, r.stderr), (0, '', ''))
 
 
+# A reply too long to be read whole in place of a summary (more than the 600 characters of the medium size)
+LONG = 'Fiz a mudança no painel e conferi cada linha da lista com calma. ' * 12
+
+
 class Silent(unittest.TestCase):
     """`speak silent` answers whether this session will stay silent, and the new-message hook turns that into a note
     that tells Claude to leave out the 🔊 line."""
@@ -3067,13 +3079,15 @@ class Silent(unittest.TestCase):
                                   input=stdin)
         run('rule')
         self.assertEqual(self.cut(), '')  # nothing said yet: nothing to remind
-        run('say', '-', stdin='Fiz tudo.')
+        run('say', '-', stdin=LONG)
         self.assertEqual(self.cut(), remind)
         self.assertEqual(self.cut(), remind)  # again, until the line comes
         run('say', '-', stdin='Fiz tudo.\n🔊 Fiz tudo.')
         self.assertEqual(self.cut(), '')
-        run('say', '-', stdin='Esqueci de novo.')
+        run('say', '-', stdin=LONG)
         self.assertEqual(self.cut(), remind)
+        run('say', '-', stdin='Fiz tudo, está publicado.')  # a short reply is read whole: no line to ask for
+        self.assertEqual(self.cut(), '')
 
     def test_the_reminder_follows_the_voice_coming_back(self):
         """The first message after the voice returns carries the note of the return; the ones after it carry the
@@ -3093,7 +3107,7 @@ class Silent(unittest.TestCase):
         self.assertIn('desligada', self.cut())
         run('on')
         self.assertEqual(self.cut(), back)
-        run('say', '-', stdin='Ignorei o aviso.')
+        run('say', '-', stdin=LONG)
         self.assertIn('ficou sem ela', self.cut())
 
     def test_quiet_brings_the_line_back_and_reminds_without_the_engine(self):
@@ -3108,7 +3122,7 @@ class Silent(unittest.TestCase):
         self.assertIn('desligada', self.cut())
         run('quiet')
         self.assertIn('termine esta resposta com a linha 🔊', self.cut())
-        run('say', '-', stdin='Sem linha.')
+        run('say', '-', stdin=LONG)
         note = self.cut()
         self.assertIn('ficou sem ela', note)
         self.assertNotIn('/speak install', note)
@@ -3260,13 +3274,31 @@ class Again(unittest.TestCase):
         self.run_speak('again', 'summary')
         self.assertEqual(self.spoken(), ['Resumo.'])
 
-    def test_again_summary_without_a_summary_line_reads_it_all_and_says_so(self):
-        speak.set_session(self.me, mode='full')
+    def test_a_short_reply_without_the_line_is_read_whole(self):
+        self.run_speak('say', '-', stdin=self.NO_LINE)  # summary is the mode
+        self.assertEqual(self.spoken(), ['Fiz a mudança no painel. Rode os téstes depois.'])
+        self.assertEqual(speak.read_last(self.me), (self.NO_LINE, 'full'))  # it played whole, and repeats so
+        self.assertEqual(self.run_speak('forgot')[0], 1)  # no reminder of the line for it
+        self.calls.clear()
+        self.run_speak('say', '-', stdin=LONG)  # a long one without the line still says nothing
+        self.assertEqual(self.spoken(), [])
+        self.assertEqual(self.run_speak('forgot')[0], 0)
+
+    def test_again_summary_of_a_short_reply_says_it_was_short(self):
         self.run_speak('say', '-', stdin=self.NO_LINE)
         self.calls.clear()
         code, out, _ = self.run_speak('again', 'summary')
         self.assertEqual((code, self.spoken()), (0, ['Fiz a mudança no painel. Rode os téstes depois.']))
+        self.assertIn('era curta', out)
+
+    def test_again_summary_without_a_summary_line_reads_it_all_and_says_so(self):
+        speak.set_session(self.me, mode='full')
+        self.run_speak('say', '-', stdin=LONG)
+        self.calls.clear()
+        code, out, _ = self.run_speak('again', 'summary')
+        self.assertEqual((code, len(self.spoken())), (0, 1))
         self.assertIn('não tinha resumo', out)
+        self.assertNotIn('curta', out)
 
     def test_without_a_stored_reply_it_says_so_and_fails(self):
         code, out, err = self.run_speak('again')
@@ -3874,6 +3906,7 @@ class Rule(unittest.TestCase):
         summary = self.rule(CLAUDE_SPEAK_MODE='summary')
         self.assertNotIn('do not write', summary)
         self.assertIn('every reply to the human ends with that `🔊` line', summary)
+        self.assertIn('the plugin reads such a reply whole', summary)  # a short reply goes without the line
         self.assertIn('two or three sentences', summary)
         # the mode of the session (an exception in its file) is the one in force, not only the environment
         subprocess.run([sys.executable, '-I', SPEAK, 'mode', 'full'], capture_output=True,
@@ -4943,7 +4976,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.35.11')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.36.0')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):
