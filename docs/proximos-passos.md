@@ -163,6 +163,12 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 - Ele ouviu "pipeline" como se escreve, não como em inglês. Com o transcritor, em 8 falas (Jane e Rafael, duas frases), sem e com o glossário de TI: "pipeline" 5 e 7 ("Piperine", "Pipilini"); "páiplaine", "páipláin", "páip-láin" e "paipláine" 8 e 8. Ficou "páiplaine", com a tônica onde o inglês a põe.
 - Na 0.35.6, de ouvido: o "páiplaine" ainda soou estranho, e nenhuma escrita soou exatamente como o inglês (o motor só fala português e anasala o "láin"). Ele ouviu oito: "páip-láin", "páipláin", "paip láin", "páiplain", "páipi-láini", "páiplaini", "páipe-láine" e "páip-laini". A melhor foi "páipi-láini", como o brasileiro fala; depois, "páipe-láine". Ficou "páipi-láini".
 
+## Decisões de 19/11/2026: nomes de bibliotecas (0.35.10)
+
+- Ele notou Caffeine, driver, Postgres, Flyway e commons-lang lidos como português. Na primeira rodada, as opções de todas as palavras numa fala só não deram para comparar; ele pediu uma palavra por vez, e devagar (0,75x) para as primeiras. Escolhas: Caffeine "cafín" (contra "cafíni" e "quéfin"), driver "dráiver" (contra "dráive"), Postgres "póst-grés" (contra "póstgres" e "póstigrés"), commons-lang "cómons léng" (contra "lén-gui" e "lângui"). Flyway, ouvido na velocidade normal, ficou como se escreve.
+- "commons-lang3" entre crases sumia, tomado por nome de código (palavra com hífen e algarismo); agora sai "cómons léng três".
+- **Como tocar opções:** uma palavra por vez, cada opção numa frase curta com "Opção um", "Opção dois", e a forma de hoje como "opção zero"; a escolha vem pelo AskUserQuestion logo depois de tocar.
+
 ## Decisões de 19/11/2026: listas marcadas com letras (0.35.9)
 
 - Ele notou que, numa lista "a. item a; b. item b", o "a." quase não saía. Uma letra sozinha que marca item (no começo da linha ou depois de dois-pontos e ponto e vírgula; "a.", "b)" ou "(c)") sai pelo nome, tônico, com vírgula depois: "á, item". Entre parênteses no meio da frase sai sem eles ("ou (c) ficar" → "ou cê ficar"); antes de ponto no meio do texto, com o ponto ("o plano C." → "o plano cê."). Não mexe em "e.g.", "i.e.", em letra dentro de palavra nem em "(como a)". Ficou de fora a letra solta antes de vírgula ("a, b e c"), porque "e," é a conjunção. Tocado para ele de ouvido.

@@ -7,6 +7,11 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.35.10] - 2026-11-19
+
+### Corrigido
+- **Nomes de bibliotecas soam como se fala entre programadores.** Caffeine sai "cafín", driver sai "dráiver", Postgres sai "póst-grés" e commons-lang sai "cómons léng". Antes, a voz lia esses nomes como palavras em português. Flyway já soava bem e ficou como está. E "commons-lang3" entre crases não some mais da fala: sai "cómons léng três".
+
 ## [0.35.9] - 2026-11-19
 
 ### Corrigido
@@ -580,7 +585,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.9...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.10...HEAD
+[0.35.10]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.9...v0.35.10
 [0.35.9]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.8...v0.35.9
 [0.35.8]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.7...v0.35.8
 [0.35.7]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.6...v0.35.7

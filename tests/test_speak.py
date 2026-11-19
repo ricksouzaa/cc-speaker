@@ -258,6 +258,13 @@ class Filter(unittest.TestCase):
         # a letter inside an abbreviation, a word or a closing parenthesis stays
         self.assertEqual(speak.clean('Use e.g. isto (como a) e o x.'), 'Use e.g. isto (como a) e o xis.')
 
+    def test_library_names_heard_and_chosen_are_respelt(self):
+        # chosen by ear by Ricardo on 19/11/2026; Flyway sounded right as written
+        self.assertEqual(speak.clean('Adicionei o Caffeine, o driver do Postgres, o Flyway e o commons-lang.'),
+                         'Adicionei o cafín, o dráiver do póst-grés, o Flyway e o cómons léng.')
+        self.assertEqual(speak.clean('Os DRIVERS do POSTGRES e o `commons-lang3`.'),
+                         'Os dráivers do póst-grés e o cómons léng três.')
+
     def test_enem_is_respelt_and_the_letter_e_is_stressed(self):
         self.assertEqual(speak.clean('O Enem e o IBGE.'), 'O ênêi e o ibegeé.')
         self.assertEqual(speak.clean('O ENEM.'), 'O ênêi.')
@@ -4921,7 +4928,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.35.9')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.35.10')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):
