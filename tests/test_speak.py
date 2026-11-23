@@ -281,6 +281,7 @@ class Filter(unittest.TestCase):
                          'Aceitar os trinta segundos com o fêil-ôupen, ou fêil ôupen.')
         self.assertEqual(speak.clean('O PgBouncer e o pgbouncer caíram.'), 'O pê-gê báuncer e o pê-gê báuncer caíram.')
         self.assertEqual(speak.clean('O token expirou; os Tokens também.'), 'O tôuquen expirou; os tôuquens também.')
+        self.assertEqual(speak.clean('Na Template roda; os templates também.'), 'Na têmpleite roda; os têmpleites também.')
 
     def test_library_names_heard_and_chosen_are_respelt(self):
         # chosen by ear by Ricardo on 19/11/2026; Flyway sounded right as written
@@ -4977,7 +4978,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.36.1')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.36.2')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

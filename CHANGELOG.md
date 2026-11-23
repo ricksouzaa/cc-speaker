@@ -7,6 +7,11 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.36.2] - 2026-11-23
+
+### Corrigido
+- **"Template" soa sempre igual.** A voz falava a palavra de dois jeitos na mesma fala: errado no começo da frase e certo no meio. Agora sai sempre "têmpleite" (e "têmpleites" no plural), escolhido de ouvido.
+
 ## [0.36.1] - 2026-11-19
 
 ### Corrigido
@@ -601,7 +606,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.36.1...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.36.2...HEAD
+[0.36.2]: https://github.com/ricksouzaa/cc-speaker/compare/v0.36.1...v0.36.2
 [0.36.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.36.0...v0.36.1
 [0.36.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.11...v0.36.0
 [0.35.11]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.10...v0.35.11

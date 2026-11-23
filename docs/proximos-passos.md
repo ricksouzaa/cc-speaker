@@ -174,6 +174,7 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 - "fail-open" saía como português. De ouvido, na velocidade normal (devagar não ajudou a decidir), contra "fêiu-ôupen" e "fêiu-ópen", ficou "fêil-ôupen"; com espaço, "fêil ôupen".
 - PgBouncer também saía como português. De ouvido, contra "pi-dji báuncer" e "pegê báunsser", ficou "pê-gê báuncer".
 - Na 0.36.1, "token": de ouvido, contra "tôquen" e "tôkem", ficou "tôuquen" (plural "tôuquens").
+- Na 0.36.2 (23/11/2026), "Template": numa mesma fala saiu errado no começo da frase ("Na Template") e certo no meio. O texto entregue ao motor era igual nas duas vezes; quem varia é o motor, conforme o lugar. De ouvido, no começo da frase, contra "témpleite" e "têmplêiti", ficou "têmpleite". Uma palavra que o motor fala certo só às vezes também pede reescrita.
 
 ## Decisões de 19/11/2026: nomes de bibliotecas (0.35.10)
 
