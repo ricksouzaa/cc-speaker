@@ -7,6 +7,11 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.36.5] - 2026-11-25
+
+### Corrigido
+- **RabbitMQ soa como entre programadores.** A voz lia o nome do jeito que se escreve; agora sai "rébit-eme-quiú" (e "Rabbit" sozinho, "rébit"), escolhido de ouvido.
+
 ## [0.36.4] - 2026-11-25
 
 ### Corrigido
@@ -616,7 +621,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.36.4...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.36.5...HEAD
+[0.36.5]: https://github.com/ricksouzaa/cc-speaker/compare/v0.36.4...v0.36.5
 [0.36.4]: https://github.com/ricksouzaa/cc-speaker/compare/v0.36.3...v0.36.4
 [0.36.3]: https://github.com/ricksouzaa/cc-speaker/compare/v0.36.2...v0.36.3
 [0.36.2]: https://github.com/ricksouzaa/cc-speaker/compare/v0.36.1...v0.36.2
