@@ -163,6 +163,12 @@ O plugin `speak` nasceu em 28/10/2026 da voz que vivia no ai-harness (versão `e
 - Ele ouviu "pipeline" como se escreve, não como em inglês. Com o transcritor, em 8 falas (Jane e Rafael, duas frases), sem e com o glossário de TI: "pipeline" 5 e 7 ("Piperine", "Pipilini"); "páiplaine", "páipláin", "páip-láin" e "paipláine" 8 e 8. Ficou "páiplaine", com a tônica onde o inglês a põe.
 - Na 0.35.6, de ouvido: o "páiplaine" ainda soou estranho, e nenhuma escrita soou exatamente como o inglês (o motor só fala português e anasala o "láin"). Ele ouviu oito: "páip-láin", "páipláin", "paip láin", "páiplain", "páipi-láini", "páiplaini", "páipe-láine" e "páip-laini". A melhor foi "páipi-láini", como o brasileiro fala; depois, "páipe-láine". Ficou "páipi-láini".
 
+## Decisões de 25/11/2026: documentos fiscais (0.36.3)
+
+- Ele notou BPe, NFe, NFCe e os outros documentos fiscais lidos errado: com letras minúsculas no meio o motor lia como palavra, e com hífen (NF-e) o último "e" saía "e" e não "é". Uma regra só cobre a família (duas a quatro maiúsculas e um "e", com hífen ou sem, e o plural): `fiscal_documents`, antes das siglas.
+- De ouvido, para a NFe: rejeitou "eneefeé", "ene-efe-é" e "êne éfe é", e ele mesmo deu a forma: "eni-efi-é", as letras como o brasileiro fala, com "i" no fim. Na frase com a família toda, todas "mais ou menos certo", menos o CTe: "cê-tê-é" acertou numa vez e errou na outra; "cêtê-é" acertou sempre e ficou.
+- DANFE, DACTE e SEFAZ passaram a ser ditos como palavra (`WORD_ACRONYMS`).
+
 ## Decisões de 19/11/2026: resposta curta sem resumo (0.36.0)
 
 - Ele observou que, numa resposta bem curta, o resumo 🔊 ficava do tamanho da resposta, ou maior. Agora a regra diz ao Claude que uma resposta que não passa do tamanho da linha (o tamanho em vigor) vai sem ela, e o plugin a lê inteira: no modo resumo, uma resposta sem a linha cujo texto ouvido (`full_text`) cabe no limite do tamanho (`SUMMARY_LIMIT`: 300, 600 ou 1200 caracteres) é lida inteira e guardada como lida inteira (`short_reply`). O lembrete de "faltou a linha" (`speak forgot`) não conta essas respostas. Uma resposta maior sem a linha continua calada e com o lembrete.

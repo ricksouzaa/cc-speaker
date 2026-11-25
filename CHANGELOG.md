@@ -7,6 +7,11 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.36.3] - 2026-11-25
+
+### Corrigido
+- **Documentos fiscais soam como se fala no Brasil.** NFe, BPe, NFCe, MDFe e NFSe saem com as letras do jeito brasileiro e o "é" no fim: "eni-efi-é", "bê-pê-é", "eni-efi-cê-é". Antes a voz lia a sigla como palavra ou, com hífen (NF-e), dizia "e" em vez de "é". O CTe sai "cêtê-é", que soou certo todas as vezes. DANFE, DACTE e SEFAZ são ditos como palavra, em vez de soletrados.
+
 ## [0.36.2] - 2026-11-23
 
 ### Corrigido
@@ -606,7 +611,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.36.2...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.36.3...HEAD
+[0.36.3]: https://github.com/ricksouzaa/cc-speaker/compare/v0.36.2...v0.36.3
 [0.36.2]: https://github.com/ricksouzaa/cc-speaker/compare/v0.36.1...v0.36.2
 [0.36.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.36.0...v0.36.1
 [0.36.0]: https://github.com/ricksouzaa/cc-speaker/compare/v0.35.11...v0.36.0

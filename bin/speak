@@ -674,7 +674,7 @@ LETTER_NAMES = dict(zip('ABCDEFGHIJKLMNOPQRSTUVWXYZ', (
 LAST_LETTER_NAMES = dict(zip('ABCDEFGHIJKLMNOPQRSTUVWXYZ', (
     'á bê cê dê é éfe gê agá í jóta cá éle ême êne ó pê quê érre ésse tê ú vê dáblio xis ípsilon zê').split()))
 WORD_ACRONYMS = frozenset((
-    'SUS PIX ONU OTAN NASA FIFA UEFA OPEP UNESCO UNICEF MERCOSUL AIDS COVID OK '
+    'SUS PIX ONU OTAN NASA FIFA UEFA OPEP UNESCO UNICEF MERCOSUL AIDS COVID OK DANFE DACTE SEFAZ '
     'ENEM PROUNI FIES SISU CAPES FINEP FAPESP UNICAMP UNESP PUC '
     'FUNAI ANVISA ANATEL ANEEL ANAC ANTAQ IBAMA INMET INPE INMETRO BACEN COPOM SELIC CADE ABIN '
     'DETRAN PROCON SAMU UPA SEBRAE SENAI SENAC SESI SESC SENAT SENAR '
@@ -716,6 +716,24 @@ def roman_number(word):
         value = ROMAN_VALUES[letter]
         total += -value if ROMAN_VALUES.get(following, 0) > value else value
     return total
+
+
+# Electronic fiscal documents (NFe, NF-e, BPe, NFCe, CTe, MDFe, NFSe), which Ricardo heard wrong on 25/11/2026: written
+# in mixed case the engine read them as a word, and with the hyphen the last "e" came out as "e", not "é". Out of
+# several forms heard ("eneefeé", "ene-efe-é", "êne éfe é", "ênê éfê é") he gave the one Brazilians say: the letters
+# with the "i" at the end, hyphenated, "eni-efi-é". CTe came out right only sometimes that way: "cêtê-é" every time.
+FISCAL_LETTERS = dict(zip('ABCDEFGHIJKLMNOPQRSTUVWXYZ', (
+    'a bê cê dê é efi gê agá i jóta cá eli emi eni ó pê quê erri essi tê u vê dáblio xis ípsilon zê').split()))
+FISCAL_SPOKEN = {'CT': 'cêtê-é'}
+
+
+def fiscal_documents(text):
+    """NFe, NF-e -> "eni-efi-é"; NFes -> "eni-efi-és": two to four capitals and an "e" (eletrônico), before the
+    acronyms are spelled."""
+    def say(match):
+        letters, plural = match.group(1), match.group(2)
+        return FISCAL_SPOKEN.get(letters, '-'.join(FISCAL_LETTERS[c] for c in letters) + '-é') + plural
+    return re.sub(r'(?<![\w-])([A-Z]{2,4})-?e(s?)(?![\w-])', say, text)
 
 
 def spelled_acronyms(text):
@@ -864,6 +882,7 @@ def clean(text):
     text = re.sub(r'(?<![\w.-])' + VERSION + r'(?![\w-]|\.\d)', _version_spoken, text)  # 0.9.1, v2.1.312
     text = re.sub(r'\bHEAD\b', '', text)
     text = english_ci_cd(text)
+    text = fiscal_documents(text)
     text = spelled_acronyms(text)
     text = text.replace('·', ', ')
     text = re.sub(r'(?i)\b(ramos?|branch|worktree)\s+(?=[\w./-]*[-_\d/])[\w/-]+(?:\.[\w/-]+)*', r'\1', text)  # branch name

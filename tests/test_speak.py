@@ -275,6 +275,15 @@ class Filter(unittest.TestCase):
         # a number that does not mark an item stays as it was
         self.assertEqual(speak.clean('2026 foi bom. 3.5 é a versão.'), 'dois mil e vinte e seis foi bom. três ponto cinco é a versão.')
 
+    def test_fiscal_documents_are_said_as_brazilians_say_them(self):
+        # chosen by ear by Ricardo on 25/11/2026: the letters with an "i" at the end, hyphenated, and the "e" stressed
+        self.assertEqual(speak.clean('A NFe, a NF-e, a BPe, a NFCe, o MDF-e e a NFSe.'),
+                         'A eni-efi-é, a eni-efi-é, a bê-pê-é, a eni-efi-cê-é, o emi-dê-efi-é e a eni-efi-essi-é.')
+        self.assertEqual(speak.clean('O CTe e os CT-es.'), 'O cêtê-é e os cêtê-és.')
+        self.assertEqual(speak.clean('O DANFE, o DACTE e a SEFAZ.'), 'O Danfe, o Dacte e a Sefaz.')
+        # a word with a capital and an e, or an acronym without it, stays as it was
+        self.assertEqual(speak.clean('Se o IBGE e a NF.'), 'Se o ibegeé e a eneéfe.')
+
     def test_fail_open_is_respelt(self):
         # chosen by ear by Ricardo on 19/11/2026
         self.assertEqual(speak.clean('Aceitar os 30 s com o fail-open, ou Fail Open.'),
@@ -4978,7 +4987,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.36.2')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.36.3')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):
