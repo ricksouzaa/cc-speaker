@@ -278,7 +278,7 @@ class Filter(unittest.TestCase):
     def test_fiscal_documents_are_said_as_brazilians_say_them(self):
         # chosen by ear by Ricardo on 25/11/2026: the letters with an "i" at the end, hyphenated, and the "e" stressed
         self.assertEqual(speak.clean('A NFe, a NF-e, a BPe, a NFCe, o MDF-e e a NFSe.'),
-                         'A eni-efi-é, a eni-efi-é, a bê-pê-é, a eni-efi-cê-é, o emi-dê-efi-é e a eni-efi-essi-é.')
+                         'A eni-efi-é, a eni-efi-é, a bê-pê-é, a eni-efi-cê-é, o emi-dê-efi-é e a ene-éfi-éci-é.')
         self.assertEqual(speak.clean('O CTe e os CT-es.'), 'O cêtê-é e os cêtê-és.')
         self.assertEqual(speak.clean('O DANFE, o DACTE e a SEFAZ.'), 'O Danfe, o Dacte e a Sefaz.')
         # a word with a capital and an e, or an acronym without it, stays as it was
@@ -4987,7 +4987,7 @@ class Plugin(unittest.TestCase):
         self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.tsx')))
         self.assertTrue(os.path.exists(os.path.join(ROOT, 'hooks', 'register.test.tsx')))
-        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.36.3')
+        self.assertEqual(self.load('.claude-plugin', 'plugin.json')['version'], '0.36.4')
 
     def test_removed_pieces_are_gone(self):
         for rel in ('prompts', 'tests/test_speak_prompt.py', 'hooks/speak-cut.sh', 'skills'):

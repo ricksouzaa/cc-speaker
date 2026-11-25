@@ -724,7 +724,10 @@ def roman_number(word):
 # with the "i" at the end, hyphenated, "eni-efi-é". CTe came out right only sometimes that way: "cêtê-é" every time.
 FISCAL_LETTERS = dict(zip('ABCDEFGHIJKLMNOPQRSTUVWXYZ', (
     'a bê cê dê é efi gê agá i jóta cá eli emi eni ó pê quê erri essi tê u vê dáblio xis ípsilon zê').split()))
-FISCAL_SPOKEN = {'CT': 'cêtê-é'}
+# NFSe, given by Ricardo as "ene-éfi-éssi-é": written so, the engine says a hiss of S after the last "é" (measured in
+# Jane: vowel, S, vowel, S; it is not FRAMES_AFTER_EOS, whose steps are silence). "éci" ends on the vowel and was
+# chosen by ear over "ésse-é" and "éssi, é".
+FISCAL_SPOKEN = {'CT': 'cêtê-é', 'NFS': 'ene-éfi-éci-é'}
 
 
 def fiscal_documents(text):

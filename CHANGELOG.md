@@ -7,6 +7,11 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.36.4] - 2026-11-25
+
+### Corrigido
+- **A NFSe não termina mais com um S a mais.** Ela saía "eni-efi-essi-é", e a voz punha um chiado de S depois do último "é". Agora sai "ene-éfi-éci-é", que termina na vogal e foi escolhido de ouvido.
+
 ## [0.36.3] - 2026-11-25
 
 ### Corrigido
@@ -611,7 +616,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.36.3...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.36.4...HEAD
+[0.36.4]: https://github.com/ricksouzaa/cc-speaker/compare/v0.36.3...v0.36.4
 [0.36.3]: https://github.com/ricksouzaa/cc-speaker/compare/v0.36.2...v0.36.3
 [0.36.2]: https://github.com/ricksouzaa/cc-speaker/compare/v0.36.1...v0.36.2
 [0.36.1]: https://github.com/ricksouzaa/cc-speaker/compare/v0.36.0...v0.36.1
