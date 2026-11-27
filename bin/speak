@@ -674,7 +674,7 @@ LETTER_NAMES = dict(zip('ABCDEFGHIJKLMNOPQRSTUVWXYZ', (
 LAST_LETTER_NAMES = dict(zip('ABCDEFGHIJKLMNOPQRSTUVWXYZ', (
     'á bê cê dê é éfe gê agá í jóta cá éle ême êne ó pê quê érre ésse tê ú vê dáblio xis ípsilon zê').split()))
 WORD_ACRONYMS = frozenset((
-    'SUS PIX ONU OTAN NASA FIFA UEFA OPEP UNESCO UNICEF MERCOSUL AIDS COVID OK DANFE DACTE SEFAZ '
+    'SUS PIX ONU OTAN NASA FIFA UEFA OPEP UNESCO UNICEF MERCOSUL AIDS COVID OK DANFE DACTE SEFAZ JSON '
     'ENEM PROUNI FIES SISU CAPES FINEP FAPESP UNICAMP UNESP PUC '
     'FUNAI ANVISA ANATEL ANEEL ANAC ANTAQ IBAMA INMET INPE INMETRO BACEN COPOM SELIC CADE ABIN '
     'DETRAN PROCON SAMU UPA SEBRAE SENAI SENAC SESI SESC SENAT SENAR '
@@ -829,6 +829,9 @@ RESPELL.update({'TEMPLATE': 'têmpleite', 'TEMPLATES': 'têmpleites'})
 # RabbitMQ, read by the engine as written (the MQ glued to the name is not taken for an acronym): "rébit-eme-quiú",
 # chosen by ear by Ricardo on 25/11/2026 over "rébit-em-kiú" and "rébiti-eme-quê".
 RESPELL.update({'RABBITMQ': 'rébit-eme-quiú', 'RABBIT': 'rébit'})
+# JSON (spelled "jotaesseoêne" before; said as a word, WORD_ACRONYMS) and Anthropic, chosen by ear by Ricardo on
+# 27/11/2026: "djêison" over "jêisson" and "djêissom"; "êntrópic" over "antrópic" and "antrópiqui".
+RESPELL.update({'JSON': 'djêison', 'JSONS': 'djêisons', 'ANTHROPIC': 'êntrópic'})
 # A verb written like a noun that has an accent ("eu publico" and "o público"): without the accent the engine says the
 # noun, which it has heard more. The accent on the syllable the verb stresses makes it say the verb.
 RESPELL.update({'PUBLICO': 'publíco', 'INICIO': 'inicío', 'TERMINO': 'termíno', 'CALCULO': 'calcúlo',

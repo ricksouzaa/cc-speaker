@@ -7,6 +7,11 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 
 ## [Não lançado]
 
+## [0.36.6] - 2026-11-27
+
+### Corrigido
+- **JSON e Anthropic soam como entre programadores.** JSON era soletrado letra por letra; agora sai "djêison". Anthropic, que a voz lia como português, sai "êntrópic". Os dois foram escolhidos de ouvido.
+
 ## [0.36.5] - 2026-11-25
 
 ### Corrigido
@@ -621,7 +626,8 @@ Todas as mudanças que importam para quem usa o plugin `speak` ficam aqui. O for
 ### Adicionado
 - Primeira versão do plugin `speak`: ganchos em Python, comandos de barra, tamanho do resumo e escolha da voz.
 
-[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.36.5...HEAD
+[Não lançado]: https://github.com/ricksouzaa/cc-speaker/compare/v0.36.6...HEAD
+[0.36.6]: https://github.com/ricksouzaa/cc-speaker/compare/v0.36.5...v0.36.6
 [0.36.5]: https://github.com/ricksouzaa/cc-speaker/compare/v0.36.4...v0.36.5
 [0.36.4]: https://github.com/ricksouzaa/cc-speaker/compare/v0.36.3...v0.36.4
 [0.36.3]: https://github.com/ricksouzaa/cc-speaker/compare/v0.36.2...v0.36.3
